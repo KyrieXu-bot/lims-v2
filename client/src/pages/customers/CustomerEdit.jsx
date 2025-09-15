@@ -17,8 +17,10 @@ export default function CustomerEdit() {
   const isNew = id === 'new';
   const [it, setIt] = useState({ is_active: 1 });
   const navigate = useNavigate();
+  const [sales, setSales] = useState([]);
 
   useEffect(()=>{
+    api.salesOptions().then(setSales).catch(e=>alert(e.message));
     if (!isNew) api.getCustomer(id).then(setIt).catch(e=>alert(e.message));
   }, [id]);
 
@@ -159,6 +161,19 @@ export default function CustomerEdit() {
                 <option value="三级">三级</option>
               </select>
             </div>
+        </div>
+        <div>
+          <label>业务员</label>
+          <select
+            className="input"
+            value={it.owner_user_id || ''}
+            onChange={e=>setIt({...it, owner_user_id: e.target.value || null})}
+          >
+            <option value="">未分配</option>
+            {sales.map(s => (
+              <option key={s.user_id} value={s.user_id}>{s.name}（{s.user_id}）</option>
+            ))}
+          </select>
         </div>
         <div>
           <label>地址</label>

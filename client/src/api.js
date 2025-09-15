@@ -25,6 +25,11 @@ export const api = {
     if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
     return r.json();
   },
+  async salesOptions() {
+    const r = await fetch('/api/customers/sales-options', { headers: this.authHeaders() });
+    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
+    return r.json();
+  },
   async customersOptions() {
     const r = await fetch('/api/customers/options', { headers: this.authHeaders() });
     if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
@@ -110,6 +115,64 @@ export const api = {
   },
   async deleteCommissioner(id) {
     const r = await fetch(`/api/commissioners/${id}`, { method:'DELETE', headers: this.authHeaders() });
+    if (!r.ok) throw new Error((await r.json()).error || 'Delete failed');
+    return r.json();
+  }
+  ,
+  // test items (检测项目处理)
+  async listTestItems({ q = '', page = 1, pageSize = 20, status, order_id } = {}) {
+    const params = new URLSearchParams({ q, page, pageSize });
+    if (status) params.set('status', status);
+    if (order_id) params.set('order_id', order_id);
+    const r = await fetch(`/api/test-items?${params.toString()}`, { headers: this.authHeaders() });
+    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
+    return r.json();
+  },
+  async getTestItem(id) {
+    const r = await fetch(`/api/test-items/${id}`, { headers: this.authHeaders() });
+    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
+    return r.json();
+  },
+  async createTestItem(payload) {
+    const r = await fetch('/api/test-items', { method:'POST', headers: this.authHeaders(), body: JSON.stringify(payload) });
+    if (!r.ok) throw new Error((await r.json()).error || 'Create failed');
+    return r.json();
+  },
+  async updateTestItem(id, payload) {
+    const r = await fetch(`/api/test-items/${id}`, { method:'PUT', headers: this.authHeaders(), body: JSON.stringify(payload) });
+    if (!r.ok) throw new Error((await r.json()).error || 'Update failed');
+    return r.json();
+  },
+  async deleteTestItem(id) {
+    const r = await fetch(`/api/test-items/${id}`, { method:'DELETE', headers: this.authHeaders() });
+    if (!r.ok) throw new Error((await r.json()).error || 'Delete failed');
+    return r.json();
+  },
+  // price (test items catalog)
+  async listPrice({ q = '', page = 1, pageSize = 20, is_active } = {}) {
+    const params = new URLSearchParams({ q, page, pageSize });
+    if (is_active === 0 || is_active === 1 || is_active === '0' || is_active === '1') params.set('is_active', is_active);
+    const r = await fetch(`/api/price?${params.toString()}`, { headers: this.authHeaders() });
+    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
+    return r.json();
+  },
+  async getPrice(id) {
+    const r = await fetch(`/api/price/${id}`, { headers: this.authHeaders() });
+    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
+    return r.json();
+  },
+  async createPrice(payload) {
+    const r = await fetch('/api/price', { method:'POST', headers: this.authHeaders(), body: JSON.stringify(payload) });
+    if (!r.ok) throw new Error((await r.json()).error || 'Create failed');
+    return r.json();
+  },
+  async updatePrice(id, payload) {
+    const r = await fetch(`/api/price/${id}`, { method:'PUT', headers: this.authHeaders(), body: JSON.stringify(payload) });
+    if (!r.ok) throw new Error((await r.json()).error || 'Update failed');
+    return r.json();
+  },
+  async deletePrice(id) {
+    const r = await fetch(`/api/price/${id}`, { method:'DELETE', headers: this.authHeaders() });
     if (!r.ok) throw new Error((await r.json()).error || 'Delete failed');
     return r.json();
   }

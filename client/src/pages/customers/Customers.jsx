@@ -40,7 +40,7 @@ export default function Customers() {
       <table className="table">
         <thead>
           <tr>
-            <th>ID</th><th>姓名</th><th>税号</th><th>省份</th><th>电话号码</th><th>银行账户</th><th>性质</th><th>规模</th><th>客户分级</th><th>Status</th><th>Actions</th>
+            <th>ID</th><th>姓名</th><th>税号</th><th>省份</th><th>电话号码</th><th>银行账户</th><th>性质</th><th>规模</th><th>客户分级</th><th>业务员</th><th>Status</th><th>Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -55,6 +55,7 @@ export default function Customers() {
               <td>{it.nature}</td>
               <td>{it.scale}</td>
               <td>{it.grade}</td>
+              <td>{it.owner_user_id ? `${it.owner_name||''}（${it.owner_user_id}）` : ''}</td>
               <td>{it.is_active ? <span className="badge">启用</span> : <span className="badge">禁用</span>}</td>
               <td className="actions">
                 <button className="btn" onClick={()=>navigate(`/customers/${it.customer_id}`)}>编辑</button>

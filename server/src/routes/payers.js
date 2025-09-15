@@ -54,14 +54,14 @@ router.get('/', async (req, res) => {
 
 router.post('/', async (req, res) => {
   const { customer_id, contact_name, contact_phone, payment_term_days,
-          discount_rate, owner_user_id, is_active = 1 } = req.body || {};
+          discount_rate, is_active = 1 } = req.body || {};
   if (!customer_id || !contact_name) return res.status(400).json({ error: 'customer_id and contact_name are required' });
   const pool = await getPool();
   try {
     const [r] = await pool.query(
-      `INSERT INTO payers (customer_id, contact_name, contact_phone, payment_term_days, discount_rate, owner_user_id, is_active)
-       VALUES (?,?,?,?,?,?,?)`,
-      [customer_id, contact_name, contact_phone, payment_term_days, discount_rate, owner_user_id, Number(is_active)]
+      `INSERT INTO payers (customer_id, contact_name, contact_phone, payment_term_days, discount_rate, is_active)
+       VALUES (?,?,?,?,?,?)`,
+      [customer_id, contact_name, contact_phone, payment_term_days, discount_rate, Number(is_active)]
     );
     const [rows] = await pool.query(
       `SELECT p.*, c.customer_name FROM payers p JOIN customers c ON c.customer_id = p.customer_id WHERE p.payer_id = ?`,
@@ -86,7 +86,7 @@ router.get('/:id', async (req, res) => {
 
 router.put('/:id', async (req, res) => {
   const { customer_id, contact_name, contact_phone, payment_term_days,
-          discount_rate, owner_user_id, is_active } = req.body || {};
+          discount_rate, is_active } = req.body || {};
   const pool = await getPool();
   await pool.query(
     `UPDATE payers SET
@@ -95,11 +95,10 @@ router.put('/:id', async (req, res) => {
       contact_phone = COALESCE(?, contact_phone),
       payment_term_days = COALESCE(?, payment_term_days),
       discount_rate = COALESCE(?, discount_rate),
-      owner_user_id = COALESCE(?, owner_user_id),
       is_active = COALESCE(?, is_active)
      WHERE payer_id = ?`,
     [customer_id, contact_name, contact_phone, payment_term_days,
-     discount_rate, owner_user_id, is_active, req.params.id]
+     discount_rate, is_active, req.params.id]
   );
   const [rows] = await pool.query(
     `SELECT p.*, c.customer_name FROM payers p

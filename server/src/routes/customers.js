@@ -14,6 +14,20 @@ router.get('/options', async (req, res) => {
   res.json(rows);
 });
 
+// sales options for assigning owner to customer
+router.get('/sales-options', async (req, res) => {
+  const pool = await getPool();
+  const [rows] = await pool.query(
+    `SELECT u.user_id, u.name
+     FROM users u
+     JOIN user_roles ur ON ur.user_id = u.user_id
+     JOIN roles r ON r.role_id = ur.role_id
+     WHERE r.role_code = 'sales' AND u.is_active = 1
+     ORDER BY u.name ASC`
+  );
+  res.json(rows);
+});
+
 router.get('/', async (req, res) => {
   const { q = '', page = 1, pageSize = 20, is_active } = req.query;
   const offset = (Number(page)-1) * Number(pageSize);
@@ -32,23 +46,27 @@ router.get('/', async (req, res) => {
 
   const where = filters.length ? 'WHERE ' + filters.join(' AND ') : '';
   const [rows] = await pool.query(
-    `SELECT * FROM customers ${where} ORDER BY customer_id DESC LIMIT ? OFFSET ?`,
+    `SELECT c.*, u.name AS owner_name
+     FROM customers c
+     LEFT JOIN users u ON u.user_id = c.owner_user_id
+     ${where.replace(/\bcustomer_name\b/g, 'c.customer_name').replace(/\btax_id\b/g, 'c.tax_id').replace(/\bphone\b/g, 'c.phone').replace(/\bprovince\b/g, 'c.province').replace(/\bis_active\b/g, 'c.is_active')}
+     ORDER BY c.customer_id DESC LIMIT ? OFFSET ?`,
     [...params, Number(pageSize), offset]
   );
-  const [cnt] = await pool.query(`SELECT COUNT(*) as cnt FROM customers ${where}`, params);
+  const [cnt] = await pool.query(`SELECT COUNT(*) as cnt FROM customers c ${where.replace(/\bcustomer_name\b/g, 'c.customer_name').replace(/\btax_id\b/g, 'c.tax_id').replace(/\bphone\b/g, 'c.phone').replace(/\bprovince\b/g, 'c.province').replace(/\bis_active\b/g, 'c.is_active')}`, params);
   res.json({ data: rows, total: cnt[0].cnt });
 });
 
 router.post('/', async (req, res) => {
   const { customer_name, address, phone, bank_name, tax_id, bank_account,
-          province, nature, scale, grade, is_active = 1 } = req.body || {};
+          province, nature, scale, grade, owner_user_id, is_active = 1 } = req.body || {};
   if (!customer_name || !tax_id) return res.status(400).json({ error: 'customer_name and tax_id are required' });
   const pool = await getPool();
   try {
     const [r] = await pool.query(
-      `INSERT INTO customers (customer_name, address, phone, bank_name, tax_id, bank_account, province, nature, scale, grade, is_active)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-      [customer_name, address, phone, bank_name, tax_id, bank_account, province, nature, scale, grade, Number(is_active)]
+      `INSERT INTO customers (customer_name, address, phone, bank_name, tax_id, bank_account, province, nature, scale, grade, owner_user_id, is_active)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [customer_name, address, phone, bank_name, tax_id, bank_account, province, nature, scale, grade, owner_user_id || null, Number(is_active)]
     );
     const [rows] = await pool.query('SELECT * FROM customers WHERE customer_id = ?', [r.insertId]);
     res.status(201).json(rows[0]);
@@ -67,7 +85,7 @@ router.get('/:id', async (req, res) => {
 
 router.put('/:id', async (req, res) => {
   const { customer_name, address, phone, bank_name, tax_id, bank_account,
-          province, nature, scale, grade, is_active } = req.body || {};
+          province, nature, scale, grade, owner_user_id, is_active } = req.body || {};
   const pool = await getPool();
   try {
     await pool.query(
@@ -82,10 +100,11 @@ router.put('/:id', async (req, res) => {
         nature = COALESCE(?, nature),
         scale = COALESCE(?, scale),
         grade = COALESCE(?, grade),
+        owner_user_id = COALESCE(?, owner_user_id),
         is_active = COALESCE(?, is_active)
        WHERE customer_id = ?`,
       [customer_name, address, phone, bank_name, tax_id, bank_account,
-       province, nature, scale, grade, is_active, req.params.id]
+       province, nature, scale, grade, owner_user_id, is_active, req.params.id]
     );
     const [rows] = await pool.query('SELECT * FROM customers WHERE customer_id = ?', [req.params.id]);
     if (rows.length === 0) return res.status(404).json({ error: 'Not found after update' });

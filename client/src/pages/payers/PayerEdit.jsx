@@ -50,7 +50,6 @@ export default function PayerEdit() {
           <Field label="电话号码" value={it.contact_phone} onChange={v=>setIt({...it, contact_phone:v})} />
           <Field label="付款期限 (天)" value={it.payment_term_days} onChange={v=>setIt({...it, payment_term_days:v})} />
           <Field label="折扣 (%)" value={it.discount_rate} onChange={v=>setIt({...it, discount_rate:v})} />
-          <Field label="Owner User ID拥有者用户ID" value={it.owner_user_id} onChange={v=>setIt({...it, owner_user_id:v})} />
         </div>
         <div>
           <label>状态</label>
