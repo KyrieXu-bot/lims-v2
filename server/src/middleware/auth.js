@@ -19,3 +19,33 @@ export function requireAdmin(req, res, next) {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
   next();
 }
+
+export function requireRole(roles) {
+  return (req, res, next) => {
+    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+    if (req.user.role === 'admin') return next();
+    
+    const userRoles = req.user.roles || [req.user.role];
+    const hasRole = roles.some(role => userRoles.includes(role));
+    
+    if (!hasRole) {
+      return res.status(403).json({ error: 'Insufficient permissions' });
+    }
+    next();
+  };
+}
+
+export function requireAnyRole(roles) {
+  return (req, res, next) => {
+    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+    if (req.user.role === 'admin') return next();
+    
+    const userRoles = req.user.roles || [req.user.role];
+    const hasAnyRole = roles.some(role => userRoles.includes(role));
+    
+    if (!hasAnyRole) {
+      return res.status(403).json({ error: 'Insufficient permissions' });
+    }
+    next();
+  };
+}

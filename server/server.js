@@ -7,6 +7,7 @@ import payersRouter from './src/routes/payers.js';
 import commissionersRouter from './src/routes/commissioners.js';
 import priceRouter from './src/routes/price.js';
 import testItemsRouter from './src/routes/test_items.js';
+import ordersRouter from './src/routes/orders.js';
 import { getPool } from './src/db.js';
 
 dotenv.config();
@@ -32,5 +33,6 @@ app.use('/api/payers', payersRouter);
 app.use('/api/commissioners', commissionersRouter);
 app.use('/api/price', priceRouter);
 app.use('/api/test-items', testItemsRouter);
+app.use('/api/orders', ordersRouter);
 
 app.listen(PORT, () => console.log(`[LIMS] Server running on http://localhost:${PORT}`));

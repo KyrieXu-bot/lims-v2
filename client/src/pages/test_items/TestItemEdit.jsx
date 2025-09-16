@@ -14,12 +14,60 @@ function Field({label, value, onChange, type='text'}) {
 export default function TestItemEdit() {
   const { id } = useParams();
   const isNew = id === 'new';
-  const [it, setIt] = useState({ quantity: 1, status: 'new', is_add_on: 0, is_outsourced: 0, machine_hours: 0, work_hours: 0 });
+  const [it, setIt] = useState({ quantity: 1, status: 'new', is_add_on: 1, is_outsourced: 0, machine_hours: 0, work_hours: 0 });
+  const [orderSuggestions, setOrderSuggestions] = useState([]);
+  const [showOrderSuggestions, setShowOrderSuggestions] = useState(false);
+  const [priceOptions, setPriceOptions] = useState([]);
+  const [showPriceModal, setShowPriceModal] = useState(false);
   const navigate = useNavigate();
 
   useEffect(()=>{
     if (!isNew) api.getTestItem(id).then(setIt).catch(e=>alert(e.message));
+    // 加载价格表选项
+    api.listPrice({ pageSize: 1000 }).then(res => setPriceOptions(res.data)).catch(e => console.error(e));
   }, [id]);
+
+  // 搜索委托单号
+  const searchOrders = async (query) => {
+    if (query.length < 2) {
+      setOrderSuggestions([]);
+      setShowOrderSuggestions(false);
+      return;
+    }
+    try {
+      const res = await api.listOrders({ q: query, pageSize: 20 });
+      setOrderSuggestions(res.data);
+      setShowOrderSuggestions(true);
+    } catch (e) {
+      console.error('搜索委托单失败:', e);
+    }
+  };
+
+  // 选择委托单号
+  const selectOrder = (order) => {
+    setIt({...it, order_id: order.order_id});
+    setShowOrderSuggestions(false);
+    // 获取该委托单的折扣率
+    if (order.payer_id) {
+      api.getPayer(order.payer_id).then(payer => {
+        setIt(prev => ({...prev, discount_rate: payer.discount_rate || 0}));
+      }).catch(e => console.error('获取折扣率失败:', e));
+    }
+  };
+
+  // 选择价格项目
+  const selectPriceItem = (priceItem) => {
+    setIt(prev => ({
+      ...prev,
+      price_id: priceItem.price_id,
+      category_name: priceItem.category_name,
+      detail_name: priceItem.detail_name,
+      test_code: priceItem.test_code,
+      is_outsourced: priceItem.is_outsourced,
+      unit_price: priceItem.unit_price
+    }));
+    setShowPriceModal(false);
+  };
 
   async function onSubmit(e) {
     e.preventDefault();
@@ -44,7 +92,65 @@ export default function TestItemEdit() {
       <h2>{isNew ? '新增检测项目' : `编辑检测项目 #${id}`}</h2>
       <form onSubmit={onSubmit}>
         <div className="grid-3">
-          <Field label="委托单号 *" value={it.order_id} onChange={v=>setIt({...it, order_id:v})} />
+          <div>
+            <label>委托单号 *</label>
+            <div style={{position: 'relative'}}>
+              <input 
+                className="input" 
+                value={it.order_id || ''} 
+                onChange={e => {
+                  const value = e.target.value;
+                  setIt({...it, order_id: value});
+                  searchOrders(value);
+                }}
+                placeholder="输入委托单号，如 JC09"
+              />
+              {showOrderSuggestions && orderSuggestions.length > 0 && (
+                <div style={{
+                  position: 'absolute',
+                  top: '100%',
+                  left: 0,
+                  right: 0,
+                  background: 'white',
+                  border: '1px solid #ddd',
+                  borderTop: 'none',
+                  maxHeight: '200px',
+                  overflowY: 'auto',
+                  zIndex: 1000
+                }}>
+                  {orderSuggestions.map(order => (
+                    <div 
+                      key={order.order_id}
+                      style={{
+                        padding: '8px 12px',
+                        cursor: 'pointer',
+                        borderBottom: '1px solid #eee'
+                      }}
+                      onMouseDown={() => selectOrder(order)}
+                      onMouseEnter={e => e.target.style.background = '#f5f5f5'}
+                      onMouseLeave={e => e.target.style.background = 'white'}
+                    >
+                      <div style={{fontWeight: 'bold'}}>{order.order_id}</div>
+                      <div style={{fontSize: '12px', color: '#666'}}>{order.customer_name}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+          
+          <div>
+            <label>选择项目</label>
+            <button 
+              type="button" 
+              className="btn" 
+              onClick={() => setShowPriceModal(true)}
+              style={{width: '100%'}}
+            >
+              选择价格项目
+            </button>
+          </div>
+          
           <Field label="引用价格ID" value={it.price_id} onChange={v=>setIt({...it, price_id:v})} />
           <Field label="大类 *" value={it.category_name} onChange={v=>setIt({...it, category_name:v})} />
           <Field label="细项 *" value={it.detail_name} onChange={v=>setIt({...it, detail_name:v})} />
@@ -65,10 +171,8 @@ export default function TestItemEdit() {
           <Field label="工时" value={it.work_hours} onChange={v=>setIt({...it, work_hours:v})} />
           <div>
             <label>是否加测</label>
-            <select className="input" value={it.is_add_on ?? 0} onChange={e=>setIt({...it, is_add_on:Number(e.target.value)})}>
-              <option value={0}>否</option>
-              <option value={1}>是</option>
-            </select>
+            <input className="input" value="是" disabled style={{background: '#f5f5f5'}} />
+            <input type="hidden" value={1} />
           </div>
           <div>
             <label>是否委外</label>
@@ -91,6 +195,8 @@ export default function TestItemEdit() {
             </select>
           </div>
           <Field label="当前执行人工号" value={it.current_assignee} onChange={v=>setIt({...it, current_assignee:v})} />
+          <Field label="负责人工号" value={it.supervisor_id} onChange={v=>setIt({...it, supervisor_id:v})} />
+          <Field label="实验员工号" value={it.technician_id} onChange={v=>setIt({...it, technician_id:v})} />
         </div>
         <div>
           <label>样品预处理</label>
@@ -105,6 +211,84 @@ export default function TestItemEdit() {
           <button className="btn" type="button" onClick={()=>navigate('/test-items')}>取消</button>
         </div>
       </form>
+
+      {/* 价格表选择模态框 */}
+      {showPriceModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0,0,0,0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 2000
+        }}>
+          <div style={{
+            background: 'white',
+            padding: '20px',
+            borderRadius: '8px',
+            maxWidth: '800px',
+            maxHeight: '80vh',
+            overflow: 'auto',
+            width: '90%'
+          }}>
+            <h3>选择价格项目</h3>
+            <div style={{marginBottom: '16px'}}>
+              <input 
+                className="input" 
+                placeholder="搜索价格项目..."
+                onChange={e => {
+                  const query = e.target.value;
+                  if (query.length >= 2) {
+                    api.listPrice({ q: query, pageSize: 100 }).then(res => setPriceOptions(res.data));
+                  } else {
+                    api.listPrice({ pageSize: 1000 }).then(res => setPriceOptions(res.data));
+                  }
+                }}
+              />
+            </div>
+            <table className="table" style={{fontSize: '14px'}}>
+              <thead>
+                <tr>
+                  <th>选择</th><th>大类</th><th>细项</th><th>代码</th><th>单价</th><th>委外</th>
+                </tr>
+              </thead>
+              <tbody>
+                {priceOptions.map(price => (
+                  <tr key={price.price_id}>
+                    <td>
+                      <button 
+                        type="button" 
+                        className="btn" 
+                        onClick={() => selectPriceItem(price)}
+                        style={{padding: '4px 8px', fontSize: '12px'}}
+                      >
+                        选择
+                      </button>
+                    </td>
+                    <td>{price.category_name}</td>
+                    <td>{price.detail_name}</td>
+                    <td>{price.test_code}</td>
+                    <td>{price.unit_price}</td>
+                    <td>{price.is_outsourced ? '是' : '否'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div style={{marginTop: '16px', textAlign: 'right'}}>
+              <button 
+                className="btn" 
+                onClick={() => setShowPriceModal(false)}
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

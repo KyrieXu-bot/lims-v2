@@ -148,6 +148,19 @@ export const api = {
     if (!r.ok) throw new Error((await r.json()).error || 'Delete failed');
     return r.json();
   },
+
+  // orders (委托单)
+  async listOrders({ q = '', page = 1, pageSize = 20 } = {}) {
+    const params = new URLSearchParams({ q, page, pageSize });
+    const r = await fetch(`/api/orders?${params.toString()}`, { headers: this.authHeaders() });
+    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
+    return r.json();
+  },
+  async getOrder(id) {
+    const r = await fetch(`/api/orders/${id}`, { headers: this.authHeaders() });
+    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
+    return r.json();
+  },
   // price (test items catalog)
   async listPrice({ q = '', page = 1, pageSize = 20, is_active } = {}) {
     const params = new URLSearchParams({ q, page, pageSize });

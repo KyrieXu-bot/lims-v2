@@ -26,12 +26,21 @@ function Layout({ children }) {
         <div><b>集萃实验室系统V2.0</b></div>
         <nav className="hstack">
           {user?.token ? (<>
-            <NavLink to="/customers" className={({isActive})=>isActive?'active':''}>客户</NavLink>
-            <NavLink to="/payers" className={({isActive})=>isActive?'active':''}>付款人</NavLink>
-            <NavLink to="/commissioners" className={({isActive})=>isActive?'active':''}>委托人</NavLink>
+            {/* 管理员和业务员可以看到客户管理 */}
+            {(user.role === 'admin' || user.role === 'sales') && (
+              <>
+                <NavLink to="/customers" className={({isActive})=>isActive?'active':''}>客户</NavLink>
+                <NavLink to="/payers" className={({isActive})=>isActive?'active':''}>付款人</NavLink>
+                <NavLink to="/commissioners" className={({isActive})=>isActive?'active':''}>委托人</NavLink>
+              </>
+            )}
+            {/* 所有角色都可以看到检测项目处理 */}
             <NavLink to="/test-items" className={({isActive})=>isActive?'active':''}>检测项目处理</NavLink>
-            <NavLink to="/price" className={({isActive})=>isActive?'active':''}>价目表</NavLink>
-            <span style={{marginLeft:12,opacity:.8}}>用户: {user.username} ({user.role})</span>
+            {/* 管理员可以看到价目表 */}
+            {user.role === 'admin' && (
+              <NavLink to="/price" className={({isActive})=>isActive?'active':''}>价目表</NavLink>
+            )}
+            <span style={{marginLeft:12,opacity:.8}}>用户: {user.name || user.username} ({user.role})</span>
             <button className="btn" onClick={logout}>登出</button>
           </>) : (
             <NavLink to="/login">Login</NavLink>
@@ -57,6 +66,7 @@ export default function App() {
       <Route path="/price/:id" element={<Layout><PriceEdit/></Layout>} />
       <Route path="/test-items" element={<Layout><TestItems/></Layout>} />
       <Route path="/test-items/:id" element={<Layout><TestItemEdit/></Layout>} />
+      <Route path="/" element={<Layout><TestItems/></Layout>} />
       <Route path="*" element={<Layout><Login/></Layout>} />
     </Routes>
   )

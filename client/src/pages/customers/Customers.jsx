@@ -11,6 +11,15 @@ export default function Customers() {
   const pageSize = 20;
   const navigate = useNavigate();
 
+  // 检查用户权限
+  useEffect(() => {
+    const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
+    if (!user || (user.role !== 'admin' && user.role !== 'sales')) {
+      navigate('/test-items');
+      return;
+    }
+  }, [navigate]);
+
   async function load() {
     try {
       const res = await api.listCustomers({ q, page, pageSize, is_active: isActiveFilter });

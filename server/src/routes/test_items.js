@@ -1,9 +1,9 @@
 import { Router } from 'express';
 import { getPool } from '../db.js';
-import { requireAuth, requireAdmin } from '../middleware/auth.js';
+import { requireAuth, requireAnyRole } from '../middleware/auth.js';
 
 const router = Router();
-router.use(requireAuth, requireAdmin);
+router.use(requireAuth, requireAnyRole(['admin', 'leader', 'supervisor', 'technician', 'sales']));
 
 // list
 router.get('/', async (req, res) => {
@@ -13,6 +13,26 @@ router.get('/', async (req, res) => {
   const like = `%${q}%`;
   const filters = [];
   const params = [];
+  const user = req.user;
+
+  // 基于角色的数据过滤
+  if (user.role === 'leader') {
+    // 室主任：只能看到自己部门的检测项目
+    filters.push('ti.department_id IN (SELECT department_id FROM lab_groups WHERE group_id = ?)');
+    params.push(user.group_id);
+  } else if (user.role === 'supervisor') {
+    // 组长：只能看到分配给他的检测项目
+    filters.push('ti.supervisor_id = ?');
+    params.push(user.user_id);
+  } else if (user.role === 'technician') {
+    // 实验员：只能看到指派给他的检测项目
+    filters.push('ti.current_assignee = ?');
+    params.push(user.user_id);
+  } else if (user.role === 'sales') {
+    // 业务员：可以看到所有检测项目，但非自己负责的项目需要隐藏敏感信息
+    // 这里不添加过滤条件，在返回数据时处理
+  }
+  // admin 角色不添加任何过滤条件
 
   if (q) {
     filters.push('(ti.category_name LIKE ? OR ti.detail_name LIKE ? OR ti.test_code LIKE ? OR ti.order_id LIKE ?)');
@@ -29,14 +49,45 @@ router.get('/', async (req, res) => {
   const where = filters.length ? 'WHERE ' + filters.join(' AND ') : '';
 
   const [rows] = await pool.query(
-    `SELECT ti.*, u.name AS assignee_name
+    `SELECT ti.*, 
+            u.name AS assignee_name,
+            supervisor.name AS supervisor_name,
+            technician.name AS technician_name,
+            c.customer_name,
+            c.owner_user_id,
+            p.contact_phone as payer_phone,
+            comm.contact_phone as commissioner_phone
      FROM test_items ti
      LEFT JOIN users u ON u.user_id = ti.current_assignee
+     LEFT JOIN users supervisor ON supervisor.user_id = ti.supervisor_id
+     LEFT JOIN users technician ON technician.user_id = ti.technician_id
+     LEFT JOIN orders o ON o.order_id = ti.order_id
+     LEFT JOIN customers c ON c.customer_id = o.customer_id
+     LEFT JOIN payers p ON p.payer_id = o.payer_id
+     LEFT JOIN commissioners comm ON comm.commissioner_id = o.commissioner_id
      ${where}
      ORDER BY ti.test_item_id DESC
      LIMIT ? OFFSET ?`,
     [...params, Number(pageSize), offset]
   );
+
+  // 业务员权限处理：隐藏非自己负责项目的敏感信息
+  if (user.role === 'sales') {
+    rows.forEach(item => {
+      // 检查是否是业务员负责的项目（通过委托单关联的客户）
+      const isOwner = item.customer_name && item.owner_user_id === user.user_id;
+      if (!isOwner) {
+        // 隐藏客户、付款人、委托人的电话号码
+        item.payer_phone = '***';
+        item.commissioner_phone = '***';
+        if (item.customer_name) {
+          // 可以显示客户名称，但隐藏电话
+          item.customer_phone = '***';
+        }
+      }
+    });
+  }
+
   const [cnt] = await pool.query(
     `SELECT COUNT(*) as cnt FROM test_items ti ${where}`, params
   );
@@ -49,7 +100,7 @@ router.post('/', async (req, res) => {
     order_id, price_id, category_name, detail_name, sample_name, material, sample_type, original_no,
     test_code, standard_code, department_id, group_id, quantity = 1, unit_price, discount_rate,
     final_unit_price, line_total, machine_hours = 0, work_hours = 0, is_add_on = 0, is_outsourced = 0,
-    seq_no, sample_preparation, note, status = 'new', current_assignee
+    seq_no, sample_preparation, note, status = 'new', current_assignee, supervisor_id, technician_id
   } = req.body || {};
   if (!order_id || !category_name || !detail_name) {
     return res.status(400).json({ error: 'order_id, category_name, detail_name are required' });
@@ -61,15 +112,23 @@ router.post('/', async (req, res) => {
         order_id, price_id, category_name, detail_name, sample_name, material, sample_type, original_no,
         test_code, standard_code, department_id, group_id, quantity, unit_price, discount_rate,
         final_unit_price, line_total, machine_hours, work_hours, is_add_on, is_outsourced,
-        seq_no, sample_preparation, note, status, current_assignee
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        seq_no, sample_preparation, note, status, current_assignee, supervisor_id, technician_id
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [order_id, price_id || null, category_name, detail_name, sample_name, material, sample_type, original_no,
        test_code, standard_code, department_id || null, group_id || null, quantity, unit_price, discount_rate,
        final_unit_price, line_total, machine_hours, work_hours, Number(is_add_on), Number(is_outsourced),
-       seq_no, sample_preparation, note, status, current_assignee || null]
+       seq_no, sample_preparation, note, status, current_assignee || null, supervisor_id || null, technician_id || null]
     );
     const [rows] = await pool.query(
-      `SELECT ti.*, u.name AS assignee_name FROM test_items ti LEFT JOIN users u ON u.user_id = ti.current_assignee WHERE ti.test_item_id = ?`,
+      `SELECT ti.*, 
+              u.name AS assignee_name,
+              supervisor.name AS supervisor_name,
+              technician.name AS technician_name
+       FROM test_items ti
+       LEFT JOIN users u ON u.user_id = ti.current_assignee
+       LEFT JOIN users supervisor ON supervisor.user_id = ti.supervisor_id
+       LEFT JOIN users technician ON technician.user_id = ti.technician_id
+       WHERE ti.test_item_id = ?`,
       [r.insertId]
     );
     res.status(201).json(rows[0]);
@@ -82,7 +141,15 @@ router.post('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   const pool = await getPool();
   const [rows] = await pool.query(
-    `SELECT ti.*, u.name AS assignee_name FROM test_items ti LEFT JOIN users u ON u.user_id = ti.current_assignee WHERE ti.test_item_id = ?`,
+    `SELECT ti.*, 
+            u.name AS assignee_name,
+            supervisor.name AS supervisor_name,
+            technician.name AS technician_name
+     FROM test_items ti
+     LEFT JOIN users u ON u.user_id = ti.current_assignee
+     LEFT JOIN users supervisor ON supervisor.user_id = ti.supervisor_id
+     LEFT JOIN users technician ON technician.user_id = ti.technician_id
+     WHERE ti.test_item_id = ?`,
     [req.params.id]
   );
   if (rows.length === 0) return res.status(404).json({ error: 'Not found' });
@@ -95,7 +162,7 @@ router.put('/:id', async (req, res) => {
     order_id, price_id, category_name, detail_name, sample_name, material, sample_type, original_no,
     test_code, standard_code, department_id, group_id, quantity, unit_price, discount_rate,
     final_unit_price, line_total, machine_hours, work_hours, is_add_on, is_outsourced,
-    seq_no, sample_preparation, note, status, current_assignee
+    seq_no, sample_preparation, note, status, current_assignee, supervisor_id, technician_id
   } = req.body || {};
   const pool = await getPool();
   await pool.query(
@@ -125,16 +192,26 @@ router.put('/:id', async (req, res) => {
       sample_preparation = COALESCE(?, sample_preparation),
       note = COALESCE(?, note),
       status = COALESCE(?, status),
-      current_assignee = COALESCE(?, current_assignee)
+      current_assignee = COALESCE(?, current_assignee),
+      supervisor_id = COALESCE(?, supervisor_id),
+      technician_id = COALESCE(?, technician_id)
      WHERE test_item_id = ?`,
     [order_id, price_id, category_name, detail_name, sample_name, material, sample_type, original_no,
      test_code, standard_code, department_id, group_id, quantity, unit_price, discount_rate,
      final_unit_price, line_total, machine_hours, work_hours, is_add_on, is_outsourced, seq_no,
-     sample_preparation, note, status, current_assignee, req.params.id]
+     sample_preparation, note, status, current_assignee, supervisor_id, technician_id, req.params.id]
   );
   const pool2 = await getPool();
   const [rows] = await pool2.query(
-    `SELECT ti.*, u.name AS assignee_name FROM test_items ti LEFT JOIN users u ON u.user_id = ti.current_assignee WHERE ti.test_item_id = ?`,
+    `SELECT ti.*, 
+            u.name AS assignee_name,
+            supervisor.name AS supervisor_name,
+            technician.name AS technician_name
+     FROM test_items ti
+     LEFT JOIN users u ON u.user_id = ti.current_assignee
+     LEFT JOIN users supervisor ON supervisor.user_id = ti.supervisor_id
+     LEFT JOIN users technician ON technician.user_id = ti.technician_id
+     WHERE ti.test_item_id = ?`,
     [req.params.id]
   );
   if (rows.length === 0) return res.status(404).json({ error: 'Not found after update' });

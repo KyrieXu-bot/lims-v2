@@ -14,7 +14,13 @@ export default function Login() {
     try {
       const res = await api.login(username, password);
       localStorage.setItem('lims_user', JSON.stringify(res));
-      navigate('/customers');
+      
+      // 根据角色跳转到不同页面
+      if (res.role === 'admin' || res.role === 'sales') {
+        navigate('/customers');
+      } else {
+        navigate('/test-items');
+      }
     } catch (e) {
       setError(e.message);
     }
