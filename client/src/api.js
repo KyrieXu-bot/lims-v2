@@ -148,6 +148,26 @@ export const api = {
     if (!r.ok) throw new Error((await r.json()).error || 'Delete failed');
     return r.json();
   },
+  async batchAssignTestItems(payload) {
+    const r = await fetch('/api/test-items/batch-assign', { method:'POST', headers: this.authHeaders(), body: JSON.stringify(payload) });
+    if (!r.ok) throw new Error((await r.json()).error || 'Batch assign failed');
+    return r.json();
+  },
+  async getSupervisorsByDepartment(departmentId) {
+    const r = await fetch(`/api/users/supervisors?department_id=${departmentId}`, { headers: this.authHeaders() });
+    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
+    return r.json();
+  },
+  async getEmployeesByGroup(groupId) {
+    const r = await fetch(`/api/users/employees?group_id=${groupId}`, { headers: this.authHeaders() });
+    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
+    return r.json();
+  },
+  async getDepartmentIdByGroupId(groupId) {
+    const r = await fetch(`/api/users/department-by-group?group_id=${groupId}`, { headers: this.authHeaders() });
+    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
+    return r.json();
+  },
 
   // orders (委托单)
   async listOrders({ q = '', page = 1, pageSize = 20 } = {}) {

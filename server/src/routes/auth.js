@@ -59,26 +59,33 @@ router.post('/login', async (req, res) => {
     );
 
     const userRoles = roles.map(r => r.role_code);
+    const roleNames = roles.map(r => r.role_name);
+
     const primaryRole = userRoles[0] || 'member';
+    const primaryRoleNames = roleNames[0] || '成员';
 
     const token = jwt.sign({ 
       sub: user.user_id, 
       username: user.account, 
       role: primaryRole,
+      role_name: primaryRoleNames,
       roles: userRoles,
       user_id: user.user_id,
       name: user.name,
-      group_id: user.group_id
+      group_id: user.group_id,
+      department_id: user.department_id || null
     }, SECRET, { expiresIn: '7d' });
 
     res.json({ 
       token, 
       role: primaryRole, 
+      role_name: primaryRoleNames,
       roles: userRoles,
       username: user.account, 
       user_id: user.user_id,
       name: user.name,
-      group_id: user.group_id
+      group_id: user.group_id,
+      department_id: user.department_id || null
     });
 
   } catch (error) {

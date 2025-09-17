@@ -23,29 +23,34 @@ function Layout({ children }) {
   return (
     <>
       <header>
-        <div><b>集萃实验室系统V2.0</b></div>
-        <nav className="hstack">
-          {user?.token ? (<>
-            {/* 管理员和业务员可以看到客户管理 */}
-            {(user.role === 'admin' || user.role === 'sales') && (
-              <>
-                <NavLink to="/customers" className={({isActive})=>isActive?'active':''}>客户</NavLink>
-                <NavLink to="/payers" className={({isActive})=>isActive?'active':''}>付款人</NavLink>
-                <NavLink to="/commissioners" className={({isActive})=>isActive?'active':''}>委托人</NavLink>
-              </>
+        <div className="header-content">
+          <h1>集萃实验室系统 V2.0</h1>
+          <nav>
+            {user?.token ? (<>
+              {/* 管理员和业务员可以看到客户管理 */}
+              {(user.role === 'admin' || user.role === 'sales') && (
+                <>
+                  <NavLink to="/customers" className={({isActive})=>isActive?'active':''}>客户管理</NavLink>
+                  <NavLink to="/payers" className={({isActive})=>isActive?'active':''}>付款人</NavLink>
+                  <NavLink to="/commissioners" className={({isActive})=>isActive?'active':''}>委托人</NavLink>
+                </>
+              )}
+              {/* 所有角色都可以看到检测项目处理 */}
+              <NavLink to="/test-items" className={({isActive})=>isActive?'active':''}>检测项目处理</NavLink>
+              {/* 管理员可以看到价目表 */}
+              {user.role === 'admin' && (
+                <NavLink to="/price" className={({isActive})=>isActive?'active':''}>价目表</NavLink>
+              )}
+              <div className="hstack" style={{marginLeft: 16, paddingLeft: 16, borderLeft: '1px solid var(--gray-300)'}}>
+                <span className="text-muted">用户: {user.name || user.username}</span>
+                <span className="badge badge-primary">{user.role_name}</span>
+                <button className="btn btn-secondary btn-sm" onClick={logout}>登出</button>
+              </div>
+            </>) : (
+              <NavLink to="/login" className={({isActive})=>isActive?'active':''}>登录</NavLink>
             )}
-            {/* 所有角色都可以看到检测项目处理 */}
-            <NavLink to="/test-items" className={({isActive})=>isActive?'active':''}>检测项目处理</NavLink>
-            {/* 管理员可以看到价目表 */}
-            {user.role === 'admin' && (
-              <NavLink to="/price" className={({isActive})=>isActive?'active':''}>价目表</NavLink>
-            )}
-            <span style={{marginLeft:12,opacity:.8}}>用户: {user.name || user.username} ({user.role})</span>
-            <button className="btn" onClick={logout}>登出</button>
-          </>) : (
-            <NavLink to="/login">Login</NavLink>
-          )}
-        </nav>
+          </nav>
+        </div>
       </header>
       <div className="container">{children}</div>
     </>

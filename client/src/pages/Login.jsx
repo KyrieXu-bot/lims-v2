@@ -28,18 +28,18 @@ export default function Login() {
 
   return (
     <div style={{maxWidth: 420}}>
-      <h2>Login</h2>
+      <h2>集萃实验室系统V2.0</h2>
       <form onSubmit={onSubmit}>
         <div>
-          <label>Username</label>
+          <label>用户名</label>
           <input className="input" value={username} onChange={e=>setUsername(e.target.value)} />
         </div>
         <div>
-          <label>Password</label>
+          <label>密码</label>
           <input className="input" type="password" value={password} onChange={e=>setPassword(e.target.value)} />
         </div>
         {error && <div className="error">{error}</div>}
-        <button className="btn" type="submit">Sign in</button>
+        <button className="btn" type="submit">登录</button>
       </form>
     </div>
   );

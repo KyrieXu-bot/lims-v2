@@ -3,7 +3,7 @@ import { getPool } from '../db.js';
 import { requireAuth, requireAnyRole } from '../middleware/auth.js';
 
 const router = Router();
-router.use(requireAuth, requireAnyRole(['admin', 'leader', 'supervisor', 'technician', 'sales']));
+router.use(requireAuth, requireAnyRole(['admin', 'leader', 'supervisor', 'employee', 'sales']));
 
 // list
 router.get('/', async (req, res) => {
@@ -24,13 +24,14 @@ router.get('/', async (req, res) => {
     // 组长：只能看到分配给他的检测项目
     filters.push('ti.supervisor_id = ?');
     params.push(user.user_id);
-  } else if (user.role === 'technician') {
+  } else if (user.role === 'employee') {
     // 实验员：只能看到指派给他的检测项目
-    filters.push('ti.current_assignee = ?');
+    filters.push('ti.technician_id = ?');
     params.push(user.user_id);
   } else if (user.role === 'sales') {
-    // 业务员：可以看到所有检测项目，但非自己负责的项目需要隐藏敏感信息
-    // 这里不添加过滤条件，在返回数据时处理
+    // 业务员：只能看到分配给他的检测项目
+    filters.push('ti.current_assignee = ?');
+    params.push(user.user_id);
   }
   // admin 角色不添加任何过滤条件
 
@@ -100,7 +101,8 @@ router.post('/', async (req, res) => {
     order_id, price_id, category_name, detail_name, sample_name, material, sample_type, original_no,
     test_code, standard_code, department_id, group_id, quantity = 1, unit_price, discount_rate,
     final_unit_price, line_total, machine_hours = 0, work_hours = 0, is_add_on = 0, is_outsourced = 0,
-    seq_no, sample_preparation, note, status = 'new', current_assignee, supervisor_id, technician_id
+    seq_no, sample_preparation, note, status = 'new', current_assignee, supervisor_id, technician_id,
+    arrival_mode, sample_arrival_status
   } = req.body || {};
   if (!order_id || !category_name || !detail_name) {
     return res.status(400).json({ error: 'order_id, category_name, detail_name are required' });
@@ -112,12 +114,14 @@ router.post('/', async (req, res) => {
         order_id, price_id, category_name, detail_name, sample_name, material, sample_type, original_no,
         test_code, standard_code, department_id, group_id, quantity, unit_price, discount_rate,
         final_unit_price, line_total, machine_hours, work_hours, is_add_on, is_outsourced,
-        seq_no, sample_preparation, note, status, current_assignee, supervisor_id, technician_id
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        seq_no, sample_preparation, note, status, current_assignee, supervisor_id, technician_id,
+        arrival_mode, sample_arrival_status
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [order_id, price_id || null, category_name, detail_name, sample_name, material, sample_type, original_no,
        test_code, standard_code, department_id || null, group_id || null, quantity, unit_price, discount_rate,
        final_unit_price, line_total, machine_hours, work_hours, Number(is_add_on), Number(is_outsourced),
-       seq_no, sample_preparation, note, status, current_assignee || null, supervisor_id || null, technician_id || null]
+       seq_no, sample_preparation, note, status, current_assignee || null, supervisor_id || null, technician_id || null,
+       arrival_mode || null, sample_arrival_status || null]
     );
     const [rows] = await pool.query(
       `SELECT ti.*, 
@@ -162,7 +166,8 @@ router.put('/:id', async (req, res) => {
     order_id, price_id, category_name, detail_name, sample_name, material, sample_type, original_no,
     test_code, standard_code, department_id, group_id, quantity, unit_price, discount_rate,
     final_unit_price, line_total, machine_hours, work_hours, is_add_on, is_outsourced,
-    seq_no, sample_preparation, note, status, current_assignee, supervisor_id, technician_id
+    seq_no, sample_preparation, note, status, current_assignee, supervisor_id, technician_id,
+    arrival_mode, sample_arrival_status
   } = req.body || {};
   const pool = await getPool();
   await pool.query(
@@ -194,12 +199,14 @@ router.put('/:id', async (req, res) => {
       status = COALESCE(?, status),
       current_assignee = COALESCE(?, current_assignee),
       supervisor_id = COALESCE(?, supervisor_id),
-      technician_id = COALESCE(?, technician_id)
+      technician_id = COALESCE(?, technician_id),
+      arrival_mode = COALESCE(?, arrival_mode),
+      sample_arrival_status = COALESCE(?, sample_arrival_status)
      WHERE test_item_id = ?`,
     [order_id, price_id, category_name, detail_name, sample_name, material, sample_type, original_no,
      test_code, standard_code, department_id, group_id, quantity, unit_price, discount_rate,
      final_unit_price, line_total, machine_hours, work_hours, is_add_on, is_outsourced, seq_no,
-     sample_preparation, note, status, current_assignee, supervisor_id, technician_id, req.params.id]
+     sample_preparation, note, status, current_assignee, supervisor_id, technician_id, arrival_mode, sample_arrival_status, req.params.id]
   );
   const pool2 = await getPool();
   const [rows] = await pool2.query(
@@ -220,12 +227,75 @@ router.put('/:id', async (req, res) => {
 
 // delete
 router.delete('/:id', async (req, res) => {
+  const user = req.user;
+  // 仅管理员与室主任可删除
+  if (!(user.role === 'admin' || user.role === 'leader')) {
+    return res.status(403).json({ error: 'Insufficient permissions' });
+  }
   const pool = await getPool();
   try {
     const [chk] = await pool.query('SELECT test_item_id FROM test_items WHERE test_item_id = ?', [req.params.id]);
     if (chk.length === 0) return res.status(404).json({ error: 'Not found' });
     await pool.query('DELETE FROM test_items WHERE test_item_id = ?', [req.params.id]);
     res.json({ ok: true });
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// batch assign
+router.post('/batch-assign', async (req, res) => {
+  const { testItemIds, supervisor_id, technician_id, status } = req.body || {};
+  const user = req.user;
+  
+  if (!testItemIds || !Array.isArray(testItemIds) || testItemIds.length === 0) {
+    return res.status(400).json({ error: 'testItemIds is required and must be an array' });
+  }
+  
+  if (!status) {
+    return res.status(400).json({ error: 'status is required' });
+  }
+  
+  // 验证权限
+  if (user.role === 'leader') {
+    if (!supervisor_id) {
+      return res.status(400).json({ error: 'supervisor_id is required for leader' });
+    }
+  } else if (user.role === 'supervisor') {
+    if (!technician_id) {
+      return res.status(400).json({ error: 'technician_id is required for supervisor' });
+    }
+  } else {
+    return res.status(403).json({ error: 'Only leader and supervisor can batch assign' });
+  }
+  
+  const pool = await getPool();
+  try {
+    // 构建更新字段
+    const updateFields = ['status = ?'];
+    const updateValues = [status];
+    
+    if (supervisor_id) {
+      updateFields.push('supervisor_id = ?');
+      updateValues.push(supervisor_id);
+    }
+    
+    if (technician_id) {
+      updateFields.push('technician_id = ?');
+      updateValues.push(technician_id);
+    }
+    
+    // 构建IN子句
+    const placeholders = testItemIds.map(() => '?').join(',');
+    const query = `UPDATE test_items SET ${updateFields.join(', ')} WHERE test_item_id IN (${placeholders})`;
+    
+    await pool.query(query, [...updateValues, ...testItemIds]);
+    
+    res.json({ 
+      ok: true, 
+      message: `Successfully assigned ${testItemIds.length} items`,
+      assignedCount: testItemIds.length
+    });
   } catch (e) {
     return res.status(500).json({ error: e.message });
   }

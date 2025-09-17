@@ -1,20 +1,22 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { api } from '../../api.js';
 
-function Field({label, value, onChange, type='text'}) {
+function Field({label, value, onChange, type='text', disabled=false}) {
   return (
     <div>
       <label>{label}</label>
-      <input className="input" value={value||''} type={type} onChange={e=>onChange(e.target.value)} />
+      <input className="input" value={value||''} type={type} onChange={e=>onChange(e.target.value)} disabled={disabled} />
     </div>
   )
 }
 
 export default function TestItemEdit() {
   const { id } = useParams();
+  const location = useLocation();
   const isNew = id === 'new';
-  const [it, setIt] = useState({ quantity: 1, status: 'new', is_add_on: 1, is_outsourced: 0, machine_hours: 0, work_hours: 0 });
+  const isView = new URLSearchParams(location.search).get('view') === '1';
+  const [it, setIt] = useState({ quantity: 1, status: 'new', is_add_on: 1, is_outsourced: 0, machine_hours: 0, work_hours: 0, arrival_mode: '', sample_arrival_status: '' });
   const [orderSuggestions, setOrderSuggestions] = useState([]);
   const [showOrderSuggestions, setShowOrderSuggestions] = useState(false);
   const [priceOptions, setPriceOptions] = useState([]);
@@ -89,7 +91,7 @@ export default function TestItemEdit() {
 
   return (
     <div style={{maxWidth: 1000}}>
-      <h2>{isNew ? '新增检测项目' : `编辑检测项目 #${id}`}</h2>
+      <h2>{isNew ? '新增检测项目' : (isView ? `查看检测项目 #${id}` : `编辑检测项目 #${id}`)}</h2>
       <form onSubmit={onSubmit}>
         <div className="grid-3">
           <div>
@@ -104,6 +106,7 @@ export default function TestItemEdit() {
                   searchOrders(value);
                 }}
                 placeholder="输入委托单号，如 JC09"
+                disabled={isView}
               />
               {showOrderSuggestions && orderSuggestions.length > 0 && (
                 <div style={{
@@ -146,29 +149,30 @@ export default function TestItemEdit() {
               className="btn" 
               onClick={() => setShowPriceModal(true)}
               style={{width: '100%'}}
+              disabled={isView}
             >
               选择价格项目
             </button>
           </div>
           
-          <Field label="引用价格ID" value={it.price_id} onChange={v=>setIt({...it, price_id:v})} />
-          <Field label="大类 *" value={it.category_name} onChange={v=>setIt({...it, category_name:v})} />
-          <Field label="细项 *" value={it.detail_name} onChange={v=>setIt({...it, detail_name:v})} />
-          <Field label="样品名称" value={it.sample_name} onChange={v=>setIt({...it, sample_name:v})} />
-          <Field label="材质" value={it.material} onChange={v=>setIt({...it, material:v})} />
-          <Field label="样品类型" value={it.sample_type} onChange={v=>setIt({...it, sample_type:v})} />
-          <Field label="原始编号" value={it.original_no} onChange={v=>setIt({...it, original_no:v})} />
-          <Field label="代码" value={it.test_code} onChange={v=>setIt({...it, test_code:v})} />
-          <Field label="标准号" value={it.standard_code} onChange={v=>setIt({...it, standard_code:v})} />
-          <Field label="执行部门ID" value={it.department_id} onChange={v=>setIt({...it, department_id:v})} />
-          <Field label="执行小组ID" value={it.group_id} onChange={v=>setIt({...it, group_id:v})} />
-          <Field label="数量" value={it.quantity} onChange={v=>setIt({...it, quantity:v})} />
-          <Field label="单价" value={it.unit_price} onChange={v=>setIt({...it, unit_price:v})} />
-          <Field label="折扣率%" value={it.discount_rate} onChange={v=>setIt({...it, discount_rate:v})} />
-          <Field label="折后单价" value={it.final_unit_price} onChange={v=>setIt({...it, final_unit_price:v})} />
-          <Field label="行小计" value={it.line_total} onChange={v=>setIt({...it, line_total:v})} />
-          <Field label="机时" value={it.machine_hours} onChange={v=>setIt({...it, machine_hours:v})} />
-          <Field label="工时" value={it.work_hours} onChange={v=>setIt({...it, work_hours:v})} />
+          <Field label="引用价格ID" value={it.price_id} onChange={v=>setIt({...it, price_id:v})} disabled={isView} />
+          <Field label="大类 *" value={it.category_name} onChange={v=>setIt({...it, category_name:v})} disabled={isView} />
+          <Field label="细项 *" value={it.detail_name} onChange={v=>setIt({...it, detail_name:v})} disabled={isView} />
+          <Field label="样品名称" value={it.sample_name} onChange={v=>setIt({...it, sample_name:v})} disabled={isView} />
+          <Field label="材质" value={it.material} onChange={v=>setIt({...it, material:v})} disabled={isView} />
+          <Field label="样品类型" value={it.sample_type} onChange={v=>setIt({...it, sample_type:v})} disabled={isView} />
+          <Field label="原始编号" value={it.original_no} onChange={v=>setIt({...it, original_no:v})} disabled={isView} />
+          <Field label="代码" value={it.test_code} onChange={v=>setIt({...it, test_code:v})} disabled={isView} />
+          <Field label="标准号" value={it.standard_code} onChange={v=>setIt({...it, standard_code:v})} disabled={isView} />
+          <Field label="执行部门ID" value={it.department_id} onChange={v=>setIt({...it, department_id:v})} disabled={isView} />
+          <Field label="执行小组ID" value={it.group_id} onChange={v=>setIt({...it, group_id:v})} disabled={isView} />
+          <Field label="数量" value={it.quantity} onChange={v=>setIt({...it, quantity:v})} disabled={isView} />
+          <Field label="单价" value={it.unit_price} onChange={v=>setIt({...it, unit_price:v})} disabled={isView} />
+          <Field label="折扣率%" value={it.discount_rate} onChange={v=>setIt({...it, discount_rate:v})} disabled={isView} />
+          <Field label="折后单价" value={it.final_unit_price} onChange={v=>setIt({...it, final_unit_price:v})} disabled={isView} />
+          <Field label="行小计" value={it.line_total} onChange={v=>setIt({...it, line_total:v})} disabled={isView} />
+          <Field label="机时" value={it.machine_hours} onChange={v=>setIt({...it, machine_hours:v})} disabled={isView} />
+          <Field label="工时" value={it.work_hours} onChange={v=>setIt({...it, work_hours:v})} disabled={isView} />
           <div>
             <label>是否加测</label>
             <input className="input" value="是" disabled style={{background: '#f5f5f5'}} />
@@ -176,7 +180,7 @@ export default function TestItemEdit() {
           </div>
           <div>
             <label>是否委外</label>
-            <select className="input" value={it.is_outsourced ?? 0} onChange={e=>setIt({...it, is_outsourced:Number(e.target.value)})}>
+            <select className="input" value={it.is_outsourced ?? 0} onChange={e=>setIt({...it, is_outsourced:Number(e.target.value)})} disabled={isView}>
               <option value={0}>否</option>
               <option value={1}>是</option>
             </select>
@@ -184,7 +188,7 @@ export default function TestItemEdit() {
           <Field label="顺序号" value={it.seq_no} onChange={v=>setIt({...it, seq_no:v})} />
           <div>
             <label>状态</label>
-            <select className="input" value={it.status || 'new'} onChange={e=>setIt({...it, status:e.target.value})}>
+            <select className="input" value={it.status || 'new'} onChange={e=>setIt({...it, status:e.target.value})} disabled={isView}>
               <option value="new">新建</option>
               <option value="assigned">已分配</option>
               <option value="running">进行中</option>
@@ -194,21 +198,38 @@ export default function TestItemEdit() {
               <option value="cancelled">已取消</option>
             </select>
           </div>
-          <Field label="当前执行人工号" value={it.current_assignee} onChange={v=>setIt({...it, current_assignee:v})} />
-          <Field label="负责人工号" value={it.supervisor_id} onChange={v=>setIt({...it, supervisor_id:v})} />
-          <Field label="实验员工号" value={it.technician_id} onChange={v=>setIt({...it, technician_id:v})} />
+          <Field label="当前执行人工号" value={it.current_assignee} onChange={v=>setIt({...it, current_assignee:v})} disabled={isView} />
+          <Field label="负责人工号" value={it.supervisor_id} onChange={v=>setIt({...it, supervisor_id:v})} disabled={isView} />
+          <Field label="实验员工号" value={it.technician_id} onChange={v=>setIt({...it, technician_id:v})} disabled={isView} />
+          <div>
+            <label>样品到达方式</label>
+            <select className="input" value={it.arrival_mode || ''} onChange={e=>setIt({...it, arrival_mode:e.target.value})} disabled={isView}>
+              <option value="">请选择</option>
+              <option value="on_site">现场</option>
+              <option value="delivery">寄样</option>
+            </select>
+          </div>
+          <div>
+            <label>样品是否已到</label>
+            <select className="input" value={it.sample_arrival_status || ''} onChange={e=>setIt({...it, sample_arrival_status:e.target.value})} disabled={isView}>
+              <option value="">请选择</option>
+              <option value="已到">已到</option>
+              <option value="未到">未到</option>
+              <option value="部分到达">部分到达</option>
+            </select>
+          </div>
         </div>
         <div>
           <label>样品预处理</label>
-          <textarea className="input" rows="2" value={it.sample_preparation||''} onChange={e=>setIt({...it, sample_preparation:e.target.value})}></textarea>
+          <textarea className="input" rows="2" value={it.sample_preparation||''} onChange={e=>setIt({...it, sample_preparation:e.target.value})} disabled={isView}></textarea>
         </div>
         <div>
           <label>备注</label>
-          <textarea className="input" rows="2" value={it.note||''} onChange={e=>setIt({...it, note:e.target.value})}></textarea>
+          <textarea className="input" rows="2" value={it.note||''} onChange={e=>setIt({...it, note:e.target.value})} disabled={isView}></textarea>
         </div>
         <div style={{display:'flex', gap:8}}>
-          <button className="btn" type="submit">保存</button>
-          <button className="btn" type="button" onClick={()=>navigate('/test-items')}>取消</button>
+          {!isView && <button className="btn" type="submit">保存</button>}
+          <button className="btn" type="button" onClick={()=>navigate('/test-items')}>{isView ? '返回' : '取消'}</button>
         </div>
       </form>
 
