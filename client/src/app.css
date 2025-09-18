@@ -159,6 +159,28 @@ nav a.active {
   border-color: var(--danger);
 }
 
+.btn-warning {
+  color: var(--gray-800);
+  background-color: var(--warning);
+  border-color: var(--warning);
+}
+
+.btn-warning:hover:not(:disabled) {
+  background-color: #e0a800;
+  border-color: #d39e00;
+}
+
+.btn-info {
+  color: var(--white);
+  background-color: var(--info);
+  border-color: var(--info);
+}
+
+.btn-info:hover:not(:disabled) {
+  background-color: #138496;
+  border-color: #117a8b;
+}
+
 .btn-sm {
   padding: 4px 8px;
   font-size: 12px;

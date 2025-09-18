@@ -16,24 +16,30 @@ router.get('/', async (req, res) => {
   const user = req.user;
 
   // 基于角色的数据过滤
-  if (user.role === 'leader') {
-    // 室主任：只能看到自己部门的检测项目
+  if (user.role === 'admin') {
+    // 管理员：可以看到所有项目，包括样品未到的项目
+    // 不添加任何过滤条件
+  } else if (user.role === 'leader') {
+    // 室主任：只能看到自己部门的检测项目，且样品已到
     filters.push('ti.department_id IN (SELECT department_id FROM lab_groups WHERE group_id = ?)');
+    filters.push('(ti.sample_arrival_status IS NULL OR ti.sample_arrival_status != "not_arrived")');
     params.push(user.group_id);
   } else if (user.role === 'supervisor') {
-    // 组长：只能看到分配给他的检测项目
+    // 组长：只能看到分配给他的检测项目，且样品已到
     filters.push('ti.supervisor_id = ?');
+    filters.push('(ti.sample_arrival_status IS NULL OR ti.sample_arrival_status != "not_arrived")');
     params.push(user.user_id);
   } else if (user.role === 'employee') {
-    // 实验员：只能看到指派给他的检测项目
+    // 实验员：只能看到指派给他的检测项目，且样品已到
     filters.push('ti.technician_id = ?');
+    filters.push('(ti.sample_arrival_status IS NULL OR ti.sample_arrival_status != "not_arrived")');
     params.push(user.user_id);
   } else if (user.role === 'sales') {
-    // 业务员：只能看到分配给他的检测项目
+    // 业务员：只能看到分配给他的检测项目，且样品已到
     filters.push('ti.current_assignee = ?');
+    filters.push('(ti.sample_arrival_status IS NULL OR ti.sample_arrival_status != "not_arrived")');
     params.push(user.user_id);
   }
-  // admin 角色不添加任何过滤条件
 
   if (q) {
     filters.push('(ti.category_name LIKE ? OR ti.detail_name LIKE ? OR ti.test_code LIKE ? OR ti.order_id LIKE ?)');

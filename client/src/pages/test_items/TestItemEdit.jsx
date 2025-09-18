@@ -16,7 +16,7 @@ export default function TestItemEdit() {
   const location = useLocation();
   const isNew = id === 'new';
   const isView = new URLSearchParams(location.search).get('view') === '1';
-  const [it, setIt] = useState({ quantity: 1, status: 'new', is_add_on: 1, is_outsourced: 0, machine_hours: 0, work_hours: 0, arrival_mode: '', sample_arrival_status: '' });
+  const [it, setIt] = useState({ quantity: 1, status: 'new', is_add_on: 1, is_outsourced: 0, machine_hours: 0, work_hours: 0, arrival_mode: '', sample_arrival_status: 'not_arrived' });
   const [orderSuggestions, setOrderSuggestions] = useState([]);
   const [showOrderSuggestions, setShowOrderSuggestions] = useState(false);
   const [priceOptions, setPriceOptions] = useState([]);
@@ -24,7 +24,13 @@ export default function TestItemEdit() {
   const navigate = useNavigate();
 
   useEffect(()=>{
-    if (!isNew) api.getTestItem(id).then(setIt).catch(e=>alert(e.message));
+    if (!isNew) api.getTestItem(id).then(data => {
+      // 规范化样品到达状态为英文枚举
+      let s = data.sample_arrival_status;
+      if (s === '已到') s = 'arrived';
+      if (s === '未到') s = 'not_arrived';
+      setIt({ ...data, sample_arrival_status: s });
+    }).catch(e=>alert(e.message));
     // 加载价格表选项
     api.listPrice({ pageSize: 1000 }).then(res => setPriceOptions(res.data)).catch(e => console.error(e));
   }, [id]);
@@ -213,9 +219,8 @@ export default function TestItemEdit() {
             <label>样品是否已到</label>
             <select className="input" value={it.sample_arrival_status || ''} onChange={e=>setIt({...it, sample_arrival_status:e.target.value})} disabled={isView}>
               <option value="">请选择</option>
-              <option value="已到">已到</option>
-              <option value="未到">未到</option>
-              <option value="部分到达">部分到达</option>
+              <option value="arrived">已到</option>
+              <option value="not_arrived">未到</option>
             </select>
           </div>
         </div>

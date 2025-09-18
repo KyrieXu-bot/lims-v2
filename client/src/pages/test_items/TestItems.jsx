@@ -307,10 +307,18 @@ export default function TestItems() {
   const canCompleteBySupervisor = (item) => user && user.role === 'supervisor' && item.status === 'running' && item.supervisor_id === user.user_id;
   const canCompleteByEmployee = (item) => user && user.role === 'employee' && item.status === 'running';
   const canDeliverBySales = (item) => user && user.role === 'sales' && item.status === 'report_uploaded';
+  const canTransfer = (item) => user && user.role === 'admin' && item.sample_arrival_status === 'not_arrived';
 
   async function handleUpdateStatus(id, status) {
     await api.updateTestItem(id, { status });
     load();
+  }
+
+  async function handleTransfer(id) {
+    if (confirm('确定要将样品状态改为已到吗？流转后其他角色将能看到此项目。')) {
+      await api.updateTestItem(id, { sample_arrival_status: 'arrived' });
+      load();
+    }
   }
 
   function openAssignForOne(id) {
@@ -507,6 +515,11 @@ export default function TestItems() {
                           {/* 交付：业务员，状态=已传报告 */}
                           {canDeliverBySales(it) && (
                             <button className="btn btn-info btn-sm" onClick={()=>handleUpdateStatus(it.test_item_id, 'completed')}>交付</button>
+                          )}
+
+                          {/* 流转：管理员，样品状态=未到 */}
+                          {canTransfer(it) && (
+                            <button className="btn btn-warning btn-sm" onClick={()=>handleTransfer(it.test_item_id)}>流转</button>
                           )}
                         </td>
                       </tr>
