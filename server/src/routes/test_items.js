@@ -108,7 +108,7 @@ router.post('/', async (req, res) => {
     test_code, standard_code, department_id, group_id, quantity = 1, unit_price, discount_rate,
     final_unit_price, line_total, machine_hours = 0, work_hours = 0, is_add_on = 0, is_outsourced = 0,
     seq_no, sample_preparation, note, status = 'new', current_assignee, supervisor_id, technician_id,
-    arrival_mode, sample_arrival_status
+    arrival_mode, sample_arrival_status, equipment_id, check_notes, test_notes
   } = req.body || {};
   if (!order_id || !category_name || !detail_name) {
     return res.status(400).json({ error: 'order_id, category_name, detail_name are required' });
@@ -121,13 +121,13 @@ router.post('/', async (req, res) => {
         test_code, standard_code, department_id, group_id, quantity, unit_price, discount_rate,
         final_unit_price, line_total, machine_hours, work_hours, is_add_on, is_outsourced,
         seq_no, sample_preparation, note, status, current_assignee, supervisor_id, technician_id,
-        arrival_mode, sample_arrival_status
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        arrival_mode, sample_arrival_status, equipment_id, check_notes, test_notes
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [order_id, price_id || null, category_name, detail_name, sample_name, material, sample_type, original_no,
        test_code, standard_code, department_id || null, group_id || null, quantity, unit_price, discount_rate,
        final_unit_price, line_total, machine_hours, work_hours, Number(is_add_on), Number(is_outsourced),
        seq_no, sample_preparation, note, status, current_assignee || null, supervisor_id || null, technician_id || null,
-       arrival_mode || null, sample_arrival_status || null]
+       arrival_mode || null, sample_arrival_status || null, equipment_id || null, check_notes || null, test_notes || null]
     );
     const [rows] = await pool.query(
       `SELECT ti.*, 
@@ -173,7 +173,7 @@ router.put('/:id', async (req, res) => {
     test_code, standard_code, department_id, group_id, quantity, unit_price, discount_rate,
     final_unit_price, line_total, machine_hours, work_hours, is_add_on, is_outsourced,
     seq_no, sample_preparation, note, status, current_assignee, supervisor_id, technician_id,
-    arrival_mode, sample_arrival_status
+    arrival_mode, sample_arrival_status, equipment_id, check_notes, test_notes
   } = req.body || {};
   const pool = await getPool();
   await pool.query(
@@ -207,12 +207,15 @@ router.put('/:id', async (req, res) => {
       supervisor_id = COALESCE(?, supervisor_id),
       technician_id = COALESCE(?, technician_id),
       arrival_mode = COALESCE(?, arrival_mode),
-      sample_arrival_status = COALESCE(?, sample_arrival_status)
+      sample_arrival_status = COALESCE(?, sample_arrival_status),
+      equipment_id = COALESCE(?, equipment_id),
+      check_notes = COALESCE(?, check_notes),
+      test_notes = COALESCE(?, test_notes)
      WHERE test_item_id = ?`,
     [order_id, price_id, category_name, detail_name, sample_name, material, sample_type, original_no,
      test_code, standard_code, department_id, group_id, quantity, unit_price, discount_rate,
      final_unit_price, line_total, machine_hours, work_hours, is_add_on, is_outsourced, seq_no,
-     sample_preparation, note, status, current_assignee, supervisor_id, technician_id, arrival_mode, sample_arrival_status, req.params.id]
+     sample_preparation, note, status, current_assignee, supervisor_id, technician_id, arrival_mode, sample_arrival_status, equipment_id, check_notes, test_notes, req.params.id]
   );
   const pool2 = await getPool();
   const [rows] = await pool2.query(

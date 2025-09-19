@@ -2,6 +2,415 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api.js';
 
+// 组长审核弹窗组件
+function SupervisorReviewModal({ testItem, onClose, onSuccess }) {
+  const [formData, setFormData] = useState({
+    quantity: testItem?.quantity || 1,
+    machine_hours: testItem?.machine_hours || 0,
+    work_hours: testItem?.work_hours || 0,
+    equipment_id: testItem?.equipment_id || '',
+    unit_price: testItem?.unit_price || 0,
+    check_notes: ''
+  });
+  const [equipmentOptions, setEquipmentOptions] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [loadingEquipment, setLoadingEquipment] = useState(true);
+
+  // 加载设备选项
+  useEffect(() => {
+    loadEquipmentOptions();
+  }, []);
+
+  const loadEquipmentOptions = async () => {
+    try {
+      setLoadingEquipment(true);
+      const departmentId = testItem?.department_id;
+      if (departmentId) {
+        const options = await api.getEquipmentByDepartment(departmentId);
+        setEquipmentOptions(options);
+      } else {
+        const res = await api.listEquipment({ pageSize: 1000 });
+        setEquipmentOptions(res.data);
+      }
+    } catch (e) {
+      console.error('加载设备列表失败:', e);
+      alert('加载设备列表失败: ' + e.message);
+    } finally {
+      setLoadingEquipment(false);
+    }
+  };
+
+  const handleApprove = async () => {
+    try {
+      setLoading(true);
+      await api.updateTestItem(testItem.test_item_id, {
+        quantity: Number(formData.quantity),
+        machine_hours: Number(formData.machine_hours),
+        work_hours: Number(formData.work_hours),
+        equipment_id: Number(formData.equipment_id),
+        unit_price: Number(formData.unit_price),
+        check_notes: formData.check_notes,
+        status: 'report_uploaded'
+      });
+      
+      alert('审核通过，状态已更新为待传数据');
+      onSuccess();
+    } catch (e) {
+      alert('审核失败: ' + e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleReject = async () => {
+    if (!formData.check_notes.trim()) {
+      alert('请填写审批备注说明退回原因');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      await api.updateTestItem(testItem.test_item_id, {
+        check_notes: formData.check_notes,
+        status: 'running'
+      });
+      
+      alert('已退回给实验员，请查看审批备注');
+      onSuccess();
+    } catch (e) {
+      alert('退回失败: ' + e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div style={{
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      background: 'rgba(0,0,0,0.5)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 2000
+    }}>
+      <div style={{
+        background: 'white',
+        padding: '24px',
+        borderRadius: '8px',
+        minWidth: '500px',
+        maxWidth: '700px'
+      }}>
+        <h3>审核检测项目</h3>
+        <p>项目：{testItem?.detail_name} ({testItem?.test_code})</p>
+        
+        <div style={{ marginBottom: '20px', padding: '12px', background: '#f8f9fa', borderRadius: '4px' }}>
+          <h4 style={{ margin: '0 0 8px 0', fontSize: '14px', color: '#666' }}>实验员填写的信息：</h4>
+          <p style={{ margin: '4px 0', fontSize: '13px' }}>机时：{testItem?.machine_hours}小时 | 工时：{testItem?.work_hours}小时 | 单价：{testItem?.unit_price}元</p>
+          {testItem?.test_notes && (
+            <p style={{ margin: '4px 0', fontSize: '13px' }}>实验备注：{testItem.test_notes}</p>
+          )}
+        </div>
+        
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+          <div>
+            <label>数量 *</label>
+            <input 
+              className="input" 
+              type="number" 
+              step="0.1"
+              value={formData.quantity} 
+              onChange={e => setFormData({...formData, quantity: e.target.value})}
+              required
+            />
+          </div>
+          
+          <div>
+            <label>机时（小时）*</label>
+            <input 
+              className="input" 
+              type="number" 
+              step="0.1"
+              value={formData.machine_hours} 
+              onChange={e => setFormData({...formData, machine_hours: e.target.value})}
+              required
+            />
+          </div>
+          
+          <div>
+            <label>工时（小时）*</label>
+            <input 
+              className="input" 
+              type="number" 
+              step="0.1"
+              value={formData.work_hours} 
+              onChange={e => setFormData({...formData, work_hours: e.target.value})}
+              required
+            />
+          </div>
+          
+          <div>
+            <label>单价（元）*</label>
+            <input 
+              className="input" 
+              type="number" 
+              step="0.01"
+              value={formData.unit_price} 
+              onChange={e => setFormData({...formData, unit_price: e.target.value})}
+              required
+            />
+          </div>
+        </div>
+        
+        <div style={{ marginBottom: '16px' }}>
+          <label>使用的设备 *</label>
+          {loadingEquipment ? (
+            <div>加载设备列表中...</div>
+          ) : (
+            <select 
+              className="input" 
+              value={formData.equipment_id} 
+              onChange={e => setFormData({...formData, equipment_id: e.target.value})}
+              required
+            >
+              <option value="">请选择设备</option>
+              {equipmentOptions.map(equipment => (
+                <option key={equipment.equipment_id} value={equipment.equipment_id}>
+                  {equipment.equipment_name} ({equipment.equipment_no || equipment.model})
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+        
+        <div style={{ marginBottom: '16px' }}>
+          <label>审批备注 *</label>
+          <textarea 
+            className="input" 
+            rows="3"
+            value={formData.check_notes} 
+            onChange={e => setFormData({...formData, check_notes: e.target.value})}
+            placeholder="请填写审批意见，如有问题请说明具体原因"
+            required
+          />
+        </div>
+        
+        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+          <button 
+            type="button" 
+            className="btn btn-secondary" 
+            onClick={onClose}
+            disabled={loading}
+          >
+            取消
+          </button>
+          <button 
+            type="button" 
+            className="btn btn-warning" 
+            onClick={handleReject}
+            disabled={loading}
+          >
+            {loading ? '处理中...' : '退回修改'}
+          </button>
+          <button 
+            type="button" 
+            className="btn btn-success" 
+            onClick={handleApprove}
+            disabled={loading}
+          >
+            {loading ? '处理中...' : '审核通过'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// 员工完成弹窗组件
+function EmployeeCompleteModal({ testItem, onClose, onSuccess }) {
+  const [formData, setFormData] = useState({
+    machine_hours: testItem?.machine_hours || 0,
+    work_hours: testItem?.work_hours || 0,
+    equipment_id: '',
+    unit_price: testItem?.unit_price || 0,
+    test_notes: ''
+  });
+  const [equipmentOptions, setEquipmentOptions] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [loadingEquipment, setLoadingEquipment] = useState(true);
+
+  // 加载设备选项
+  useEffect(() => {
+    loadEquipmentOptions();
+  }, []);
+
+  const loadEquipmentOptions = async () => {
+    try {
+      setLoadingEquipment(true);
+      // 根据检测项目的部门ID获取设备列表
+      const departmentId = testItem?.department_id;
+      if (departmentId) {
+        const options = await api.getEquipmentByDepartment(departmentId);
+        setEquipmentOptions(options);
+      } else {
+        // 如果没有部门ID，获取所有设备
+        const res = await api.listEquipment({ pageSize: 1000 });
+        setEquipmentOptions(res.data);
+      }
+    } catch (e) {
+      console.error('加载设备列表失败:', e);
+      alert('加载设备列表失败: ' + e.message);
+    } finally {
+      setLoadingEquipment(false);
+    }
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!formData.equipment_id) {
+      alert('请选择使用的设备');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      // 更新检测项目，包含机时、工时、设备ID、单价、实验备注，状态改为待审核
+      await api.updateTestItem(testItem.test_item_id, {
+        machine_hours: Number(formData.machine_hours),
+        work_hours: Number(formData.work_hours),
+        equipment_id: Number(formData.equipment_id),
+        unit_price: Number(formData.unit_price),
+        test_notes: formData.test_notes,
+        status: 'waiting_review'
+      });
+      
+      alert('完成提交成功，状态已更新为待审核，等待组长审核');
+      onSuccess();
+    } catch (e) {
+      alert('提交失败: ' + e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div style={{
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      background: 'rgba(0,0,0,0.5)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 2000
+    }}>
+      <div style={{
+        background: 'white',
+        padding: '24px',
+        borderRadius: '8px',
+        minWidth: '400px',
+        maxWidth: '600px'
+      }}>
+        <h3>完成检测项目</h3>
+        <p>项目：{testItem?.detail_name} ({testItem?.test_code})</p>
+        
+        <form onSubmit={handleSubmit}>
+          <div style={{ marginBottom: '16px' }}>
+            <label>机时（小时）*</label>
+            <input 
+              className="input" 
+              type="number" 
+              step="0.1"
+              value={formData.machine_hours} 
+              onChange={e => setFormData({...formData, machine_hours: e.target.value})}
+              required
+            />
+          </div>
+          
+          <div style={{ marginBottom: '16px' }}>
+            <label>工时（小时）*</label>
+            <input 
+              className="input" 
+              type="number" 
+              step="0.1"
+              value={formData.work_hours} 
+              onChange={e => setFormData({...formData, work_hours: e.target.value})}
+              required
+            />
+          </div>
+          
+          <div style={{ marginBottom: '16px' }}>
+            <label>使用的设备 *</label>
+            {loadingEquipment ? (
+              <div>加载设备列表中...</div>
+            ) : (
+              <select 
+                className="input" 
+                value={formData.equipment_id} 
+                onChange={e => setFormData({...formData, equipment_id: e.target.value})}
+                required
+              >
+                <option value="">请选择设备</option>
+                {equipmentOptions.map(equipment => (
+                  <option key={equipment.equipment_id} value={equipment.equipment_id}>
+                    {equipment.equipment_name} ({equipment.equipment_no || equipment.model})
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+          
+          <div style={{ marginBottom: '16px' }}>
+            <label>单价（元）*</label>
+            <input 
+              className="input" 
+              type="number" 
+              step="0.01"
+              value={formData.unit_price} 
+              onChange={e => setFormData({...formData, unit_price: e.target.value})}
+              required
+            />
+          </div>
+          
+          <div style={{ marginBottom: '16px' }}>
+            <label>实验备注</label>
+            <textarea 
+              className="input" 
+              rows="3"
+              value={formData.test_notes} 
+              onChange={e => setFormData({...formData, test_notes: e.target.value})}
+              placeholder="请输入实验过程中的备注信息"
+            />
+          </div>
+          
+          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+            <button 
+              type="button" 
+              className="btn btn-secondary" 
+              onClick={onClose}
+              disabled={loading}
+            >
+              取消
+            </button>
+            <button 
+              type="submit" 
+              className="btn btn-success" 
+              disabled={loading}
+            >
+              {loading ? '提交中...' : '确认完成'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // 批量分配弹窗组件
 function BatchAssignModal({ selectedItems, user, onClose, onSuccess }) {
   const [assigneeOptions, setAssigneeOptions] = useState([]);
@@ -162,6 +571,9 @@ export default function TestItems() {
   const [expandedGroups, setExpandedGroups] = useState(new Set());
   const [selectedItems, setSelectedItems] = useState(new Set());
   const [showBatchAssignModal, setShowBatchAssignModal] = useState(false);
+  const [showEmployeeCompleteModal, setShowEmployeeCompleteModal] = useState(false);
+  const [showSupervisorReviewModal, setShowSupervisorReviewModal] = useState(false);
+  const [selectedTestItem, setSelectedTestItem] = useState(null);
   const [user, setUser] = useState(null);
   const pageSize = 20;
   const navigate = useNavigate();
@@ -229,7 +641,7 @@ export default function TestItems() {
       'assigned': '已分配',
       'running': '进行中',
       'waiting_review': '待审核',
-      'report_uploaded': '已传报告',
+      'report_uploaded': '待传数据',
       'completed': '已完成',
       'cancelled': '已取消'
     };
@@ -326,6 +738,16 @@ export default function TestItems() {
     setShowBatchAssignModal(true);
   }
 
+  function openEmployeeCompleteModal(testItem) {
+    setSelectedTestItem(testItem);
+    setShowEmployeeCompleteModal(true);
+  }
+
+  function openSupervisorReviewModal(testItem) {
+    setSelectedTestItem(testItem);
+    setShowSupervisorReviewModal(true);
+  }
+
   return (
     <div>
       <h2>检测项目处理</h2>
@@ -365,7 +787,7 @@ export default function TestItems() {
           <option value="assigned">已分配</option>
           <option value="running">进行中</option>
           <option value="waiting_review">待审核</option>
-          <option value="report_uploaded">已传报告</option>
+          <option value="report_uploaded">待传数据</option>
           <option value="completed">已完成</option>
           <option value="cancelled">已取消</option>
         </select>
@@ -494,7 +916,7 @@ export default function TestItems() {
 
                           {/* 审核：组长，状态=待审核 */}
                           {canReview(it) && (
-                            <button className="btn btn-primary btn-sm" onClick={()=>handleUpdateStatus(it.test_item_id, 'report_uploaded')}>审核通过</button>
+                            <button className="btn btn-primary btn-sm" onClick={()=>openSupervisorReviewModal(it)}>审核</button>
                           )}
 
                           {/* 指派：组长，状态=已分配（打开单项分配弹窗）*/}
@@ -509,7 +931,7 @@ export default function TestItems() {
 
                           {/* 完成：实验员，状态=进行中 */}
                           {canCompleteByEmployee(it) && (
-                            <button className="btn btn-success btn-sm" onClick={()=>handleUpdateStatus(it.test_item_id, 'completed')}>完成</button>
+                            <button className="btn btn-success btn-sm" onClick={()=>openEmployeeCompleteModal(it)}>完成</button>
                           )}
 
                           {/* 交付：业务员，状态=已传报告 */}
@@ -546,6 +968,32 @@ export default function TestItems() {
           onSuccess={() => {
             setShowBatchAssignModal(false);
             setSelectedItems(new Set());
+            load();
+          }}
+        />
+      )}
+
+      {/* 员工完成弹窗 */}
+      {showEmployeeCompleteModal && (
+        <EmployeeCompleteModal 
+          testItem={selectedTestItem}
+          onClose={() => setShowEmployeeCompleteModal(false)}
+          onSuccess={() => {
+            setShowEmployeeCompleteModal(false);
+            setSelectedTestItem(null);
+            load();
+          }}
+        />
+      )}
+
+      {/* 组长审核弹窗 */}
+      {showSupervisorReviewModal && (
+        <SupervisorReviewModal 
+          testItem={selectedTestItem}
+          onClose={() => setShowSupervisorReviewModal(false)}
+          onSuccess={() => {
+            setShowSupervisorReviewModal(false);
+            setSelectedTestItem(null);
             load();
           }}
         />

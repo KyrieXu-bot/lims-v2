@@ -208,5 +208,63 @@ export const api = {
     const r = await fetch(`/api/price/${id}`, { method:'DELETE', headers: this.authHeaders() });
     if (!r.ok) throw new Error((await r.json()).error || 'Delete failed');
     return r.json();
+  },
+
+  // equipment
+  async listEquipment({ q = '', page = 1, pageSize = 50, department_id } = {}) {
+    const params = new URLSearchParams({ q, page, pageSize });
+    if (department_id) params.set('department_id', department_id);
+    const r = await fetch(`/api/equipment?${params.toString()}`, { headers: this.authHeaders() });
+    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
+    return r.json();
+  },
+  async getEquipmentByDepartment(departmentId) {
+    const r = await fetch(`/api/equipment/by-department?department_id=${departmentId}`, { headers: this.authHeaders() });
+    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
+    return r.json();
+  },
+  async getEquipment(id) {
+    const r = await fetch(`/api/equipment/${id}`, { headers: this.authHeaders() });
+    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
+    return r.json();
+  },
+
+  // sample tracking
+  async listSampleTracking({ q = '', page = 1, pageSize = 20, status, lab_type, order_id } = {}) {
+    const params = new URLSearchParams({ q, page, pageSize });
+    if (status) params.set('status', status);
+    if (lab_type) params.set('lab_type', lab_type);
+    if (order_id) params.set('order_id', order_id);
+    const r = await fetch(`/api/sample-tracking?${params.toString()}`, { headers: this.authHeaders() });
+    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
+    return r.json();
+  },
+  async getSampleTrackingGrouped({ q = '', lab_type } = {}) {
+    const params = new URLSearchParams();
+    if (q) params.set('q', q);
+    if (lab_type) params.set('lab_type', lab_type);
+    const r = await fetch(`/api/sample-tracking/grouped?${params.toString()}`, { headers: this.authHeaders() });
+    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
+    return r.json();
+  },
+  async receiveSample(payload) {
+    const r = await fetch('/api/sample-tracking/receive', { method:'POST', headers: this.authHeaders(), body: JSON.stringify(payload) });
+    if (!r.ok) throw new Error((await r.json()).error || 'Receive failed');
+    return r.json();
+  },
+  async completeTesting(payload) {
+    const r = await fetch('/api/sample-tracking/testing-completed', { method:'POST', headers: this.authHeaders(), body: JSON.stringify(payload) });
+    if (!r.ok) throw new Error((await r.json()).error || 'Complete testing failed');
+    return r.json();
+  },
+  async returnSample(payload) {
+    const r = await fetch('/api/sample-tracking/return', { method:'POST', headers: this.authHeaders(), body: JSON.stringify(payload) });
+    if (!r.ok) throw new Error((await r.json()).error || 'Return failed');
+    return r.json();
+  },
+  async getSampleTracking(id) {
+    const r = await fetch(`/api/sample-tracking/${id}`, { headers: this.authHeaders() });
+    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
+    return r.json();
   }
 }

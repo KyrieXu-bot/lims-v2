@@ -199,7 +199,7 @@ export default function TestItemEdit() {
               <option value="assigned">已分配</option>
               <option value="running">进行中</option>
               <option value="waiting_review">待审核</option>
-              <option value="report_uploaded">已传报告</option>
+              <option value="report_uploaded">待传数据</option>
               <option value="completed">已完成</option>
               <option value="cancelled">已取消</option>
             </select>

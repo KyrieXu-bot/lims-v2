@@ -9,6 +9,8 @@ import priceRouter from './src/routes/price.js';
 import testItemsRouter from './src/routes/test_items.js';
 import ordersRouter from './src/routes/orders.js';
 import usersRouter from './src/routes/users.js';
+import equipmentRouter from './src/routes/equipment.js';
+import sampleTrackingRouter from './src/routes/sample_tracking.js';
 import { getPool } from './src/db.js';
 
 dotenv.config();
@@ -36,5 +38,7 @@ app.use('/api/price', priceRouter);
 app.use('/api/test-items', testItemsRouter);
 app.use('/api/orders', ordersRouter);
 app.use('/api/users', usersRouter);
+app.use('/api/equipment', equipmentRouter);
+app.use('/api/sample-tracking', sampleTrackingRouter);
 
 app.listen(PORT, () => console.log(`[LIMS] Server running on http://localhost:${PORT}`));
