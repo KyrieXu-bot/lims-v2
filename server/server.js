@@ -11,6 +11,7 @@ import ordersRouter from './src/routes/orders.js';
 import usersRouter from './src/routes/users.js';
 import equipmentRouter from './src/routes/equipment.js';
 import sampleTrackingRouter from './src/routes/sample_tracking.js';
+import filesRouter from './src/routes/files.js';
 import { getPool } from './src/db.js';
 
 dotenv.config();
@@ -40,5 +41,6 @@ app.use('/api/orders', ordersRouter);
 app.use('/api/users', usersRouter);
 app.use('/api/equipment', equipmentRouter);
 app.use('/api/sample-tracking', sampleTrackingRouter);
+app.use('/api/files', filesRouter);
 
 app.listen(PORT, () => console.log(`[LIMS] Server running on http://localhost:${PORT}`));

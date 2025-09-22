@@ -41,6 +41,12 @@ router.get('/', async (req, res) => {
     params.push(user.user_id);
   }
 
+  // 默认排除已取消的项目（除非明确查询已取消状态）
+  if (status !== 'cancelled') {
+    filters.push('ti.status != ?');
+    params.push('cancelled');
+  }
+
   if (q) {
     filters.push('(ti.category_name LIKE ? OR ti.detail_name LIKE ? OR ti.test_code LIKE ? OR ti.order_id LIKE ?)');
     params.push(like, like, like, like);
@@ -304,6 +310,43 @@ router.post('/batch-assign', async (req, res) => {
       ok: true, 
       message: `Successfully assigned ${testItemIds.length} items`,
       assignedCount: testItemIds.length
+    });
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// cancel test item (only admin can cancel)
+router.post('/:id/cancel', async (req, res) => {
+  const user = req.user;
+  
+  // 只有管理员可以取消测试
+  if (user.role !== 'admin') {
+    return res.status(403).json({ error: 'Only admin can cancel test items' });
+  }
+  
+  const pool = await getPool();
+  try {
+    // 检查测试项目是否存在
+    const [chk] = await pool.query('SELECT test_item_id, status FROM test_items WHERE test_item_id = ?', [req.params.id]);
+    if (chk.length === 0) {
+      return res.status(404).json({ error: 'Test item not found' });
+    }
+    
+    const testItem = chk[0];
+    
+    // 检查是否已经是已取消状态
+    if (testItem.status === 'cancelled') {
+      return res.status(400).json({ error: 'Test item is already cancelled' });
+    }
+    
+    // 更新状态为已取消
+    await pool.query('UPDATE test_items SET status = ? WHERE test_item_id = ?', ['cancelled', req.params.id]);
+    
+    res.json({ 
+      ok: true, 
+      message: 'Test item cancelled successfully',
+      testItemId: req.params.id
     });
   } catch (e) {
     return res.status(500).json({ error: e.message });

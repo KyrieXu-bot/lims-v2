@@ -153,6 +153,11 @@ export const api = {
     if (!r.ok) throw new Error((await r.json()).error || 'Batch assign failed');
     return r.json();
   },
+  async cancelTestItem(id) {
+    const r = await fetch(`/api/test-items/${id}/cancel`, { method:'POST', headers: this.authHeaders() });
+    if (!r.ok) throw new Error((await r.json()).error || 'Cancel failed');
+    return r.json();
+  },
   async getSupervisorsByDepartment(departmentId) {
     const r = await fetch(`/api/users/supervisors?department_id=${departmentId}`, { headers: this.authHeaders() });
     if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');

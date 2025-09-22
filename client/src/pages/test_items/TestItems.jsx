@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api.js';
+import SimpleFileUpload from '../../components/SimpleFileUpload';
 
 // 组长审核弹窗组件
 function SupervisorReviewModal({ testItem, onClose, onSuccess }) {
@@ -575,6 +576,8 @@ export default function TestItems() {
   const [showSupervisorReviewModal, setShowSupervisorReviewModal] = useState(false);
   const [selectedTestItem, setSelectedTestItem] = useState(null);
   const [user, setUser] = useState(null);
+  const [showFileView, setShowFileView] = useState(false);
+  const [selectedFileTestItem, setSelectedFileTestItem] = useState(null);
   const pageSize = 20;
   const navigate = useNavigate();
 
@@ -720,6 +723,14 @@ export default function TestItems() {
   const canCompleteByEmployee = (item) => user && user.role === 'employee' && item.status === 'running';
   const canDeliverBySales = (item) => user && user.role === 'sales' && item.status === 'report_uploaded';
   const canTransfer = (item) => user && user.role === 'admin' && item.sample_arrival_status === 'not_arrived';
+  const canCancel = (item) => user && user.role === 'admin' && item.status !== 'cancelled';
+
+  // 切换文件查看
+  const toggleFileView = (testItemId) => {
+    const testItem = items.find(item => item.test_item_id === testItemId);
+    setSelectedFileTestItem(testItem);
+    setShowFileView(!showFileView);
+  };
 
   async function handleUpdateStatus(id, status) {
     await api.updateTestItem(id, { status });
@@ -748,6 +759,18 @@ export default function TestItems() {
     setShowSupervisorReviewModal(true);
   }
 
+  async function handleCancelTestItem(id) {
+    if (confirm('确定要取消这个测试吗？取消后的测试将不会参与今后的统计。')) {
+      try {
+        await api.cancelTestItem(id);
+        alert('测试已成功取消');
+        load();
+      } catch (e) {
+        alert('取消失败: ' + e.message);
+      }
+    }
+  }
+
   return (
     <div>
       <h2>检测项目处理</h2>
@@ -755,18 +778,31 @@ export default function TestItems() {
         .grouped-items .group-header:hover {
           background: #e9ecef !important;
         }
+        .grouped-items .group-content {
+          margin: 0;
+          position: relative;
+        }
         .grouped-items .group-content .table {
           margin: 0;
           border: 1px solid #dee2e6;
+          min-width: 1400px;
+          position: relative;
         }
         .grouped-items .group-content .table th {
           background: #f8f9fa;
           font-size: 13px;
           padding: 8px 12px;
+          white-space: nowrap;
         }
         .grouped-items .group-content .table td {
           padding: 8px 12px;
           font-size: 13px;
+          white-space: nowrap;
+          vertical-align: top;
+        }
+        .grouped-items .group-content .table .actions-column {
+          vertical-align: top;
+          padding: 4px;
         }
         .grouped-items .group-content .table tbody tr:hover {
           background: #f8f9fa;
@@ -777,6 +813,75 @@ export default function TestItems() {
           font-size: 12px;
           color: white;
           font-weight: 500;
+        }
+        .actions-column {
+          position: sticky;
+          right: 0;
+          background: white;
+          z-index: 100;
+          min-width: 250px;
+          max-width: 250px;
+          width: 250px;
+          box-shadow: -2px 0 5px rgba(0,0,0,0.1);
+          border-left: 1px solid #dee2e6;
+        }
+        .actions-column:hover {
+          background: #f8f9fa;
+        }
+        .actions-buttons {
+          display: flex;
+          gap: 4px;
+          flex-wrap: wrap;
+          justify-content: flex-start;
+          align-items: center;
+          padding: 4px;
+        }
+        .actions-buttons .btn {
+          font-size: 11px;
+          padding: 4px 8px;
+          min-width: auto;
+          white-space: nowrap;
+          flex-shrink: 0;
+        }
+        .actions-buttons .btn-primary {
+          background: #007bff;
+          border-color: #007bff;
+        }
+        .actions-buttons .btn-success {
+          background: #28a745;
+          border-color: #28a745;
+        }
+        .actions-buttons .btn-danger {
+          background: #dc3545;
+          border-color: #dc3545;
+        }
+        .actions-buttons .btn-warning {
+          background: #ffc107;
+          border-color: #ffc107;
+          color: #212529;
+        }
+        .actions-buttons .btn-info {
+          background: #17a2b8;
+          border-color: #17a2b8;
+        }
+        .actions-buttons .btn-secondary {
+          background: #6c757d;
+          border-color: #6c757d;
+        }
+        .table-container {
+          position: relative;
+        }
+        .scroll-indicator {
+          position: absolute;
+          right: 0;
+          top: 50%;
+          transform: translateY(-50%);
+          background: rgba(0,0,0,0.1);
+          padding: 4px 8px;
+          border-radius: 4px;
+          font-size: 12px;
+          color: #666;
+          z-index: 5;
         }
       `}</style>
       <div className="toolbar">
@@ -850,104 +955,149 @@ export default function TestItems() {
             
             {expandedGroups.has(key) && (
               <div className="group-content" style={{marginLeft: '20px', marginBottom: '20px'}}>
-                <table className="table">
-                  <thead>
-                    <tr>
-                      <th>
-                        {canBatchAssign && (
-                          <input 
-                            type="checkbox" 
-                            checked={group.items.every(item => selectedItems.has(item.test_item_id))}
-                            onChange={() => toggleGroupSelection(group.items)}
-                          />
-                        )}
-                      </th>
-                      <th>ID</th><th>细项</th><th>代码</th><th>执行部门</th><th>执行小组</th><th>数量</th><th>单价</th><th>到达方式</th><th>样品状态</th><th>状态</th><th>执行人</th><th>负责人</th><th>实验员</th><th>操作</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {group.items.map(it => (
-                      <tr key={it.test_item_id}>
-                        <td>
-                          {canBatchAssign && (
-                            <input 
-                              type="checkbox" 
-                              checked={selectedItems.has(it.test_item_id)}
-                              onChange={() => toggleItemSelection(it.test_item_id)}
-                            />
-                          )}
-                        </td>
-                        <td>{it.test_item_id}</td>
-                        <td>{it.detail_name}</td>
-                        <td>{it.test_code}</td>
-                        <td>{it.department_id}</td>
-                        <td>{it.group_id}</td>
-                        <td>{it.quantity}</td>
-                        <td>{it.unit_price}</td>
-                        <td>{getArrivalModeText(it.arrival_mode)}</td>
-                        <td>{getSampleArrivalStatusText(it.sample_arrival_status)}</td>
-                        <td>
-                          <span className={`badge status-${it.status}`} style={{
-                            padding: '4px 8px',
-                            borderRadius: '12px',
-                            fontSize: '12px',
-                            backgroundColor: getStatusColor(it.status),
-                            color: 'white'
-                          }}>
-                            {getStatusText(it.status)}
-                          </span>
-                        </td>
-                        <td>{it.current_assignee ? `${it.assignee_name||''}（${it.current_assignee}）` : ''}</td>
-                        <td>{it.supervisor_id ? `${it.supervisor_name||''}（${it.supervisor_id}）` : ''}</td>
-                        <td>{it.technician_id ? `${it.technician_name||''}（${it.technician_id}）` : ''}</td>
-                        <td className="actions" style={{display:'flex', gap:8, flexWrap:'wrap'}}>
-                          {/* 查看：所有人都有，使用编辑页只读方式，可后续实现。暂以编辑替代查看入口 */}
-                          <button className="btn btn-secondary btn-sm" onClick={()=>navigate(`/test-items/${it.test_item_id}?view=1`)}>查看</button>
+                <div className="table-container" style={{display: 'flex', position: 'relative', overflowX: 'auto'}}>
+                  {/* 可滚动的数据表格 */}
+                  <div style={{flex: 1, marginRight: '250px', minWidth: '1200px'}}>
+                    <table className="table">
+                      <thead>
+                        <tr>
+                          <th>
+                            {canBatchAssign && (
+                              <input 
+                                type="checkbox" 
+                                checked={group.items.every(item => selectedItems.has(item.test_item_id))}
+                                onChange={() => toggleGroupSelection(group.items)}
+                              />
+                            )}
+                          </th>
+                          <th>ID</th><th>细项</th><th>代码</th><th>执行部门</th><th>执行小组</th><th>数量</th><th>单价</th><th>到达方式</th><th>样品状态</th><th>状态</th><th>执行人</th><th>负责人</th><th>实验员</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {group.items.map(it => (
+                          <tr key={it.test_item_id}>
+                            <td>
+                              {canBatchAssign && (
+                                <input 
+                                  type="checkbox" 
+                                  checked={selectedItems.has(it.test_item_id)}
+                                  onChange={() => toggleItemSelection(it.test_item_id)}
+                                />
+                              )}
+                            </td>
+                            <td>{it.test_item_id}</td>
+                            <td>{it.detail_name}</td>
+                            <td>{it.test_code}</td>
+                            <td>{it.department_id}</td>
+                            <td>{it.group_id}</td>
+                            <td>{it.quantity}</td>
+                            <td>{it.unit_price}</td>
+                            <td>{getArrivalModeText(it.arrival_mode)}</td>
+                            <td>{getSampleArrivalStatusText(it.sample_arrival_status)}</td>
+                            <td>
+                              <span className={`badge status-${it.status}`} style={{
+                                padding: '4px 8px',
+                                borderRadius: '12px',
+                                fontSize: '12px',
+                                backgroundColor: getStatusColor(it.status),
+                                color: 'white'
+                              }}>
+                                {getStatusText(it.status)}
+                              </span>
+                            </td>
+                            <td>{it.current_assignee ? `${it.assignee_name||''}（${it.current_assignee}）` : ''}</td>
+                            <td>{it.supervisor_id ? `${it.supervisor_name||''}（${it.supervisor_id}）` : ''}</td>
+                            <td>{it.technician_id ? `${it.technician_name||''}（${it.technician_id}）` : ''}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  
+                  {/* 固定的操作列 */}
+                  <div style={{
+                    position: 'absolute',
+                    right: 0,
+                    top: 0,
+                    width: '250px',
+                    background: 'white',
+                    zIndex: 100,
+                    boxShadow: '-2px 0 5px rgba(0,0,0,0.1)',
+                    borderLeft: '1px solid #dee2e6'
+                  }}>
+                    <table className="table" style={{margin: 0}}>
+                      <thead>
+                        <tr>
+                          <th style={{background: '#f8f9fa', padding: '8px 12px', fontSize: '13px', whiteSpace: 'nowrap'}}>操作</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {group.items.map(it => (
+                          <tr key={it.test_item_id} style={{height: 'auto'}}>
+                            <td style={{padding: '4px', verticalAlign: 'top'}}>
+                              <div className="actions-buttons">
+                                {/* 主要操作按钮 - 按优先级排序 */}
+                                {/* 查看：所有人都有 */}
+                                <button className="btn btn-secondary" onClick={()=>navigate(`/test-items/${it.test_item_id}?view=1`)} title="查看详情">查看</button>
 
-                          {/* 编辑：管理员、室主任 */}
-                          {canEdit && (
-                            <button className="btn btn-primary btn-sm" onClick={()=>navigate(`/test-items/${it.test_item_id}`)}>编辑</button>
-                          )}
+                                {/* 编辑：管理员、室主任 */}
+                                {canEdit && (
+                                  <button className="btn btn-primary" onClick={()=>navigate(`/test-items/${it.test_item_id}`)} title="编辑项目">编辑</button>
+                                )}
 
-                          {/* 删除：管理员、室主任 */}
-                          {canDelete && (
-                            <button className="btn btn-danger btn-sm" onClick={async ()=>{ if (confirm('确定要删除这个检测项目吗？')) { await api.deleteTestItem(it.test_item_id); load(); }}}>删除</button>
-                          )}
+                                {/* 审核：组长，状态=待审核 */}
+                                {canReview(it) && (
+                                  <button className="btn btn-primary" onClick={()=>openSupervisorReviewModal(it)} title="审核项目">审核</button>
+                                )}
 
-                          {/* 审核：组长，状态=待审核 */}
-                          {canReview(it) && (
-                            <button className="btn btn-primary btn-sm" onClick={()=>openSupervisorReviewModal(it)}>审核</button>
-                          )}
+                                {/* 指派：组长，状态=已分配 */}
+                                {canAssignSingle(it) && (
+                                  <button className="btn btn-primary" onClick={()=>openAssignForOne(it.test_item_id)} title="指派给实验员">指派</button>
+                                )}
 
-                          {/* 指派：组长，状态=已分配（打开单项分配弹窗）*/}
-                          {canAssignSingle(it) && (
-                            <button className="btn btn-primary btn-sm" onClick={()=>openAssignForOne(it.test_item_id)}>指派</button>
-                          )}
+                                {/* 完成：组长，状态=进行中 且 指派给自己 */}
+                                {canCompleteBySupervisor(it) && (
+                                  <button className="btn btn-success" onClick={()=>handleUpdateStatus(it.test_item_id, 'completed')} title="标记为完成">完成</button>
+                                )}
 
-                          {/* 完成：组长，状态=进行中 且 指派给自己 */}
-                          {canCompleteBySupervisor(it) && (
-                            <button className="btn btn-success btn-sm" onClick={()=>handleUpdateStatus(it.test_item_id, 'completed')}>完成</button>
-                          )}
+                                {/* 完成：实验员，状态=进行中 */}
+                                {canCompleteByEmployee(it) && (
+                                  <button className="btn btn-success" onClick={()=>openEmployeeCompleteModal(it)} title="完成检测">完成</button>
+                                )}
 
-                          {/* 完成：实验员，状态=进行中 */}
-                          {canCompleteByEmployee(it) && (
-                            <button className="btn btn-success btn-sm" onClick={()=>openEmployeeCompleteModal(it)}>完成</button>
-                          )}
+                                {/* 交付：业务员，状态=已传报告 */}
+                                {canDeliverBySales(it) && (
+                                  <button className="btn btn-info" onClick={()=>handleUpdateStatus(it.test_item_id, 'completed')} title="交付给客户">交付</button>
+                                )}
 
-                          {/* 交付：业务员，状态=已传报告 */}
-                          {canDeliverBySales(it) && (
-                            <button className="btn btn-info btn-sm" onClick={()=>handleUpdateStatus(it.test_item_id, 'completed')}>交付</button>
-                          )}
+                                {/* 流转：管理员，样品状态=未到 */}
+                                {canTransfer(it) && (
+                                  <button className="btn btn-warning" onClick={()=>handleTransfer(it.test_item_id)} title="样品流转">流转</button>
+                                )}
 
-                          {/* 流转：管理员，样品状态=未到 */}
-                          {canTransfer(it) && (
-                            <button className="btn btn-warning btn-sm" onClick={()=>handleTransfer(it.test_item_id)}>流转</button>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                                {/* 文件：所有角色都可以查看文件 */}
+                                <button className="btn btn-info" onClick={()=>toggleFileView(it.test_item_id)} title="文件管理">文件</button>
+
+                                {/* 危险操作 - 放在最后 */}
+                                {/* 取消：管理员，状态不是已取消 */}
+                                {canCancel(it) && (
+                                  <button className="btn btn-danger" onClick={()=>handleCancelTestItem(it.test_item_id)} title="取消测试">取消</button>
+                                )}
+
+                                {/* 删除：管理员、室主任 */}
+                                {canDelete && (
+                                  <button className="btn btn-danger" onClick={async ()=>{ if (confirm('确定要删除这个检测项目吗？')) { await api.deleteTestItem(it.test_item_id); load(); }}} title="删除项目">删除</button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  
+                  <div className="scroll-indicator">← 左右滑动查看更多 →</div>
+                </div>
               </div>
             )}
           </div>
@@ -971,6 +1121,52 @@ export default function TestItems() {
             load();
           }}
         />
+      )}
+
+      {/* 文件查看弹窗 */}
+      {showFileView && selectedFileTestItem && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0,0,0,0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000
+        }}>
+          <div style={{
+            background: 'white',
+            padding: '20px',
+            borderRadius: '8px',
+            maxWidth: '90%',
+            maxHeight: '90%',
+            overflow: 'auto',
+            width: '800px'
+          }}>
+            <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px'}}>
+              <h3>文件管理 - 检测项目 #{selectedFileTestItem.test_item_id}</h3>
+              <button 
+                className="btn btn-secondary"
+                onClick={() => setShowFileView(false)}
+              >
+                关闭
+              </button>
+            </div>
+            
+            <SimpleFileUpload
+              testItemId={selectedFileTestItem.test_item_id}
+              orderId={selectedFileTestItem.order_id}
+              userRole={user?.role}
+              onFileUploaded={() => {
+                // 文件上传成功后的回调
+                console.log('文件上传成功');
+              }}
+            />
+          </div>
+        </div>
       )}
 
       {/* 员工完成弹窗 */}
