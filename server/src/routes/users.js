@@ -5,6 +5,25 @@ import { requireAuth, requireAnyRole } from '../middleware/auth.js';
 const router = Router();
 router.use(requireAuth, requireAnyRole(['admin', 'leader', 'supervisor']));
 
+// 测试人员列表接口对所有角色开放
+router.get('/technicians', requireAuth, async (req, res) => {
+  const pool = await getPool();
+  try {
+    const [rows] = await pool.query(
+      `SELECT u.user_id as id, u.name, u.account
+       FROM users u
+       JOIN user_roles ur ON ur.user_id = u.user_id
+       JOIN roles r ON r.role_id = ur.role_id
+       WHERE r.role_code IN ('employee', 'supervisor') 
+       AND u.is_active = 1
+       ORDER BY u.name ASC`
+    );
+    res.json(rows);
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
 // 获取指定部门的组长
 router.get('/supervisors', async (req, res) => {
   const { department_id } = req.query;
@@ -92,5 +111,6 @@ router.get('/department-by-group', async (req, res) => {
     return res.status(500).json({ error: e.message });
   }
 });
+
 
 export default router;

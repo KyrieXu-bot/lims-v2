@@ -1,0 +1,187 @@
+.editable-cell {
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+  display: inline-block;
+  min-width: 60px;
+  min-height: 20px;
+}
+
+.editable-cell:hover {
+  background-color: #e3f2fd;
+  color: #1976d2;
+}
+
+.editable-cell.date {
+  color: #1976d2;
+  text-decoration: underline;
+}
+
+.editable-cell.autocomplete {
+  color: #1976d2;
+  text-decoration: underline;
+}
+
+.editable-input {
+  border: 2px solid #007bff;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 13px;
+  outline: none;
+  background: white;
+  min-width: 80px;
+}
+
+.editable-input:focus {
+  border-color: #0056b3;
+  box-shadow: 0 0 0 2px rgba(0,123,255,0.25);
+}
+
+.date-input {
+  min-width: 120px;
+}
+
+.autocomplete-container {
+  position: relative;
+  display: inline-block;
+}
+
+.autocomplete-input {
+  min-width: 150px;
+}
+
+.options-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  max-height: 200px;
+  overflow-y: auto;
+  z-index: 1000;
+  margin-top: 2px;
+}
+
+.option-item {
+  padding: 8px 12px;
+  cursor: pointer;
+  border-bottom: 1px solid #f0f0f0;
+  font-size: 13px;
+  transition: background-color 0.2s;
+}
+
+.option-item:hover {
+  background-color: #f8f9fa;
+}
+
+.option-item:last-child {
+  border-bottom: none;
+}
+
+/* 数字输入框样式 */
+input[type="number"] {
+  text-align: right;
+  min-width: 80px;
+}
+
+/* 日期输入框样式 */
+input[type="date"] {
+  color-scheme: light;
+}
+
+/* 实时编辑样式 */
+.realtime-editable-cell {
+  position: relative;
+  display: inline-block;
+}
+
+.editable-cell.being-edited {
+  background-color: #fff3cd;
+  border-color: #ffeaa7;
+  color: #856404;
+}
+
+.editing-indicator {
+  position: absolute;
+  top: -20px;
+  left: 0;
+  background: #007bff;
+  color: white;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  white-space: nowrap;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.editing-dot {
+  width: 6px;
+  height: 6px;
+  background: #ffc107;
+  border-radius: 50%;
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0% { opacity: 1; }
+  50% { opacity: 0.5; }
+  100% { opacity: 1; }
+}
+
+.editing-text {
+  font-size: 10px;
+}
+
+/* 在线用户指示器 */
+.online-indicator {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  background: #28a745;
+  color: white;
+  padding: 8px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  z-index: 1000;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+}
+
+.online-indicator.disconnected {
+  background: #dc3545;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .editable-input {
+    font-size: 12px;
+    padding: 3px 6px;
+  }
+  
+  .options-dropdown {
+    max-height: 150px;
+  }
+  
+  .option-item {
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+  
+  .editing-indicator {
+    font-size: 9px;
+    padding: 1px 4px;
+  }
+  
+  .online-indicator {
+    top: 10px;
+    right: 10px;
+    padding: 6px 10px;
+    font-size: 11px;
+  }
+}

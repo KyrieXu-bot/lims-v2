@@ -119,6 +119,9 @@ router.post('/', async (req, res) => {
   if (!order_id || !category_name || !detail_name) {
     return res.status(400).json({ error: 'order_id, category_name, detail_name are required' });
   }
+  
+  // 如果是委外检测，自动设置状态为outsource
+  const finalStatus = is_outsourced === 1 ? 'outsource' : status;
   const pool = await getPool();
   try {
     const [r] = await pool.query(
@@ -132,7 +135,7 @@ router.post('/', async (req, res) => {
       [order_id, price_id || null, category_name, detail_name, sample_name, material, sample_type, original_no,
        test_code, standard_code, department_id || null, group_id || null, quantity, unit_price, discount_rate,
        final_unit_price, line_total, machine_hours, work_hours, Number(is_add_on), Number(is_outsourced),
-       seq_no, sample_preparation, note, status, current_assignee || null, supervisor_id || null, technician_id || null,
+       seq_no, sample_preparation, note, finalStatus, current_assignee || null, supervisor_id || null, technician_id || null,
        arrival_mode || null, sample_arrival_status || null, equipment_id || null, check_notes || null, test_notes || null]
     );
     const [rows] = await pool.query(

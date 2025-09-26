@@ -13,6 +13,10 @@ import TestItems from './pages/test_items/TestItems.jsx';
 import TestItemEdit from './pages/test_items/TestItemEdit.jsx';
 import SampleManagement from './pages/sample_management/SampleManagement.jsx';
 import SampleDetail from './pages/sample_management/SampleDetail.jsx';
+import OutsourceManagement from './pages/outsource/OutsourceManagement.jsx';
+import OrderManagement from './pages/orders/OrderManagement.jsx';
+import CommissionForm from './pages/commission/CommissionForm.jsx';
+import EquipmentList from './pages/commission/EquipmentList.jsx';
 import './app.css';
 
 function Layout({ children }) {
@@ -38,11 +42,21 @@ function Layout({ children }) {
                 </>
               )}
               {/* 所有角色都可以看到检测项目处理 */}
-              <NavLink to="/test-items" className={({isActive})=>isActive?'active':''}>检测项目处理</NavLink>
+              {/* <NavLink to="/test-items" className={({isActive})=>isActive?'active':''}>检测项目处理</NavLink> */}
               {/* 样品管理 - 实验室相关人员可以看到 */}
               {(user.role === 'admin' || user.role === 'leader' || user.role === 'supervisor' || user.role === 'employee') && (
                 <NavLink to="/sample-management" className={({isActive})=>isActive?'active':''}>样品管理</NavLink>
               )}
+              {/* 委外管理 - 只有管理员和YWQXM可以看到 */}
+              {/* {(user.role === 'admin' || user.user_id === 'YWQXM') && (
+                <NavLink to="/outsource" className={({isActive})=>isActive?'active':''}>委外管理</NavLink>
+              )} */}
+              {/* 委托单管理 - 所有角色都可以看到 */}
+              {/* <NavLink to="/orders" className={({isActive})=>isActive?'active':''}>委托单管理</NavLink> */}
+              {/* 委托单登记表 - 所有角色都可以看到 */}
+              <NavLink to="/commission-form" className={({isActive})=>isActive?'active':''}>委托单登记表</NavLink>
+              {/* 平台设备清单 - 所有角色都可以看到 */}
+              <NavLink to="/equipment-list" className={({isActive})=>isActive?'active':''}>平台设备清单</NavLink>
               {/* 管理员可以看到价目表 */}
               {user.role === 'admin' && (
                 <NavLink to="/price" className={({isActive})=>isActive?'active':''}>价目表</NavLink>
@@ -79,6 +93,10 @@ export default function App() {
       <Route path="/test-items/:id" element={<Layout><TestItemEdit/></Layout>} />
       <Route path="/sample-management" element={<Layout><SampleManagement/></Layout>} />
       <Route path="/sample-tracking/:id" element={<Layout><SampleDetail/></Layout>} />
+      <Route path="/outsource" element={<Layout><OutsourceManagement/></Layout>} />
+      <Route path="/orders" element={<Layout><OrderManagement/></Layout>} />
+      <Route path="/commission-form" element={<Layout><CommissionForm/></Layout>} />
+      <Route path="/equipment-list" element={<Layout><EquipmentList/></Layout>} />
       <Route path="/" element={<Layout><TestItems/></Layout>} />
       <Route path="*" element={<Layout><Login/></Layout>} />
     </Routes>

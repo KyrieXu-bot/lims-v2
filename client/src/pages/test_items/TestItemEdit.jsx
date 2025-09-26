@@ -186,11 +186,26 @@ export default function TestItemEdit() {
           </div>
           <div>
             <label>是否委外</label>
-            <select className="input" value={it.is_outsourced ?? 0} onChange={e=>setIt({...it, is_outsourced:Number(e.target.value)})} disabled={isView}>
+            <select className="input" value={it.is_outsourced ?? 0} onChange={e=>{
+              const isOutsourced = Number(e.target.value);
+              setIt({...it, is_outsourced: isOutsourced, test_code: isOutsourced ? 'OS001' : it.test_code});
+            }} disabled={isView}>
               <option value={0}>否</option>
               <option value={1}>是</option>
             </select>
           </div>
+          {it.is_outsourced === 1 && (
+            <div>
+              <label>委外检测项目 *</label>
+              <input 
+                className="input" 
+                value={it.detail_name || ''} 
+                onChange={e => setIt({...it, detail_name: e.target.value})} 
+                placeholder="请输入委外检测项目名称"
+                disabled={isView}
+              />
+            </div>
+          )}
           <Field label="顺序号" value={it.seq_no} onChange={v=>setIt({...it, seq_no:v})} />
           <div>
             <label>状态</label>

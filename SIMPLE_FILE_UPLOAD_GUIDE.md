@@ -117,3 +117,5 @@ MODIFY COLUMN category ENUM('order_attachment','raw_data','experiment_report') N
 - 检查权限设置
 
 这个简化版本更加符合您的需求：简洁、高效、直接集成在检测项目处理页面中，无需额外的文件管理模块。
+
+

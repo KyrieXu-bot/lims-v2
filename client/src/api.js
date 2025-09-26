@@ -271,5 +271,105 @@ export const api = {
     const r = await fetch(`/api/sample-tracking/${id}`, { headers: this.authHeaders() });
     if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
     return r.json();
+  },
+
+  // 委外管理API
+  async getOutsourceItems() {
+    const r = await fetch('/api/outsource', { headers: this.authHeaders() });
+    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
+    return r.json();
+  },
+
+  async updateOutsourceInfo(id, data) {
+    const r = await fetch(`/api/outsource/${id}`, { 
+      method: 'PUT', 
+      headers: this.authHeaders(),
+      body: JSON.stringify(data)
+    });
+    if (!r.ok) throw new Error((await r.json()).error || 'Update failed');
+    return r.json();
+  },
+
+  async uploadOutsourceReport(id, reportPath) {
+    const r = await fetch(`/api/outsource/${id}/report`, { 
+      method: 'POST', 
+      headers: this.authHeaders(),
+      body: JSON.stringify({ report_path: reportPath })
+    });
+    if (!r.ok) throw new Error((await r.json()).error || 'Upload failed');
+    return r.json();
+  },
+
+  async updateTrackingNumber(id, trackingNumber) {
+    const r = await fetch(`/api/outsource/${id}/tracking`, { 
+      method: 'PUT', 
+      headers: this.authHeaders(),
+      body: JSON.stringify({ return_tracking_number: trackingNumber })
+    });
+    if (!r.ok) throw new Error((await r.json()).error || 'Update failed');
+    return r.json();
+  },
+
+  async completeOutsource(id) {
+    const r = await fetch(`/api/outsource/${id}/complete`, { 
+      method: 'POST', 
+      headers: this.authHeaders()
+    });
+    if (!r.ok) throw new Error((await r.json()).error || 'Complete failed');
+    return r.json();
+  },
+
+  // 委托单管理API
+  async getOrders() {
+    const r = await fetch('/api/orders', { headers: this.authHeaders() });
+    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
+    return r.json();
+  },
+
+  async getInternalOrderDetails(orderId) {
+    const r = await fetch(`/api/orders/internal/${orderId}`, { headers: this.authHeaders() });
+    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
+    return r.json();
+  },
+
+  async getOutsourceOrderDetails(orderId) {
+    const r = await fetch(`/api/orders/outsource/${orderId}`, { headers: this.authHeaders() });
+    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
+    return r.json();
+  },
+
+  async updateSettlementStatus(orderId, status) {
+    const r = await fetch(`/api/orders/${orderId}/settlement`, { 
+      method: 'PUT', 
+      headers: this.authHeaders(),
+      body: JSON.stringify({ settlement_status: status })
+    });
+    if (!r.ok) throw new Error((await r.json()).error || 'Update failed');
+    return r.json();
+  },
+
+  async getOrderStats() {
+    const r = await fetch('/api/orders/stats', { headers: this.authHeaders() });
+    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
+    return r.json();
+  },
+
+  // 委托单登记表API
+  async getCommissionFormData({ q = '', page = 1, pageSize = 100, status, order_id } = {}) {
+    const params = new URLSearchParams({ q, page, pageSize });
+    if (status) params.set('status', status);
+    if (order_id) params.set('order_id', order_id);
+    const r = await fetch(`/api/commission-form/commission-form?${params.toString()}`, { headers: this.authHeaders() });
+    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
+    return r.json();
+  },
+
+  // 平台设备清单API
+  async getEquipmentListData({ q = '', page = 1, pageSize = 100, department_id } = {}) {
+    const params = new URLSearchParams({ q, page, pageSize });
+    if (department_id) params.set('department_id', department_id);
+    const r = await fetch(`/api/commission-form/equipment-list?${params.toString()}`, { headers: this.authHeaders() });
+    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
+    return r.json();
   }
 }

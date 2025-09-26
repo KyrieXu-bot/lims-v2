@@ -80,6 +80,15 @@ router.post('/upload', requireAnyRole(['admin', 'leader', 'supervisor', 'employe
     const { category, order_id, test_item_id, sample_id } = req.body;
     const user = req.user;
 
+    // 验证用户信息
+    if (!user || !user.user_id) {
+      // 删除已上传的文件
+      if (req.file && fs.existsSync(req.file.path)) {
+        fs.unlinkSync(req.file.path);
+      }
+      return res.status(401).json({ error: '用户信息无效' });
+    }
+
     // 验证文件类别 - 三大类
     const validCategories = ['order_attachment', 'raw_data', 'experiment_report'];
     if (!validCategories.includes(category)) {

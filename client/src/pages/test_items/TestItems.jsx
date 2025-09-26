@@ -785,8 +785,6 @@ export default function TestItems() {
         .grouped-items .group-content .table {
           margin: 0;
           border: 1px solid #dee2e6;
-          min-width: 1400px;
-          position: relative;
         }
         .grouped-items .group-content .table th {
           background: #f8f9fa;
@@ -800,10 +798,6 @@ export default function TestItems() {
           white-space: nowrap;
           vertical-align: top;
         }
-        .grouped-items .group-content .table .actions-column {
-          vertical-align: top;
-          padding: 4px;
-        }
         .grouped-items .group-content .table tbody tr:hover {
           background: #f8f9fa;
         }
@@ -813,20 +807,6 @@ export default function TestItems() {
           font-size: 12px;
           color: white;
           font-weight: 500;
-        }
-        .actions-column {
-          position: sticky;
-          right: 0;
-          background: white;
-          z-index: 100;
-          min-width: 250px;
-          max-width: 250px;
-          width: 250px;
-          box-shadow: -2px 0 5px rgba(0,0,0,0.1);
-          border-left: 1px solid #dee2e6;
-        }
-        .actions-column:hover {
-          background: #f8f9fa;
         }
         .actions-buttons {
           display: flex;
@@ -870,6 +850,14 @@ export default function TestItems() {
         }
         .table-container {
           position: relative;
+        }
+        .table-container .table tbody tr {
+          height: 60px;
+        }
+        .table-container .table tbody td {
+          height: 60px;
+          vertical-align: top;
+          padding-top: 8px;
         }
         .scroll-indicator {
           position: absolute;
@@ -955,13 +943,13 @@ export default function TestItems() {
             
             {expandedGroups.has(key) && (
               <div className="group-content" style={{marginLeft: '20px', marginBottom: '20px'}}>
-                <div className="table-container" style={{display: 'flex', position: 'relative', overflowX: 'auto'}}>
+                <div className="table-container" style={{display: 'flex', position: 'relative'}}>
                   {/* 可滚动的数据表格 */}
-                  <div style={{flex: 1, marginRight: '250px', minWidth: '1200px'}}>
-                    <table className="table">
+                  <div style={{flex: 1, overflowX: 'auto', marginRight: '250px'}}>
+                    <table className="table" style={{minWidth: '1200px', marginBottom: 0}}>
                       <thead>
                         <tr>
-                          <th>
+                          <th style={{width: '40px'}}>
                             {canBatchAssign && (
                               <input 
                                 type="checkbox" 
@@ -970,7 +958,19 @@ export default function TestItems() {
                               />
                             )}
                           </th>
-                          <th>ID</th><th>细项</th><th>代码</th><th>执行部门</th><th>执行小组</th><th>数量</th><th>单价</th><th>到达方式</th><th>样品状态</th><th>状态</th><th>执行人</th><th>负责人</th><th>实验员</th>
+                          <th style={{width: '80px'}}>ID</th>
+                          <th style={{width: '150px'}}>细项</th>
+                          <th style={{width: '100px'}}>代码</th>
+                          <th style={{width: '100px'}}>执行部门</th>
+                          <th style={{width: '100px'}}>执行小组</th>
+                          <th style={{width: '80px'}}>数量</th>
+                          <th style={{width: '100px'}}>单价</th>
+                          <th style={{width: '100px'}}>到达方式</th>
+                          <th style={{width: '100px'}}>样品状态</th>
+                          <th style={{width: '100px'}}>状态</th>
+                          <th style={{width: '120px'}}>执行人</th>
+                          <th style={{width: '120px'}}>负责人</th>
+                          <th style={{width: '120px'}}>实验员</th>
                         </tr>
                       </thead>
                       <tbody>
