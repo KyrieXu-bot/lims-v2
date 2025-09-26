@@ -21,6 +21,7 @@ const CommissionForm = () => {
   const [selectedFileTestItem, setSelectedFileTestItem] = useState(null);
   const [showFileModal, setShowFileModal] = useState(false);
   const [user, setUser] = useState(null);
+  const [savingStatus, setSavingStatus] = useState({}); // 保存状态：{testItemId-field: 'saving'|'success'|'error'}
   
   // WebSocket连接
   const {
@@ -162,14 +163,37 @@ const CommissionForm = () => {
 
 
   const handleSaveEdit = async (field, value, testItemId) => {
+    const statusKey = `${testItemId}-${field}`;
+    
     try {
+      // 设置保存中状态
+      setSavingStatus(prev => ({ ...prev, [statusKey]: 'saving' }));
+      
       const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
       const headers = {
         'Authorization': `Bearer ${user.token}`,
         'Content-Type': 'application/json'
       };
 
-      const updateData = { [field]: value };
+      let updateData = { [field]: value };
+      
+      // 特殊处理测试人员字段：需要保存technician_id而不是technician_name
+      if (field === 'technician_name') {
+        // 根据姓名找到对应的technician_id
+        const technician = technicians.find(t => t.name === value);
+        if (technician) {
+          updateData = { 
+            technician_id: technician.id,
+            technician_name: value 
+          };
+        } else {
+          // 如果找不到对应的技术人员，清空technician_id
+          updateData = { 
+            technician_id: null,
+            technician_name: value 
+          };
+        }
+      }
       
       const response = await fetch(`/api/test-items/${testItemId}`, {
         method: 'PUT',
@@ -185,7 +209,7 @@ const CommissionForm = () => {
       setData(prevData => 
         prevData.map(item => 
           item.test_item_id === testItemId 
-            ? { ...item, [field]: value }
+            ? { ...item, ...updateData }
             : item
         )
       );
@@ -193,31 +217,71 @@ const CommissionForm = () => {
       // 发送实时更新通知
       emitDataUpdate(field, value, testItemId);
 
+      // 设置保存成功状态
+      setSavingStatus(prev => ({ ...prev, [statusKey]: 'success' }));
+      
+      // 2秒后清除成功状态
+      setTimeout(() => {
+        setSavingStatus(prev => {
+          const newStatus = { ...prev };
+          delete newStatus[statusKey];
+          return newStatus;
+        });
+      }, 2000);
+
       console.log('更新成功:', field, value);
     } catch (error) {
       console.error('保存编辑失败:', error);
+      // 设置保存失败状态
+      setSavingStatus(prev => ({ ...prev, [statusKey]: 'error' }));
+      
+      // 3秒后清除错误状态
+      setTimeout(() => {
+        setSavingStatus(prev => {
+          const newStatus = { ...prev };
+          delete newStatus[statusKey];
+          return newStatus;
+        });
+      }, 3000);
+      
       throw error;
     }
   };
 
   const formatDate = (dateString) => {
-    if (!dateString) return '-';
+    if (!dateString) return '';
     return new Date(dateString).toLocaleDateString('zh-CN');
   };
 
   const formatDateTime = (dateString) => {
-    if (!dateString) return '-';
+    if (!dateString) return '';
     return new Date(dateString).toLocaleString('zh-CN');
   };
 
   const formatCurrency = (amount) => {
-    if (!amount) return '-';
+    if (!amount) return '';
     return `¥${Number(amount).toFixed(2)}`;
   };
 
   const formatPercentage = (rate) => {
-    if (!rate) return '-';
+    if (!rate) return '';
     return `${(Number(rate) * 100).toFixed(1)}%`;
+  };
+
+  // 保存状态指示器组件
+  const SavingIndicator = ({ testItemId, field }) => {
+    const statusKey = `${testItemId}-${field}`;
+    const status = savingStatus[statusKey];
+    
+    if (!status) return null;
+    
+    return (
+      <span className={`saving-indicator saving-${status}`}>
+        {status === 'saving' && '💾 保存中...'}
+        {status === 'success' && '✅ 保存成功'}
+        {status === 'error' && '❌ 保存失败'}
+      </span>
+    );
   };
 
   return (
@@ -322,89 +386,104 @@ const CommissionForm = () => {
                           >
                             {item.customer_name}
                           </span>
-                        ) : '-'}
+                        ) : ''}
                       </td>
-                      <td>{item.assignee_name || '-'}</td>
-                      <td>{item.unpaid_amount || '-'}</td>
-                      <td>{item.test_item_name || '-'}</td>
-                      <td>{item.test_code || '-'}</td>
-                      <td>{item.department_id || '-'}</td>
+                      <td>{item.assignee_name || ''}</td>
+                      <td>{item.unpaid_amount || ''}</td>
+                      <td>{item.test_item_name || ''}</td>
+                      <td>{item.test_code || ''}</td>
+                      <td>{item.department_id || ''}</td>
                       <td>{formatCurrency(item.standard_price)}</td>
                       <td>{formatCurrency(item.unit_price)}</td>
                       <td>{formatPercentage(item.discount_rate)}</td>
-                      <td>{item.service_urgency || '-'}</td>
+                      <td>{item.service_urgency || ''}</td>
                       <td>{formatDateTime(item.field_test_time)}</td>
-                      <td>{item.note || '-'}</td>
-                      <td>{item.equipment_name || '-'}</td>
+                      <td>{item.note || ''}</td>
+                      <td>{item.equipment_name || ''}</td>
                       <td>
-                        <RealtimeEditableCell
-                          value={item.technician_name}
-                          type="autocomplete"
-                          options={technicians}
-                          onSave={handleSaveEdit}
-                          field="technician_name"
-                          testItemId={item.test_item_id}
-                          placeholder="输入测试人员姓名"
-                          isFieldBeingEdited={isFieldBeingEdited}
-                          getEditingUser={getEditingUser}
-                          emitUserEditing={emitUserEditing}
-                          emitUserStopEditing={emitUserStopEditing}
-                        />
+                        <div className="editable-field-container">
+                          <RealtimeEditableCell
+                            value={item.technician_name}
+                            type="autocomplete"
+                            options={technicians}
+                            onSave={handleSaveEdit}
+                            field="technician_name"
+                            testItemId={item.test_item_id}
+                            placeholder="输入测试人员姓名"
+                            isFieldBeingEdited={isFieldBeingEdited}
+                            getEditingUser={getEditingUser}
+                            emitUserEditing={emitUserEditing}
+                            emitUserStopEditing={emitUserStopEditing}
+                          />
+                          <SavingIndicator testItemId={item.test_item_id} field="technician_name" />
+                        </div>
                       </td>
                       <td>
-                        <RealtimeEditableCell
-                          value={item.actual_sample_quantity}
-                          type="number"
-                          onSave={handleSaveEdit}
-                          field="actual_sample_quantity"
-                          testItemId={item.test_item_id}
-                          placeholder="样品数量"
-                          isFieldBeingEdited={isFieldBeingEdited}
-                          getEditingUser={getEditingUser}
-                          emitUserEditing={emitUserEditing}
-                          emitUserStopEditing={emitUserStopEditing}
-                        />
+                        <div className="editable-field-container">
+                          <RealtimeEditableCell
+                            value={item.actual_sample_quantity}
+                            type="number"
+                            onSave={handleSaveEdit}
+                            field="actual_sample_quantity"
+                            testItemId={item.test_item_id}
+                            placeholder="样品数量"
+                            isFieldBeingEdited={isFieldBeingEdited}
+                            getEditingUser={getEditingUser}
+                            emitUserEditing={emitUserEditing}
+                            emitUserStopEditing={emitUserStopEditing}
+                          />
+                          <SavingIndicator testItemId={item.test_item_id} field="actual_sample_quantity" />
+                        </div>
                       </td>
                       <td>
-                        <RealtimeEditableCell
-                          value={item.work_hours}
-                          type="number"
-                          onSave={handleSaveEdit}
-                          field="work_hours"
-                          testItemId={item.test_item_id}
-                          placeholder="工时"
-                          isFieldBeingEdited={isFieldBeingEdited}
-                          getEditingUser={getEditingUser}
-                          emitUserEditing={emitUserEditing}
-                          emitUserStopEditing={emitUserStopEditing}
-                        />
+                        <div className="editable-field-container">
+                          <RealtimeEditableCell
+                            value={item.work_hours}
+                            type="number"
+                            onSave={handleSaveEdit}
+                            field="work_hours"
+                            testItemId={item.test_item_id}
+                            placeholder="工时"
+                            isFieldBeingEdited={isFieldBeingEdited}
+                            getEditingUser={getEditingUser}
+                            emitUserEditing={emitUserEditing}
+                            emitUserStopEditing={emitUserStopEditing}
+                          />
+                          <SavingIndicator testItemId={item.test_item_id} field="work_hours" />
+                        </div>
                       </td>
                       <td>
-                        <RealtimeEditableCell
-                          value={item.machine_hours}
-                          type="number"
-                          onSave={handleSaveEdit}
-                          field="machine_hours"
-                          testItemId={item.test_item_id}
-                          placeholder="机时"
-                          isFieldBeingEdited={isFieldBeingEdited}
-                          getEditingUser={getEditingUser}
-                          emitUserEditing={emitUserEditing}
-                          emitUserStopEditing={emitUserStopEditing}
-                        />
+                        <div className="editable-field-container">
+                          <RealtimeEditableCell
+                            value={item.machine_hours}
+                            type="number"
+                            onSave={handleSaveEdit}
+                            field="machine_hours"
+                            testItemId={item.test_item_id}
+                            placeholder="机时"
+                            isFieldBeingEdited={isFieldBeingEdited}
+                            getEditingUser={getEditingUser}
+                            emitUserEditing={emitUserEditing}
+                            emitUserStopEditing={emitUserStopEditing}
+                          />
+                          <SavingIndicator testItemId={item.test_item_id} field="machine_hours" />
+                        </div>
                       </td>
                       <td>
-                        <RealtimeEditableCell
-                          value={item.actual_delivery_date}
-                          type="date"
-                          onSave={handleSaveEdit}
-                          field="actual_delivery_date"
-                          testItemId={item.test_item_id}
-                          isFieldBeingEdited={isFieldBeingEdited}
-                          getEditingUser={getEditingUser}
-                          emitUserEditing={emitUserEditing}
-                          emitUserStopEditing={emitUserStopEditing}
-                        />
+                        <div className="editable-field-container">
+                          <RealtimeEditableCell
+                            value={item.actual_delivery_date}
+                            type="date"
+                            onSave={handleSaveEdit}
+                            field="actual_delivery_date"
+                            testItemId={item.test_item_id}
+                            isFieldBeingEdited={isFieldBeingEdited}
+                            getEditingUser={getEditingUser}
+                            emitUserEditing={emitUserEditing}
+                            emitUserStopEditing={emitUserStopEditing}
+                          />
+                          <SavingIndicator testItemId={item.test_item_id} field="actual_delivery_date" />
+                        </div>
                       </td>
                       <td>
                         <span className={`status status-${item.status}`}>

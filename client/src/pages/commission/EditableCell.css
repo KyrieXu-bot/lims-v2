@@ -1,26 +1,38 @@
 .editable-cell {
   cursor: pointer;
-  padding: 4px 8px;
-  border-radius: 4px;
-  transition: background-color 0.2s;
+  padding: 6px 10px;
+  border-radius: 6px;
+  transition: all 0.2s;
   display: inline-block;
   min-width: 60px;
-  min-height: 20px;
+  min-height: 24px;
+  border: 1px solid transparent;
+  background-color: #f8f9fa;
+  color: #495057;
+  font-weight: 500;
 }
 
 .editable-cell:hover {
-  background-color: #e3f2fd;
-  color: #1976d2;
+  background-color: #e9ecef;
+  border-color: #007bff;
+  color: #007bff;
+  box-shadow: 0 2px 4px rgba(0,123,255,0.15);
 }
 
 .editable-cell.date {
-  color: #1976d2;
-  text-decoration: underline;
+  color: #495057;
+  text-decoration: none;
 }
 
 .editable-cell.autocomplete {
-  color: #1976d2;
-  text-decoration: underline;
+  color: #495057;
+  text-decoration: none;
+}
+
+.editable-cell.number {
+  color: #495057;
+  text-decoration: none;
+  text-align: right;
 }
 
 .editable-input {
@@ -52,34 +64,38 @@
 }
 
 .options-dropdown {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  right: 0;
+  position: fixed;
   background: white;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  border: 1px solid #007bff;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0,123,255,0.15);
   max-height: 200px;
   overflow-y: auto;
-  z-index: 1000;
-  margin-top: 2px;
+  z-index: 10000;
+  min-width: 200px;
 }
 
 .option-item {
-  padding: 8px 12px;
+  padding: 10px 14px;
   cursor: pointer;
   border-bottom: 1px solid #f0f0f0;
-  font-size: 13px;
-  transition: background-color 0.2s;
+  font-size: 14px;
+  transition: all 0.2s;
+  color: #495057;
 }
 
 .option-item:hover {
-  background-color: #f8f9fa;
+  background-color: #e3f2fd;
+  color: #007bff;
 }
 
 .option-item:last-child {
   border-bottom: none;
+  border-radius: 0 0 6px 6px;
+}
+
+.option-item:first-child {
+  border-radius: 6px 6px 0 0;
 }
 
 /* 数字输入框样式 */

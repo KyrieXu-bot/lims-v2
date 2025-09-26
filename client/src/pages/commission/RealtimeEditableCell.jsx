@@ -19,6 +19,7 @@ const RealtimeEditableCell = ({
   const [editValue, setEditValue] = useState(value || '');
   const [filteredOptions, setFilteredOptions] = useState(options);
   const [showOptions, setShowOptions] = useState(false);
+  const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
   const inputRef = useRef(null);
   const optionsRef = useRef(null);
   const editingTimeoutRef = useRef(null);
@@ -40,14 +41,17 @@ const RealtimeEditableCell = ({
     const handleClickOutside = (event) => {
       if (optionsRef.current && !optionsRef.current.contains(event.target)) {
         setShowOptions(false);
+        setIsEditing(false);
+        // 通知其他用户我停止了编辑
+        emitUserStopEditing && emitUserStopEditing(field, testItemId);
       }
     };
 
-    if (showOptions) {
+    if (isEditing && showOptions) {
       document.addEventListener('mousedown', handleClickOutside);
       return () => document.removeEventListener('mousedown', handleClickOutside);
     }
-  }, [showOptions]);
+  }, [isEditing, showOptions, field, testItemId, emitUserStopEditing]);
 
   // 监听外部数据更新
   useEffect(() => {
@@ -57,6 +61,16 @@ const RealtimeEditableCell = ({
       });
     }
   }, [onDataUpdate, field, testItemId]);
+
+  const calculateDropdownPosition = () => {
+    if (inputRef.current) {
+      const rect = inputRef.current.getBoundingClientRect();
+      setDropdownPosition({
+        top: rect.bottom + window.scrollY + 4,
+        left: rect.left + window.scrollX
+      });
+    }
+  };
 
   const handleClick = () => {
     // 检查是否有其他用户正在编辑
@@ -71,7 +85,11 @@ const RealtimeEditableCell = ({
     if (!isEditing) {
       setIsEditing(true);
       if (type === 'autocomplete') {
+        // 初始显示所有选项
+        setFilteredOptions(options);
         setShowOptions(true);
+        // 计算下拉框位置
+        setTimeout(calculateDropdownPosition, 0);
       }
       
       // 通知其他用户我正在编辑
@@ -84,12 +102,26 @@ const RealtimeEditableCell = ({
     setEditValue(newValue);
     
     if (type === 'autocomplete') {
-      const filtered = options.filter(option => 
-        option.name.toLowerCase().includes(newValue.toLowerCase()) ||
-        option.name.includes(newValue)
-      );
-      setFilteredOptions(filtered);
+      if (newValue.trim() === '') {
+        // 如果输入为空，显示所有选项
+        setFilteredOptions(options);
+      } else {
+        // 支持按姓氏过滤，也支持全名匹配
+        const filtered = options.filter(option => {
+          const name = option.name.toLowerCase();
+          const searchValue = newValue.toLowerCase();
+          
+          // 按姓氏匹配（取第一个字符）
+          const firstName = name.charAt(0);
+          const searchFirstChar = searchValue.charAt(0);
+          
+          return name.includes(searchValue) || firstName === searchFirstChar;
+        });
+        setFilteredOptions(filtered);
+      }
       setShowOptions(true);
+      // 重新计算下拉框位置
+      calculateDropdownPosition();
     }
 
     // 重置编辑超时
@@ -146,11 +178,15 @@ const RealtimeEditableCell = ({
   const handleOptionSelect = (option) => {
     setEditValue(option.name);
     setShowOptions(false);
-    handleSave();
+    setIsEditing(false);
+    // 直接保存选中的值
+    onSave(field, option.name, testItemId);
+    // 通知其他用户我停止了编辑
+    emitUserStopEditing && emitUserStopEditing(field, testItemId);
   };
 
   const formatValue = (val) => {
-    if (!val) return '-';
+    if (!val) return '';
     if (type === 'date') {
       return new Date(val).toLocaleDateString('zh-CN');
     }
@@ -204,12 +240,17 @@ const RealtimeEditableCell = ({
           value={editValue}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
-          onBlur={() => setTimeout(() => setShowOptions(false), 200)}
           className="editable-input autocomplete-input"
           placeholder={placeholder}
         />
         {showOptions && filteredOptions.length > 0 && (
-          <div className="options-dropdown">
+          <div 
+            className="options-dropdown"
+            style={{
+              top: dropdownPosition.top,
+              left: dropdownPosition.left
+            }}
+          >
             {filteredOptions.map((option, index) => (
               <div
                 key={option.id || index}

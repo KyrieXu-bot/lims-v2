@@ -62,12 +62,7 @@ const EquipmentList = () => {
 
   return (
     <div className="equipment-list">
-      <div className="page-header">
-        <h1>平台设备清单</h1>
-        <p>实验室设备信息一览表</p>
-      </div>
-
-      {/* 搜索和筛选区域 */}
+      {/* 搜索和筛选区域 - 首行 */}
       <div className="filters">
         <div className="filter-row">
           <div className="filter-group">
