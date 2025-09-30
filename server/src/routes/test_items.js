@@ -114,8 +114,39 @@ router.post('/', async (req, res) => {
     test_code, standard_code, department_id, group_id, quantity = 1, unit_price, discount_rate,
     final_unit_price, line_total, machine_hours = 0, work_hours = 0, is_add_on = 0, is_outsourced = 0,
     seq_no, sample_preparation, note, status = 'new', current_assignee, supervisor_id, technician_id,
-    arrival_mode, sample_arrival_status, equipment_id, check_notes, test_notes
+    arrival_mode, sample_arrival_status, equipment_id, check_notes, test_notes,
+    actual_sample_quantity, actual_delivery_date, field_test_time
   } = req.body || {};
+
+  // 处理空字符串，将其转换为null，这样数据库可以接受空值
+  const processValue = (value) => {
+    if (value === '' || value === undefined) return null;
+    return value;
+  };
+
+  // 处理日期字段，将ISO格式转换为YYYY-MM-DD格式
+  const processDate = (value) => {
+    if (value === '' || value === undefined || value === null) return null;
+    if (typeof value === 'string' && value.includes('T')) {
+      // 如果是ISO格式，提取日期部分
+      return value.split('T')[0];
+    }
+    return value;
+  };
+
+  // 处理日期时间字段，将ISO格式转换为MySQL DATETIME格式
+  const processDateTime = (value) => {
+    if (value === '' || value === undefined || value === null) return null;
+    if (typeof value === 'string' && value.includes('T')) {
+      // 如果是ISO格式，转换为MySQL DATETIME格式
+      return value.replace('T', ' ').replace('Z', '').split('.')[0];
+    }
+    return value;
+  };
+
+  const processedActualSampleQuantity = processValue(actual_sample_quantity);
+  const processedActualDeliveryDate = processDate(actual_delivery_date);
+  const processedFieldTestTime = processDateTime(field_test_time);
   if (!order_id || !category_name || !detail_name) {
     return res.status(400).json({ error: 'order_id, category_name, detail_name are required' });
   }
@@ -130,13 +161,15 @@ router.post('/', async (req, res) => {
         test_code, standard_code, department_id, group_id, quantity, unit_price, discount_rate,
         final_unit_price, line_total, machine_hours, work_hours, is_add_on, is_outsourced,
         seq_no, sample_preparation, note, status, current_assignee, supervisor_id, technician_id,
-        arrival_mode, sample_arrival_status, equipment_id, check_notes, test_notes
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        arrival_mode, sample_arrival_status, equipment_id, check_notes, test_notes,
+        actual_sample_quantity, actual_delivery_date, field_test_time
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [order_id, price_id || null, category_name, detail_name, sample_name, material, sample_type, original_no,
        test_code, standard_code, department_id || null, group_id || null, quantity, unit_price, discount_rate,
        final_unit_price, line_total, machine_hours, work_hours, Number(is_add_on), Number(is_outsourced),
        seq_no, sample_preparation, note, finalStatus, current_assignee || null, supervisor_id || null, technician_id || null,
-       arrival_mode || null, sample_arrival_status || null, equipment_id || null, check_notes || null, test_notes || null]
+       arrival_mode || null, sample_arrival_status || null, equipment_id || null, check_notes || null, test_notes || null,
+       processedActualSampleQuantity, processedActualDeliveryDate, processedFieldTestTime]
     );
     const [rows] = await pool.query(
       `SELECT ti.*, 
@@ -182,8 +215,39 @@ router.put('/:id', async (req, res) => {
     test_code, standard_code, department_id, group_id, quantity, unit_price, discount_rate,
     final_unit_price, line_total, machine_hours, work_hours, is_add_on, is_outsourced,
     seq_no, sample_preparation, note, status, current_assignee, supervisor_id, technician_id,
-    arrival_mode, sample_arrival_status, equipment_id, check_notes, test_notes
+    arrival_mode, sample_arrival_status, equipment_id, check_notes, test_notes,
+    actual_sample_quantity, actual_delivery_date, field_test_time
   } = req.body || {};
+
+  // 处理空字符串，将其转换为null，这样数据库可以接受空值
+  const processValue = (value) => {
+    if (value === '' || value === undefined) return null;
+    return value;
+  };
+
+  // 处理日期字段，将ISO格式转换为YYYY-MM-DD格式
+  const processDate = (value) => {
+    if (value === '' || value === undefined || value === null) return null;
+    if (typeof value === 'string' && value.includes('T')) {
+      // 如果是ISO格式，提取日期部分
+      return value.split('T')[0];
+    }
+    return value;
+  };
+
+  // 处理日期时间字段，将ISO格式转换为MySQL DATETIME格式
+  const processDateTime = (value) => {
+    if (value === '' || value === undefined || value === null) return null;
+    if (typeof value === 'string' && value.includes('T')) {
+      // 如果是ISO格式，转换为MySQL DATETIME格式
+      return value.replace('T', ' ').replace('Z', '').split('.')[0];
+    }
+    return value;
+  };
+
+  const processedActualSampleQuantity = processValue(actual_sample_quantity);
+  const processedActualDeliveryDate = processDate(actual_delivery_date);
+  const processedFieldTestTime = processDateTime(field_test_time);
   const pool = await getPool();
   await pool.query(
     `UPDATE test_items SET
@@ -219,12 +283,15 @@ router.put('/:id', async (req, res) => {
       sample_arrival_status = COALESCE(?, sample_arrival_status),
       equipment_id = COALESCE(?, equipment_id),
       check_notes = COALESCE(?, check_notes),
-      test_notes = COALESCE(?, test_notes)
+      test_notes = COALESCE(?, test_notes),
+      actual_sample_quantity = COALESCE(?, actual_sample_quantity),
+      actual_delivery_date = COALESCE(?, actual_delivery_date),
+      field_test_time = COALESCE(?, field_test_time)
      WHERE test_item_id = ?`,
     [order_id, price_id, category_name, detail_name, sample_name, material, sample_type, original_no,
      test_code, standard_code, department_id, group_id, quantity, unit_price, discount_rate,
      final_unit_price, line_total, machine_hours, work_hours, is_add_on, is_outsourced, seq_no,
-     sample_preparation, note, status, current_assignee, supervisor_id, technician_id, arrival_mode, sample_arrival_status, equipment_id, check_notes, test_notes, req.params.id]
+     sample_preparation, note, status, current_assignee, supervisor_id, technician_id, arrival_mode, sample_arrival_status, equipment_id, check_notes, test_notes, processedActualSampleQuantity, processedActualDeliveryDate, processedFieldTestTime, req.params.id]
   );
   const pool2 = await getPool();
   const [rows] = await pool2.query(

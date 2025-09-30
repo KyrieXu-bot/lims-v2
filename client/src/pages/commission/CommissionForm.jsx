@@ -14,10 +14,13 @@ const CommissionForm = () => {
   const [pageSize] = useState(100);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
-  const [orderIdFilter, setOrderIdFilter] = useState('');
+  const [departmentFilter, setDepartmentFilter] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [technicians, setTechnicians] = useState([]);
+  const [equipmentOptions, setEquipmentOptions] = useState([]);
+  const [assigneeOptions, setAssigneeOptions] = useState([]);
+  const [departmentOptions, setDepartmentOptions] = useState([]);
   const [selectedFileTestItem, setSelectedFileTestItem] = useState(null);
   const [showFileModal, setShowFileModal] = useState(false);
   const [user, setUser] = useState(null);
@@ -48,7 +51,7 @@ const CommissionForm = () => {
       });
       
       if (statusFilter) params.append('status', statusFilter);
-      if (orderIdFilter) params.append('order_id', orderIdFilter);
+      if (departmentFilter) params.append('department_id', departmentFilter);
 
       const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
       const headers = {
@@ -78,10 +81,13 @@ const CommissionForm = () => {
   useEffect(() => {
     fetchData();
     fetchTechnicians();
+    fetchEquipmentOptions();
+    fetchAssigneeOptions();
+    fetchDepartmentOptions();
     // 获取当前用户信息
     const currentUser = JSON.parse(localStorage.getItem('lims_user') || 'null');
     setUser(currentUser);
-  }, [page, searchQuery, statusFilter, orderIdFilter]);
+  }, [page, searchQuery, statusFilter, departmentFilter]);
 
   // 监听实时数据更新
   useEffect(() => {
@@ -122,6 +128,60 @@ const CommissionForm = () => {
     }
   };
 
+  const fetchEquipmentOptions = async () => {
+    try {
+      const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
+      const headers = {
+        'Authorization': `Bearer ${user.token}`,
+        'Content-Type': 'application/json'
+      };
+
+      const response = await fetch('/api/commission-form/equipment-options', { headers });
+      if (response.ok) {
+        const data = await response.json();
+        setEquipmentOptions(data);
+      }
+    } catch (error) {
+      console.error('获取设备列表失败:', error);
+    }
+  };
+
+  const fetchAssigneeOptions = async () => {
+    try {
+      const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
+      const headers = {
+        'Authorization': `Bearer ${user.token}`,
+        'Content-Type': 'application/json'
+      };
+
+      const response = await fetch('/api/commission-form/assignee-options', { headers });
+      if (response.ok) {
+        const data = await response.json();
+        setAssigneeOptions(data);
+      }
+    } catch (error) {
+      console.error('获取负责人列表失败:', error);
+    }
+  };
+
+  const fetchDepartmentOptions = async () => {
+    try {
+      const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
+      const headers = {
+        'Authorization': `Bearer ${user.token}`,
+        'Content-Type': 'application/json'
+      };
+
+      const response = await fetch('/api/commission-form/department-options', { headers });
+      if (response.ok) {
+        const data = await response.json();
+        setDepartmentOptions(data);
+      }
+    } catch (error) {
+      console.error('获取部门列表失败:', error);
+    }
+  };
+
   const handleSearch = () => {
     setPage(1);
     fetchData();
@@ -130,7 +190,7 @@ const CommissionForm = () => {
   const handleReset = () => {
     setSearchQuery('');
     setStatusFilter('');
-    setOrderIdFilter('');
+    setDepartmentFilter('');
     setPage(1);
   };
 
@@ -192,6 +252,52 @@ const CommissionForm = () => {
             technician_id: null,
             technician_name: value 
           };
+        }
+      }
+      
+      // 特殊处理检测设备字段：需要保存equipment_id而不是equipment_name
+      if (field === 'equipment_name') {
+        // 根据设备名称找到对应的equipment_id
+        const equipment = equipmentOptions.find(e => e.name === value);
+        if (equipment) {
+          updateData = { 
+            equipment_id: equipment.id,
+            equipment_name: value 
+          };
+        } else {
+          // 如果找不到对应的设备，清空equipment_id
+          updateData = { 
+            equipment_id: null,
+            equipment_name: value 
+          };
+        }
+      }
+      
+      // 特殊处理业务负责人字段：需要保存current_assignee而不是assignee_name
+      if (field === 'assignee_name') {
+        // 根据姓名找到对应的user_id
+        const assignee = assigneeOptions.find(a => a.name === value);
+        if (assignee) {
+          updateData = { 
+            current_assignee: assignee.id,
+            assignee_name: value 
+          };
+        } else {
+          // 如果找不到对应的负责人，清空current_assignee
+          updateData = { 
+            current_assignee: null,
+            assignee_name: value 
+          };
+        }
+      }
+      
+      // 特殊处理现场测试时间字段：需要转换datetime-local格式
+      if (field === 'field_test_time') {
+        if (value === '' || value === undefined || value === null) {
+          updateData = { field_test_time: null };
+        } else {
+          // datetime-local格式已经是MySQL DATETIME兼容的格式
+          updateData = { field_test_time: value };
         }
       }
       
@@ -314,15 +420,22 @@ const CommissionForm = () => {
               <option value="outsource">委外</option>
             </select>
           </div>
-          <div className="filter-group">
-            <label>委托单号:</label>
-            <input
-              type="text"
-              value={orderIdFilter}
-              onChange={(e) => setOrderIdFilter(e.target.value)}
-              placeholder="输入委托单号"
-            />
-          </div>
+          {user?.role === 'admin' && (
+            <div className="filter-group">
+              <label>部门:</label>
+              <select
+                value={departmentFilter}
+                onChange={(e) => setDepartmentFilter(e.target.value)}
+              >
+                <option value="">全部部门</option>
+                {departmentOptions.map(dept => (
+                  <option key={dept.department_id} value={dept.department_id}>
+                    {dept.department_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <div className="filter-actions">
             <button onClick={handleSearch} className="btn-primary">搜索</button>
             <button onClick={handleReset} className="btn-secondary">重置</button>
@@ -388,7 +501,24 @@ const CommissionForm = () => {
                           </span>
                         ) : ''}
                       </td>
-                      <td>{item.assignee_name || ''}</td>
+                      <td>
+                        <div className="editable-field-container">
+                          <RealtimeEditableCell
+                            value={item.assignee_name}
+                            type="autocomplete"
+                            options={assigneeOptions}
+                            onSave={handleSaveEdit}
+                            field="assignee_name"
+                            testItemId={item.test_item_id}
+                            placeholder="输入负责人姓名"
+                            isFieldBeingEdited={isFieldBeingEdited}
+                            getEditingUser={getEditingUser}
+                            emitUserEditing={emitUserEditing}
+                            emitUserStopEditing={emitUserStopEditing}
+                          />
+                          <SavingIndicator testItemId={item.test_item_id} field="assignee_name" />
+                        </div>
+                      </td>
                       <td>{item.unpaid_amount || ''}</td>
                       <td>{item.test_item_name || ''}</td>
                       <td>{item.test_code || ''}</td>
@@ -397,9 +527,58 @@ const CommissionForm = () => {
                       <td>{formatCurrency(item.unit_price)}</td>
                       <td>{formatPercentage(item.discount_rate)}</td>
                       <td>{item.service_urgency || ''}</td>
-                      <td>{formatDateTime(item.field_test_time)}</td>
-                      <td>{item.note || ''}</td>
-                      <td>{item.equipment_name || ''}</td>
+                      <td>
+                        <div className="editable-field-container">
+                          <RealtimeEditableCell
+                            value={item.field_test_time}
+                            type="datetime-local"
+                            onSave={handleSaveEdit}
+                            field="field_test_time"
+                            testItemId={item.test_item_id}
+                            placeholder="选择现场测试时间"
+                            isFieldBeingEdited={isFieldBeingEdited}
+                            getEditingUser={getEditingUser}
+                            emitUserEditing={emitUserEditing}
+                            emitUserStopEditing={emitUserStopEditing}
+                          />
+                          <SavingIndicator testItemId={item.test_item_id} field="field_test_time" />
+                        </div>
+                      </td>
+                      <td>
+                        <div className="editable-field-container">
+                          <RealtimeEditableCell
+                            value={item.note}
+                            type="textarea"
+                            onSave={handleSaveEdit}
+                            field="note"
+                            testItemId={item.test_item_id}
+                            placeholder="输入备注信息"
+                            isFieldBeingEdited={isFieldBeingEdited}
+                            getEditingUser={getEditingUser}
+                            emitUserEditing={emitUserEditing}
+                            emitUserStopEditing={emitUserStopEditing}
+                          />
+                          <SavingIndicator testItemId={item.test_item_id} field="note" />
+                        </div>
+                      </td>
+                      <td>
+                        <div className="editable-field-container">
+                          <RealtimeEditableCell
+                            value={item.equipment_name}
+                            type="autocomplete"
+                            options={equipmentOptions}
+                            onSave={handleSaveEdit}
+                            field="equipment_name"
+                            testItemId={item.test_item_id}
+                            placeholder="输入设备名称"
+                            isFieldBeingEdited={isFieldBeingEdited}
+                            getEditingUser={getEditingUser}
+                            emitUserEditing={emitUserEditing}
+                            emitUserStopEditing={emitUserStopEditing}
+                          />
+                          <SavingIndicator testItemId={item.test_item_id} field="equipment_name" />
+                        </div>
+                      </td>
                       <td>
                         <div className="editable-field-container">
                           <RealtimeEditableCell

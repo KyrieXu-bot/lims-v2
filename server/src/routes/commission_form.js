@@ -7,7 +7,7 @@ router.use(requireAuth, requireAnyRole(['admin', 'leader', 'supervisor', 'employ
 
 // 获取委托单登记表数据（扁平化，以test_item_id为单位）
 router.get('/commission-form', async (req, res) => {
-  const { q = '', page = 1, pageSize = 100, status, order_id } = req.query;
+  const { q = '', page = 1, pageSize = 100, status, department_id } = req.query;
   const offset = (Number(page) - 1) * Number(pageSize);
   const pool = await getPool();
   const like = `%${q}%`;
@@ -20,8 +20,14 @@ router.get('/commission-form', async (req, res) => {
     // 管理员：可以看到所有项目
   } else if (user.role === 'leader') {
     // 室主任：只能看到自己部门的检测项目
-    filters.push('ti.department_id IN (SELECT department_id FROM lab_groups WHERE group_id = ?)');
-    params.push(user.group_id);
+    if (user.department_id) {
+      filters.push('ti.department_id = ?');
+      params.push(user.department_id);
+    } else {
+      // 如果没有department_id，通过group_id查找
+      filters.push('ti.department_id IN (SELECT department_id FROM lab_groups WHERE group_id = ?)');
+      params.push(user.group_id);
+    }
   } else if (user.role === 'supervisor') {
     // 组长：只能看到分配给他的检测项目
     filters.push('ti.supervisor_id = ?');
@@ -50,9 +56,9 @@ router.get('/commission-form', async (req, res) => {
     filters.push('ti.status = ?');
     params.push(status);
   }
-  if (order_id) {
-    filters.push('ti.order_id = ?');
-    params.push(order_id);
+  if (department_id) {
+    filters.push('ti.department_id = ?');
+    params.push(department_id);
   }
 
   const where = filters.length ? 'WHERE ' + filters.join(' AND ') : '';
@@ -182,6 +188,77 @@ router.get('/equipment-list', async (req, res) => {
     res.json({ data: rows, total: cnt[0].cnt });
   } catch (e) {
     console.error('Error fetching equipment list:', e);
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// 获取所有设备列表（用于下拉选择）
+router.get('/equipment-options', async (req, res) => {
+  const pool = await getPool();
+  try {
+    const [rows] = await pool.query(
+      `SELECT 
+        equipment_id as id,
+        equipment_name as name,
+        equipment_no,
+        model,
+        department_id
+      FROM equipment 
+      ORDER BY equipment_name`
+    );
+    res.json(rows);
+  } catch (e) {
+    console.error('Error fetching equipment options:', e);
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// 获取所有业务负责人列表（用于下拉选择）
+router.get('/assignee-options', async (req, res) => {
+  const pool = await getPool();
+  try {
+    const [rows] = await pool.query(
+      `SELECT 
+        user_id as id,
+        name,
+        account,
+        department_id
+      FROM users 
+      WHERE is_active = 1
+      ORDER BY name`
+    );
+    res.json(rows);
+  } catch (e) {
+    console.error('Error fetching assignee options:', e);
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// 获取所有部门列表（用于下拉选择，仅管理员可用）
+router.get('/department-options', async (req, res) => {
+  const user = req.user;
+  
+  // 只有管理员可以获取部门列表
+  if (user.role !== 'admin') {
+    return res.status(403).json({ error: '只有管理员可以查看部门列表' });
+  }
+  
+  const pool = await getPool();
+  try {
+    // 从departments表获取部门信息，只获取在test_items中实际使用的部门
+    const [rows] = await pool.query(
+      `SELECT DISTINCT 
+        d.department_id,
+        d.department_name
+      FROM departments d
+      INNER JOIN test_items ti ON d.department_id = ti.department_id
+      WHERE ti.department_id IS NOT NULL
+      ORDER BY d.department_id`
+    );
+    
+    res.json(rows);
+  } catch (e) {
+    console.error('Error fetching department options:', e);
     return res.status(500).json({ error: e.message });
   }
 });

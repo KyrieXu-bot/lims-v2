@@ -15,12 +15,8 @@ export default function Login() {
       const res = await api.login(username, password);
       localStorage.setItem('lims_user', JSON.stringify(res));
       
-      // 根据角色跳转到不同页面
-      if (res.role === 'admin' || res.role === 'sales') {
-        navigate('/customers');
-      } else {
-        navigate('/test-items');
-      }
+      // 所有角色都跳转到委托单登记表
+      navigate('/commission-form');
     } catch (e) {
       setError(e.message);
     }

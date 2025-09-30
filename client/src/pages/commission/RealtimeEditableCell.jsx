@@ -190,6 +190,9 @@ const RealtimeEditableCell = ({
     if (type === 'date') {
       return new Date(val).toLocaleDateString('zh-CN');
     }
+    if (type === 'datetime-local') {
+      return new Date(val).toLocaleString('zh-CN');
+    }
     return val;
   };
 
@@ -227,6 +230,42 @@ const RealtimeEditableCell = ({
         onKeyDown={handleKeyDown}
         onBlur={handleSave}
         className="editable-input date-input"
+      />
+    );
+  }
+
+  if (type === 'datetime-local') {
+    return (
+      <input
+        ref={inputRef}
+        type="datetime-local"
+        value={editValue}
+        onChange={handleChange}
+        onKeyDown={handleKeyDown}
+        onBlur={handleSave}
+        className="editable-input datetime-input"
+      />
+    );
+  }
+
+  if (type === 'textarea') {
+    return (
+      <textarea
+        ref={inputRef}
+        value={editValue}
+        onChange={handleChange}
+        onKeyDown={handleKeyDown}
+        onBlur={handleSave}
+        className="editable-input textarea-input"
+        placeholder={placeholder}
+        rows={3}
+        style={{
+          resize: 'vertical',
+          minHeight: '40px',
+          width: '100%',
+          fontFamily: 'inherit',
+          lineHeight: '1.4'
+        }}
       />
     );
   }

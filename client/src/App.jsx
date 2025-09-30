@@ -97,7 +97,7 @@ export default function App() {
       <Route path="/orders" element={<Layout><OrderManagement/></Layout>} />
       <Route path="/commission-form" element={<Layout><CommissionForm/></Layout>} />
       <Route path="/equipment-list" element={<Layout><EquipmentList/></Layout>} />
-      <Route path="/" element={<Layout><TestItems/></Layout>} />
+      <Route path="/" element={<Layout><CommissionForm/></Layout>} />
       <Route path="*" element={<Layout><Login/></Layout>} />
     </Routes>
   )
