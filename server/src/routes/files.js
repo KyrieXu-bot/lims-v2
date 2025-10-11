@@ -271,6 +271,80 @@ router.delete('/:id', requireAnyRole(['admin', 'leader', 'supervisor']), async (
   }
 });
 
+// 批量上传文件
+router.post('/batch-upload', requireAnyRole(['admin', 'leader', 'supervisor', 'employee']), upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: '没有选择文件' });
+    }
+
+    const { testItemIds } = req.body;
+    const user = req.user;
+
+    // 验证用户信息
+    if (!user || !user.user_id) {
+      // 删除已上传的文件
+      if (req.file && fs.existsSync(req.file.path)) {
+        fs.unlinkSync(req.file.path);
+      }
+      return res.status(401).json({ error: '用户信息无效' });
+    }
+
+    // 解析testItemIds
+    let testItemIdArray;
+    try {
+      testItemIdArray = JSON.parse(testItemIds);
+    } catch (e) {
+      // 删除已上传的文件
+      fs.unlinkSync(req.file.path);
+      return res.status(400).json({ error: '无效的检测项目ID列表' });
+    }
+
+    if (!Array.isArray(testItemIdArray) || testItemIdArray.length === 0) {
+      // 删除已上传的文件
+      fs.unlinkSync(req.file.path);
+      return res.status(400).json({ error: '检测项目ID列表不能为空' });
+    }
+
+    // 处理中文文件名编码
+    const originalName = decodeFileName(req.file.originalname);
+    
+    const pool = await getPool();
+    
+    // 为每个检测项目创建文件记录
+    const insertPromises = testItemIdArray.map(testItemId => 
+      pool.query(
+        `INSERT INTO project_files 
+         (category, filename, filepath, test_item_id, uploaded_by) 
+         VALUES (?, ?, ?, ?, ?)`,
+        [
+          'order_attachment', // 默认类别为实验报告
+          originalName,
+          req.file.path,
+          testItemId,
+          user.user_id
+        ]
+      )
+    );
+
+    await Promise.all(insertPromises);
+
+    res.json({
+      success: true,
+      filename: originalName,
+      filepath: req.file.path,
+      affectedRows: testItemIdArray.length,
+      testItemIds: testItemIdArray
+    });
+  } catch (error) {
+    // 如果数据库操作失败，删除已上传的文件
+    if (req.file && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // 获取文件统计信息
 router.get('/stats', requireAnyRole(['admin', 'leader', 'supervisor']), async (req, res) => {
   try {

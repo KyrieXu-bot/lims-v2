@@ -92,7 +92,7 @@ export default function TestItemEdit() {
     if (payload.quantity !== undefined && payload.quantity !== null && payload.quantity !== '') payload.quantity = Number(payload.quantity);
     if (isNew) await api.createTestItem(payload);
     else await api.updateTestItem(id, payload);
-    navigate('/test-items');
+    navigate('/commission-form');
   }
 
   return (
@@ -249,7 +249,7 @@ export default function TestItemEdit() {
         </div>
         <div style={{display:'flex', gap:8}}>
           {!isView && <button className="btn" type="submit">保存</button>}
-          <button className="btn" type="button" onClick={()=>navigate('/test-items')}>{isView ? '返回' : '取消'}</button>
+          <button className="btn" type="button" onClick={()=>navigate('/commission-form')}>{isView ? '返回' : '取消'}</button>
         </div>
       </form>
 

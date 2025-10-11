@@ -78,6 +78,7 @@ router.get('/commission-form', async (req, res) => {
         CONCAT(ti.category_name, ' - ', ti.detail_name) as test_item_name,
         ti.test_code,
         ti.department_id,
+        d.department_name,
         p.unit_price as standard_price,
         ti.unit_price,
         COALESCE(pay.discount_rate, 0) / 100 as discount_rate,
@@ -95,12 +96,19 @@ router.get('/commission-form', async (req, res) => {
         ti.work_hours,
         ti.machine_hours,
         ti.actual_delivery_date,
-        ti.status
+        ti.status,
+        ti.quantity,
+        ti.arrival_mode,
+        ti.sample_arrival_status,
+        sup.name as supervisor_name,
+        ti.supervisor_id
       FROM test_items ti
       LEFT JOIN orders o ON o.order_id = ti.order_id
       LEFT JOIN customers c ON c.customer_id = o.customer_id
       LEFT JOIN users u ON u.user_id = ti.current_assignee
       LEFT JOIN users tech ON tech.user_id = ti.technician_id
+      LEFT JOIN users sup ON sup.user_id = ti.supervisor_id
+      LEFT JOIN departments d ON d.department_id = ti.department_id
       LEFT JOIN price p ON p.price_id = ti.price_id
       LEFT JOIN payers pay ON pay.payer_id = o.payer_id
       LEFT JOIN equipment e ON e.equipment_id = ti.equipment_id

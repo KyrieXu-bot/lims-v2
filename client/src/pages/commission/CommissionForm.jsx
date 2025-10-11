@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../../api.js';
 import CustomerDetailModal from './CustomerDetailModal.jsx';
 import RealtimeEditableCell from './RealtimeEditableCell.jsx';
 import SimpleFileUpload from '../../components/SimpleFileUpload.jsx';
+import BatchFileUpload from '../../components/BatchFileUpload.jsx';
 import { useSocket } from '../../hooks/useSocket.js';
 import './CommissionForm.css';
 
 const CommissionForm = () => {
+  const navigate = useNavigate();
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
@@ -25,6 +28,8 @@ const CommissionForm = () => {
   const [showFileModal, setShowFileModal] = useState(false);
   const [user, setUser] = useState(null);
   const [savingStatus, setSavingStatus] = useState({}); // 保存状态：{testItemId-field: 'saving'|'success'|'error'}
+  const [selectedItems, setSelectedItems] = useState([]); // 选中的检测项目ID列表
+  const [showBatchUploadModal, setShowBatchUploadModal] = useState(false);
   
   // WebSocket连接
   const {
@@ -221,6 +226,33 @@ const CommissionForm = () => {
     setSelectedFileTestItem(null);
   };
 
+  // 处理单个项目选择
+  const handleItemSelect = (testItemId, checked) => {
+    if (checked) {
+      setSelectedItems(prev => [...prev, testItemId]);
+    } else {
+      setSelectedItems(prev => prev.filter(id => id !== testItemId));
+    }
+  };
+
+  // 处理全选
+  const handleSelectAll = (e) => {
+    if (e.target.checked) {
+      setSelectedItems(data.map(item => item.test_item_id));
+    } else {
+      setSelectedItems([]);
+    }
+  };
+
+  // 批量上传文件
+  const handleBatchUpload = () => {
+    if (selectedItems.length === 0) {
+      alert('请先选择要上传文件的检测项目');
+      return;
+    }
+    setShowBatchUploadModal(true);
+  };
+
 
   const handleSaveEdit = async (field, value, testItemId) => {
     const statusKey = `${testItemId}-${field}`;
@@ -287,6 +319,24 @@ const CommissionForm = () => {
           updateData = { 
             current_assignee: null,
             assignee_name: value 
+          };
+        }
+      }
+      
+      // 特殊处理负责人字段：需要保存supervisor_id而不是supervisor_name
+      if (field === 'supervisor_name') {
+        // 根据姓名找到对应的user_id
+        const supervisor = assigneeOptions.find(a => a.name === value);
+        if (supervisor) {
+          updateData = { 
+            supervisor_id: supervisor.id,
+            supervisor_name: value 
+          };
+        } else {
+          // 如果找不到对应的负责人，清空supervisor_id
+          updateData = { 
+            supervisor_id: null,
+            supervisor_name: value 
           };
         }
       }
@@ -437,8 +487,21 @@ const CommissionForm = () => {
             </div>
           )}
           <div className="filter-actions">
-            <button onClick={handleSearch} className="btn-primary">搜索</button>
-            <button onClick={handleReset} className="btn-secondary">重置</button>
+            <button onClick={handleSearch} className="btn btn-primary">搜索</button>
+            <button onClick={handleReset} className="btn btn-secondary">重置</button>
+            <button 
+              onClick={() => navigate('/test-items/new')} 
+              className="btn btn-info"
+            >
+              添加检测
+            </button>
+            <button 
+              onClick={handleBatchUpload} 
+              className="btn btn-success"
+              disabled={selectedItems.length === 0}
+            >
+              一键上传 ({selectedItems.length})
+            </button>
           </div>
           <div className="online-indicator">
             {isConnected ? `🟢 在线 (${getOnlineUserCount()} 人)` : '🔴 离线'}
@@ -459,6 +522,14 @@ const CommissionForm = () => {
               <table className="data-table">
                 <thead>
                   <tr>
+                    <th>
+                      <input 
+                        type="checkbox" 
+                        checked={data.length > 0 && data.every(item => selectedItems.includes(item.test_item_id))}
+                        onChange={handleSelectAll}
+                        title="全选"
+                      />
+                    </th>
                     <th>委托单号</th>
                     <th>收样日期</th>
                     <th>开单日期</th>
@@ -475,7 +546,11 @@ const CommissionForm = () => {
                     <th>现场测试时间</th>
                     <th>备注</th>
                     <th>检测设备</th>
+                    <th>负责人</th>
                     <th>测试人员</th>
+                    <th>数量</th>
+                    <th>样品到达方式</th>
+                    <th>样品是否已到</th>
                     <th>测试样品数量</th>
                     <th>测试工时</th>
                     <th>测试机时</th>
@@ -487,6 +562,13 @@ const CommissionForm = () => {
                 <tbody>
                   {data.map((item) => (
                     <tr key={item.test_item_id}>
+                      <td>
+                        <input 
+                          type="checkbox" 
+                          checked={selectedItems.includes(item.test_item_id)}
+                          onChange={(e) => handleItemSelect(item.test_item_id, e.target.checked)}
+                        />
+                      </td>
                       <td>{item.order_id}</td>
                       <td>{formatDate(item.order_created_at)}</td>
                       <td>{formatDate(item.test_item_created_at)}</td>
@@ -522,7 +604,7 @@ const CommissionForm = () => {
                       <td>{item.unpaid_amount || ''}</td>
                       <td>{item.test_item_name || ''}</td>
                       <td>{item.test_code || ''}</td>
-                      <td>{item.department_id || ''}</td>
+                      <td>{item.department_name || ''}</td>
                       <td>{formatCurrency(item.standard_price)}</td>
                       <td>{formatCurrency(item.unit_price)}</td>
                       <td>{formatPercentage(item.discount_rate)}</td>
@@ -582,6 +664,24 @@ const CommissionForm = () => {
                       <td>
                         <div className="editable-field-container">
                           <RealtimeEditableCell
+                            value={item.supervisor_name}
+                            type="autocomplete"
+                            options={assigneeOptions}
+                            onSave={handleSaveEdit}
+                            field="supervisor_name"
+                            testItemId={item.test_item_id}
+                            placeholder="输入负责人姓名"
+                            isFieldBeingEdited={isFieldBeingEdited}
+                            getEditingUser={getEditingUser}
+                            emitUserEditing={emitUserEditing}
+                            emitUserStopEditing={emitUserStopEditing}
+                          />
+                          <SavingIndicator testItemId={item.test_item_id} field="supervisor_name" />
+                        </div>
+                      </td>
+                      <td>
+                        <div className="editable-field-container">
+                          <RealtimeEditableCell
                             value={item.technician_name}
                             type="autocomplete"
                             options={technicians}
@@ -595,6 +695,65 @@ const CommissionForm = () => {
                             emitUserStopEditing={emitUserStopEditing}
                           />
                           <SavingIndicator testItemId={item.test_item_id} field="technician_name" />
+                        </div>
+                      </td>
+                      <td>
+                        <div className="editable-field-container">
+                          <RealtimeEditableCell
+                            value={item.quantity}
+                            type="number"
+                            onSave={handleSaveEdit}
+                            field="quantity"
+                            testItemId={item.test_item_id}
+                            placeholder="数量"
+                            isFieldBeingEdited={isFieldBeingEdited}
+                            getEditingUser={getEditingUser}
+                            emitUserEditing={emitUserEditing}
+                            emitUserStopEditing={emitUserStopEditing}
+                          />
+                          <SavingIndicator testItemId={item.test_item_id} field="quantity" />
+                        </div>
+                      </td>
+                      <td>
+                        <div className="editable-field-container">
+                          <RealtimeEditableCell
+                            value={item.arrival_mode}
+                            type="select"
+                            options={[
+                              { value: '', label: '请选择' },
+                              { value: 'on_site', label: '现场' },
+                              { value: 'delivery', label: '寄样' }
+                            ]}
+                            onSave={handleSaveEdit}
+                            field="arrival_mode"
+                            testItemId={item.test_item_id}
+                            isFieldBeingEdited={isFieldBeingEdited}
+                            getEditingUser={getEditingUser}
+                            emitUserEditing={emitUserEditing}
+                            emitUserStopEditing={emitUserStopEditing}
+                          />
+                          <SavingIndicator testItemId={item.test_item_id} field="arrival_mode" />
+                        </div>
+                      </td>
+                      <td>
+                        <div className="editable-field-container">
+                          <RealtimeEditableCell
+                            value={item.sample_arrival_status}
+                            type="select"
+                            options={[
+                              { value: '', label: '请选择' },
+                              { value: 'arrived', label: '已到' },
+                              { value: 'not_arrived', label: '未到' }
+                            ]}
+                            onSave={handleSaveEdit}
+                            field="sample_arrival_status"
+                            testItemId={item.test_item_id}
+                            isFieldBeingEdited={isFieldBeingEdited}
+                            getEditingUser={getEditingUser}
+                            emitUserEditing={emitUserEditing}
+                            emitUserStopEditing={emitUserStopEditing}
+                          />
+                          <SavingIndicator testItemId={item.test_item_id} field="sample_arrival_status" />
                         </div>
                       </td>
                       <td>
@@ -737,6 +896,29 @@ const CommissionForm = () => {
                 userRole={user?.role}
                 onFileUploaded={() => {
                   console.log('文件上传成功');
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 批量上传模态框 */}
+      {showBatchUploadModal && (
+        <div className="file-modal-overlay" onClick={() => setShowBatchUploadModal(false)}>
+          <div className="file-modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="file-modal-header">
+              <h3>批量上传文件 - 已选择 {selectedItems.length} 个检测项目</h3>
+              <button className="close-button" onClick={() => setShowBatchUploadModal(false)}>×</button>
+            </div>
+            <div className="file-modal-body">
+              <BatchFileUpload
+                testItemIds={selectedItems}
+                userRole={user?.role}
+                onFileUploaded={() => {
+                  console.log('批量文件上传成功');
+                  setShowBatchUploadModal(false);
+                  setSelectedItems([]);
                 }}
               />
             </div>
