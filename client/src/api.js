@@ -371,5 +371,35 @@ export const api = {
     const r = await fetch(`/api/commission-form/equipment-list?${params.toString()}`, { headers: this.authHeaders() });
     if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
     return r.json();
+  },
+
+  // 付款方API
+  async listPayers({ q = '', page = 1, pageSize = 100 } = {}) {
+    const params = new URLSearchParams({ q, page, pageSize });
+    const r = await fetch(`/api/payers?${params.toString()}`, { headers: this.authHeaders() });
+    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
+    return r.json();
+  },
+
+  async getPayer(id) {
+    const r = await fetch(`/api/payers/${id}`, { headers: this.authHeaders() });
+    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
+    return r.json();
+  },
+
+  // 部门API
+  async listDepartments({ q = '', page = 1, pageSize = 100 } = {}) {
+    const params = new URLSearchParams({ q, page, pageSize });
+    const r = await fetch(`/api/departments?${params.toString()}`, { headers: this.authHeaders() });
+    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
+    return r.json();
+  },
+
+  // 实验室组API
+  async listLabGroups({ q = '', page = 1, pageSize = 100 } = {}) {
+    const params = new URLSearchParams({ q, page, pageSize });
+    const r = await fetch(`/api/lab-groups?${params.toString()}`, { headers: this.authHeaders() });
+    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
+    return r.json();
   }
 }

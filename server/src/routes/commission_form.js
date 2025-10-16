@@ -14,6 +14,7 @@ router.get('/commission-form', async (req, res) => {
   const filters = [];
   const params = [];
   const user = req.user;
+  
 
   // 基于角色的数据过滤
   if (user.role === 'admin') {
@@ -242,27 +243,49 @@ router.get('/assignee-options', async (req, res) => {
   }
 });
 
-// 获取所有部门列表（用于下拉选择，仅管理员可用）
+// 获取所有部门列表（用于下拉选择）
 router.get('/department-options', async (req, res) => {
   const user = req.user;
   
-  // 只有管理员可以获取部门列表
-  if (user.role !== 'admin') {
-    return res.status(403).json({ error: '只有管理员可以查看部门列表' });
-  }
-  
   const pool = await getPool();
   try {
-    // 从departments表获取部门信息，只获取在test_items中实际使用的部门
-    const [rows] = await pool.query(
-      `SELECT DISTINCT 
-        d.department_id,
-        d.department_name
-      FROM departments d
-      INNER JOIN test_items ti ON d.department_id = ti.department_id
-      WHERE ti.department_id IS NOT NULL
-      ORDER BY d.department_id`
-    );
+    let rows;
+    
+    if (user.role === 'admin') {
+      // 管理员：获取所有部门
+      [rows] = await pool.query(
+        `SELECT DISTINCT 
+          d.department_id,
+          d.department_name
+        FROM departments d
+        INNER JOIN test_items ti ON d.department_id = ti.department_id
+        WHERE ti.department_id IS NOT NULL
+        ORDER BY d.department_id`
+      );
+    } else {
+      // 其他角色：只能看到自己相关的部门
+      if (user.department_id) {
+        // 如果用户有department_id，只返回该部门
+        [rows] = await pool.query(
+          `SELECT department_id, department_name 
+           FROM departments 
+           WHERE department_id = ?`,
+          [user.department_id]
+        );
+      } else if (user.group_id) {
+        // 如果用户只有group_id，通过group_id查找department_id
+        [rows] = await pool.query(
+          `SELECT DISTINCT d.department_id, d.department_name
+           FROM departments d
+           INNER JOIN lab_groups lg ON d.department_id = lg.department_id
+           WHERE lg.group_id = ?`,
+          [user.group_id]
+        );
+      } else {
+        // 如果都没有，返回空数组
+        rows = [];
+      }
+    }
     
     res.json(rows);
   } catch (e) {

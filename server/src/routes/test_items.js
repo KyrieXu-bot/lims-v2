@@ -115,7 +115,7 @@ router.post('/', async (req, res) => {
     final_unit_price, line_total, machine_hours = 0, work_hours = 0, is_add_on = 0, is_outsourced = 0,
     seq_no, sample_preparation, note, status = 'new', current_assignee, supervisor_id, technician_id,
     arrival_mode, sample_arrival_status, equipment_id, check_notes, test_notes,
-    actual_sample_quantity, actual_delivery_date, field_test_time
+    actual_sample_quantity, actual_delivery_date, field_test_time, price_note
   } = req.body || {};
 
   // 处理空字符串，将其转换为null，这样数据库可以接受空值
@@ -155,22 +155,61 @@ router.post('/', async (req, res) => {
   const finalStatus = is_outsourced === 1 ? 'outsource' : status;
   const pool = await getPool();
   try {
-    const [r] = await pool.query(
-      `INSERT INTO test_items (
-        order_id, price_id, category_name, detail_name, sample_name, material, sample_type, original_no,
-        test_code, standard_code, department_id, group_id, quantity, unit_price, discount_rate,
-        final_unit_price, line_total, machine_hours, work_hours, is_add_on, is_outsourced,
-        seq_no, sample_preparation, note, status, current_assignee, supervisor_id, technician_id,
-        arrival_mode, sample_arrival_status, equipment_id, check_notes, test_notes,
-        actual_sample_quantity, actual_delivery_date, field_test_time
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [order_id, price_id || null, category_name, detail_name, sample_name, material, sample_type, original_no,
-       test_code, standard_code, department_id || null, group_id || null, quantity, unit_price, discount_rate,
-       final_unit_price, line_total, machine_hours, work_hours, Number(is_add_on), Number(is_outsourced),
-       seq_no, sample_preparation, note, finalStatus, current_assignee || null, supervisor_id || null, technician_id || null,
-       arrival_mode || null, sample_arrival_status || null, equipment_id || null, check_notes || null, test_notes || null,
-       processedActualSampleQuantity, processedActualDeliveryDate, processedFieldTestTime]
-    );
+    // 调试：检查参数数量
+    const paramArray = [
+      order_id, 
+      price_id || null, 
+      category_name, 
+      detail_name, 
+      sample_name || null, 
+      material || null, 
+      sample_type || null, 
+      original_no || null,
+      test_code || null, 
+      standard_code || null, 
+      department_id || null, 
+      group_id || null, 
+      quantity || 1, 
+      unit_price || null, 
+      discount_rate || null,
+      final_unit_price || null, 
+      line_total || null, 
+      machine_hours || 0, 
+      work_hours || 0, 
+      Number(is_add_on) || 0, 
+      Number(is_outsourced) || 0,
+      seq_no || null, 
+      sample_preparation || null, 
+      note || null, 
+      finalStatus, 
+      current_assignee || null, 
+      supervisor_id || null, 
+      technician_id || null,
+      arrival_mode || null, 
+      sample_arrival_status || null, 
+      equipment_id || null, 
+      check_notes || null, 
+      test_notes || null,
+      processedActualSampleQuantity, 
+      processedActualDeliveryDate, 
+      processedFieldTestTime,
+      price_note || null
+    ];
+    
+    // 重新构建SQL语句，确保字段和占位符数量匹配
+    const sqlFields = [
+      'order_id', 'price_id', 'category_name', 'detail_name', 'sample_name', 'material', 'sample_type', 'original_no',
+      'test_code', 'standard_code', 'department_id', 'group_id', 'quantity', 'unit_price', 'discount_rate',
+      'final_unit_price', 'line_total', 'machine_hours', 'work_hours', 'is_add_on', 'is_outsourced',
+      'seq_no', 'sample_preparation', 'note', 'status', 'current_assignee', 'supervisor_id', 'technician_id',
+      'arrival_mode', 'sample_arrival_status', 'equipment_id', 'check_notes', 'test_notes',
+      'actual_sample_quantity', 'actual_delivery_date', 'field_test_time', 'price_note'
+    ];
+    
+    const placeholders = sqlFields.map(() => '?').join(',');
+    const sql = `INSERT INTO test_items (${sqlFields.join(', ')}) VALUES (${placeholders})`;
+    
+    const [r] = await pool.query(sql, paramArray);
     const [rows] = await pool.query(
       `SELECT ti.*, 
               u.name AS assignee_name,
@@ -216,7 +255,7 @@ router.put('/:id', async (req, res) => {
     final_unit_price, line_total, machine_hours, work_hours, is_add_on, is_outsourced,
     seq_no, sample_preparation, note, status, current_assignee, supervisor_id, technician_id,
     arrival_mode, sample_arrival_status, equipment_id, check_notes, test_notes,
-    actual_sample_quantity, actual_delivery_date, field_test_time
+    actual_sample_quantity, actual_delivery_date, field_test_time, price_note
   } = req.body || {};
 
   // 处理空字符串，将其转换为null，这样数据库可以接受空值
@@ -286,12 +325,13 @@ router.put('/:id', async (req, res) => {
       test_notes = COALESCE(?, test_notes),
       actual_sample_quantity = COALESCE(?, actual_sample_quantity),
       actual_delivery_date = COALESCE(?, actual_delivery_date),
-      field_test_time = COALESCE(?, field_test_time)
+      field_test_time = COALESCE(?, field_test_time),
+      price_note = COALESCE(?, price_note)
      WHERE test_item_id = ?`,
     [order_id, price_id, category_name, detail_name, sample_name, material, sample_type, original_no,
      test_code, standard_code, department_id, group_id, quantity, unit_price, discount_rate,
      final_unit_price, line_total, machine_hours, work_hours, is_add_on, is_outsourced, seq_no,
-     sample_preparation, note, status, current_assignee, supervisor_id, technician_id, arrival_mode, sample_arrival_status, equipment_id, check_notes, test_notes, processedActualSampleQuantity, processedActualDeliveryDate, processedFieldTestTime, req.params.id]
+     sample_preparation, note, status, current_assignee, supervisor_id, technician_id, arrival_mode, sample_arrival_status, equipment_id, check_notes, test_notes, processedActualSampleQuantity, processedActualDeliveryDate, processedFieldTestTime, price_note, req.params.id]
   );
   const pool2 = await getPool();
   const [rows] = await pool2.query(
@@ -313,16 +353,37 @@ router.put('/:id', async (req, res) => {
 // delete
 router.delete('/:id', async (req, res) => {
   const user = req.user;
-  // 仅管理员与室主任可删除
-  if (!(user.role === 'admin' || user.role === 'leader')) {
-    return res.status(403).json({ error: 'Insufficient permissions' });
+  // 仅管理员可删除
+  if (user.role !== 'admin') {
+    return res.status(403).json({ error: 'Only admin can delete test items' });
   }
   const pool = await getPool();
   try {
     const [chk] = await pool.query('SELECT test_item_id FROM test_items WHERE test_item_id = ?', [req.params.id]);
     if (chk.length === 0) return res.status(404).json({ error: 'Not found' });
-    await pool.query('DELETE FROM test_items WHERE test_item_id = ?', [req.params.id]);
-    res.json({ ok: true });
+    
+    // 开始事务
+    await pool.query('START TRANSACTION');
+    
+    try {
+      // 删除关联表中的记录
+      await pool.query('DELETE FROM assignments WHERE test_item_id = ?', [req.params.id]);
+      await pool.query('DELETE FROM outsource_info WHERE test_item_id = ?', [req.params.id]);
+      await pool.query('DELETE FROM sample_return_info WHERE test_item_id = ?', [req.params.id]);
+      await pool.query('DELETE FROM sample_tracking WHERE test_item_id = ?', [req.params.id]);
+      await pool.query('DELETE FROM samples WHERE test_item_id = ?', [req.params.id]);
+      
+      // 最后删除主表记录
+      await pool.query('DELETE FROM test_items WHERE test_item_id = ?', [req.params.id]);
+      
+      // 提交事务
+      await pool.query('COMMIT');
+      res.json({ ok: true, message: 'Test item and related records deleted successfully' });
+    } catch (deleteError) {
+      // 回滚事务
+      await pool.query('ROLLBACK');
+      throw deleteError;
+    }
   } catch (e) {
     return res.status(500).json({ error: e.message });
   }

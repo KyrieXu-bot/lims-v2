@@ -51,6 +51,45 @@
   min-width: 200px;
 }
 
+/* 搜索组特殊样式 */
+.search-group {
+  min-width: 300px;
+}
+
+.search-input-container {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.search-input-container input {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.search-input-container input:focus {
+  outline: none;
+  border-color: #007bff;
+  box-shadow: 0 0 0 2px rgba(0,123,255,0.25);
+}
+
+.search-buttons {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+/* 小按钮样式 */
+.btn-small {
+  padding: 6px 12px !important;
+  font-size: 12px !important;
+  min-width: auto !important;
+  white-space: nowrap;
+}
+
 .filter-group label {
   font-weight: 500;
   color: #333;
@@ -183,7 +222,6 @@
   width: 100%;
   border-collapse: collapse;
   font-size: 14px;
-  min-width: 2800px;
 }
 
 .data-table th {
@@ -197,7 +235,6 @@
   top: 0;
   z-index: 10;
   white-space: nowrap;
-  min-width: 120px;
 }
 
 .data-table td {
@@ -208,7 +245,6 @@
   max-width: 200px;
   overflow: visible;
   text-overflow: ellipsis;
-  min-width: 120px;
   position: relative;
 }
 
@@ -244,7 +280,7 @@
   color: #f57c00;
 }
 
-.status-in_progress {
+.status-running {
   background-color: #e8f5e8;
   color: #2e7d32;
 }
@@ -436,36 +472,252 @@
   font-size: 14px;
 }
 
-/* 特定列宽度调整 */
-.data-table th:nth-child(1), .data-table td:nth-child(1) { min-width: 100px; } /* 委托单号 */
-.data-table th:nth-child(2), .data-table td:nth-child(2) { min-width: 100px; } /* 收样日期 */
-.data-table th:nth-child(3), .data-table td:nth-child(3) { min-width: 100px; } /* 开单日期 */
-.data-table th:nth-child(4), .data-table td:nth-child(4) { min-width: 150px; } /* 委托单位 */
-.data-table th:nth-child(5), .data-table td:nth-child(5) { min-width: 100px; } /* 业务负责人 */
-.data-table th:nth-child(6), .data-table td:nth-child(6) { min-width: 120px; } /* 开票未到款金额 */
-.data-table th:nth-child(7), .data-table td:nth-child(7) { min-width: 200px; } /* 检测项目 */
-.data-table th:nth-child(8), .data-table td:nth-child(8) { min-width: 120px; } /* 项目编号 */
-.data-table th:nth-child(9), .data-table td:nth-child(9) { min-width: 100px; } /* 归属部门 */
-.data-table th:nth-child(10), .data-table td:nth-child(10) { min-width: 100px; } /* 收费标准 */
-.data-table th:nth-child(11), .data-table td:nth-child(11) { min-width: 100px; } /* 标准价 */
-.data-table th:nth-child(12), .data-table td:nth-child(12) { min-width: 80px; } /* 折扣 */
-.data-table th:nth-child(13), .data-table td:nth-child(13) { min-width: 120px; } /* 服务加急 */
-.data-table th:nth-child(14), .data-table td:nth-child(14) { min-width: 150px; } /* 现场测试时间 */
-.data-table th:nth-child(15), .data-table td:nth-child(15) { 
-  min-width: 200px; 
-  max-width: 300px; 
-  width: 250px;
+/* 只读字段样式 */
+.readonly-field {
+  color: #666;
+  font-style: italic;
+  background-color: #f8f9fa;
+  padding: 4px 8px;
+  border-radius: 4px;
+  display: inline-block;
+  min-width: 60px;
+  min-height: 20px;
+  border: 1px solid #e9ecef;
+}
+
+/* 开单员填写字段背景色 */
+.order-creator-field {
+  background-color: #e8f4fd !important; /* 浅蓝色背景 */
+}
+
+.order-creator-field:hover {
+  background-color: #d1e7f7 !important; /* 悬停时稍深的蓝色 */
+}
+
+/* 实验室填写字段背景色 */
+.lab-field {
+  background-color: #f0f8e8 !important; /* 浅绿色背景 */
+}
+
+.lab-field:hover {
+  background-color: #e0f0d0 !important; /* 悬停时稍深的绿色 */
+}
+
+/* 特定列宽度调整 - 使用更高优先级 */
+.commission-form .data-table th:nth-child(1), 
+.commission-form .data-table td:nth-child(1) { 
+  min-width: 50px !important; 
+  width: 50px !important;
+} /* 多选框 */
+
+.commission-form .data-table th:nth-child(2), 
+.commission-form .data-table td:nth-child(2) { 
+  min-width: 100px !important; 
+  width: 100px !important;
+} /* 委托单号 */
+
+.commission-form .data-table th:nth-child(3), 
+.commission-form .data-table td:nth-child(3) { 
+  min-width: 80px !important; 
+  width: 80px !important;
+} /* 收样日期 */
+
+.commission-form .data-table th:nth-child(4), 
+.commission-form .data-table td:nth-child(4) { 
+  min-width: 80px !important; 
+  width: 80px !important;
+} /* 开单日期 */
+.commission-form .data-table th:nth-child(5), 
+.commission-form .data-table td:nth-child(5) { 
+  min-width: 150px !important; 
+  width: 150px !important;
+} /* 委托单位 */
+
+.commission-form .data-table th:nth-child(6), 
+.commission-form .data-table td:nth-child(6) { 
+  min-width: 100px !important; 
+  width: 100px !important;
+} /* 业务负责人 */
+
+.commission-form .data-table th:nth-child(7), 
+.commission-form .data-table td:nth-child(7) { 
+  min-width: 200px !important; 
+  width: 200px !important;
+} /* 检测项目 */
+
+.commission-form .data-table th:nth-child(8), 
+.commission-form .data-table td:nth-child(8) { 
+  min-width: 120px !important; 
+  width: 120px !important;
+} /* 项目编号 */
+
+.commission-form .data-table th:nth-child(9), 
+.commission-form .data-table td:nth-child(9) { 
+  min-width: 100px !important; 
+  width: 100px !important;
+} /* 归属部门 */
+
+.commission-form .data-table th:nth-child(10), 
+.commission-form .data-table td:nth-child(10) { 
+  min-width: 100px !important; 
+  width: 100px !important;
+} /* 收费标准 */
+
+.commission-form .data-table th:nth-child(11), 
+.commission-form .data-table td:nth-child(11) { 
+  min-width: 150px !important; 
+  max-width: 200px !important; 
+  width: 180px !important;
+} /* 价格备注 */
+
+.commission-form .data-table th:nth-child(12), 
+.commission-form .data-table td:nth-child(12) { 
+  min-width: 100px !important; 
+  width: 100px !important;
+} /* 标准价 */
+
+.commission-form .data-table th:nth-child(13), 
+.commission-form .data-table td:nth-child(13) { 
+  min-width: 60px !important; 
+  width: 60px !important;
+} /* 折扣 */
+
+.commission-form .data-table th:nth-child(14), 
+.commission-form .data-table td:nth-child(14) { 
+  min-width: 200px !important; 
+  max-width: 300px !important; 
+  width: 250px !important;
 } /* 备注 */
-.data-table th:nth-child(16), .data-table td:nth-child(16) { min-width: 150px; } /* 检测设备 */
-.data-table th:nth-child(17), .data-table td:nth-child(17) { min-width: 100px; } /* 测试人员 */
-.data-table th:nth-child(18), .data-table td:nth-child(18) { min-width: 120px; } /* 测试样品数量 */
-.data-table th:nth-child(19), .data-table td:nth-child(19) { min-width: 100px; } /* 测试工时 */
-.data-table th:nth-child(20), .data-table td:nth-child(20) { min-width: 100px; } /* 测试机时 */
-.data-table th:nth-child(21), .data-table td:nth-child(21) { min-width: 120px; } /* 实际交付日期 */
-.data-table th:nth-child(22), .data-table td:nth-child(22) { min-width: 100px; } /* 项目状态 */
+
+.commission-form .data-table th:nth-child(15), 
+.commission-form .data-table td:nth-child(15) { 
+  min-width: 120px !important; 
+  width: 120px !important;
+} /* 样品到达方式 */
+
+.commission-form .data-table th:nth-child(16), 
+.commission-form .data-table td:nth-child(16) { 
+  min-width: 120px !important; 
+  width: 120px !important;
+} /* 样品是否已到 */
+
+.commission-form .data-table th:nth-child(17), 
+.commission-form .data-table td:nth-child(17) { 
+  min-width: 120px !important; 
+  width: 120px !important;
+} /* 服务加急 */
+
+.commission-form .data-table th:nth-child(18), 
+.commission-form .data-table td:nth-child(18) { 
+  min-width: 150px !important; 
+  width: 150px !important;
+} /* 现场测试时间 */
+
+.commission-form .data-table th:nth-child(19), 
+.commission-form .data-table td:nth-child(19) { 
+  min-width: 150px !important; 
+  width: 150px !important;
+} /* 检测设备 */
+
+.commission-form .data-table th:nth-child(20), 
+.commission-form .data-table td:nth-child(20) { 
+  min-width: 100px !important; 
+  width: 100px !important;
+} /* 负责人 */
+
+.commission-form .data-table th:nth-child(21), 
+.commission-form .data-table td:nth-child(21) { 
+  min-width: 100px !important; 
+  width: 100px !important;
+} /* 测试人员 */
+
+.commission-form .data-table th:nth-child(22), 
+.commission-form .data-table td:nth-child(22) { 
+  min-width: 80px !important; 
+  width: 80px !important;
+} /* 数量 */
+
+.commission-form .data-table th:nth-child(23), 
+.commission-form .data-table td:nth-child(23) { 
+  min-width: 120px !important; 
+  width: 120px !important;
+} /* 测试样品数量 */
+
+.commission-form .data-table th:nth-child(24), 
+.commission-form .data-table td:nth-child(24) { 
+  min-width: 100px !important; 
+  width: 100px !important;
+} /* 测试工时 */
+
+.commission-form .data-table th:nth-child(25), 
+.commission-form .data-table td:nth-child(25) { 
+  min-width: 100px !important; 
+  width: 100px !important;
+} /* 测试机时 */
+
+.commission-form .data-table th:nth-child(26), 
+.commission-form .data-table td:nth-child(26) { 
+  min-width: 120px !important; 
+  width: 120px !important;
+} /* 实际交付日期 */
+
+.commission-form .data-table th:nth-child(27), 
+.commission-form .data-table td:nth-child(27) { 
+  min-width: 120px !important; 
+  width: 120px !important;
+} /* 开票未到款金额 */
+
+.commission-form .data-table th:nth-child(28), 
+.commission-form .data-table td:nth-child(28) { 
+  min-width: 100px !important; 
+  width: 100px !important;
+} /* 项目状态 */
+
+/* 价格备注列特殊样式 */
+.data-table td:nth-child(11) {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  word-break: break-word;
+  line-height: 1.4;
+  padding: 12px 14px;
+  vertical-align: top;
+  overflow-wrap: break-word;
+  hyphens: auto;
+}
+
+/* 价格备注列编辑状态样式 */
+.data-table td:nth-child(11) .editable-field-container {
+  width: 100%;
+}
+
+.data-table td:nth-child(11) .editable-input {
+  width: 100%;
+  min-height: 40px;
+  resize: vertical;
+  font-family: inherit;
+  line-height: 1.4;
+}
+
+.data-table td:nth-child(11) .realtime-editable-cell {
+  width: 100%;
+  min-height: 40px;
+  display: flex;
+  align-items: flex-start;
+}
+
+.data-table td:nth-child(11) .editable-cell {
+  width: 100%;
+  min-height: 20px;
+  display: block;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  word-break: break-word;
+  line-height: 1.4;
+  padding: 4px 0;
+}
 
 /* 备注列特殊样式 */
-.data-table td:nth-child(15) {
+.data-table td:nth-child(14) {
   white-space: pre-wrap;
   word-wrap: break-word;
   word-break: break-word;
@@ -477,11 +729,11 @@
 }
 
 /* 备注列编辑状态样式 */
-.data-table td:nth-child(15) .editable-field-container {
+.data-table td:nth-child(14) .editable-field-container {
   width: 100%;
 }
 
-.data-table td:nth-child(15) .editable-input {
+.data-table td:nth-child(14) .editable-input {
   width: 100%;
   min-height: 40px;
   resize: vertical;
@@ -489,14 +741,14 @@
   line-height: 1.4;
 }
 
-.data-table td:nth-child(15) .realtime-editable-cell {
+.data-table td:nth-child(14) .realtime-editable-cell {
   width: 100%;
   min-height: 40px;
   display: flex;
   align-items: flex-start;
 }
 
-.data-table td:nth-child(15) .editable-cell {
+.data-table td:nth-child(14) .editable-cell {
   width: 100%;
   min-height: 20px;
   display: block;

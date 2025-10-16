@@ -40,6 +40,41 @@ router.get('/', requireAuth, async (req, res) => {
   }
 });
 
+// 获取委托单基本信息（包含payer_id）
+router.get('/:id', requireAuth, async (req, res) => {
+  const pool = await getPool();
+  try {
+    const [rows] = await pool.query(`
+      SELECT 
+        o.order_id,
+        o.customer_id,
+        o.commissioner_id,
+        o.payer_id,
+        o.total_price,
+        o.settlement_status,
+        o.period_type,
+        o.created_at,
+        c.customer_name,
+        comm.contact_name as commissioner_name,
+        p.contact_name as payer_name,
+        p.discount_rate
+      FROM orders o
+      LEFT JOIN customers c ON o.customer_id = c.customer_id
+      LEFT JOIN commissioners comm ON o.commissioner_id = comm.commissioner_id
+      LEFT JOIN payers p ON o.payer_id = p.payer_id
+      WHERE o.order_id = ?
+    `, [req.params.id]);
+    
+    if (rows.length === 0) {
+      return res.status(404).json({ error: '委托单不存在' });
+    }
+    
+    res.json(rows[0]);
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
 // 获取内部委托详情
 router.get('/internal/:id', requireAuth, async (req, res) => {
   const pool = await getPool();

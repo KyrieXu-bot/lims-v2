@@ -54,6 +54,11 @@
   min-width: 120px;
 }
 
+.select-input {
+  min-width: 100px;
+  cursor: pointer;
+}
+
 .autocomplete-container {
   position: relative;
   display: inline-block;

@@ -124,6 +124,12 @@ const RealtimeEditableCell = ({
       calculateDropdownPosition();
     }
 
+    // 对于select类型，选择后立即保存
+    if (type === 'select') {
+      handleSave();
+      return;
+    }
+
     // 重置编辑超时
     if (editingTimeoutRef.current) {
       clearTimeout(editingTimeoutRef.current);
@@ -192,6 +198,11 @@ const RealtimeEditableCell = ({
     }
     if (type === 'datetime-local') {
       return new Date(val).toLocaleString('zh-CN');
+    }
+    if (type === 'select') {
+      // 对于select类型，显示对应的中文标签
+      const option = options.find(opt => opt.value === val);
+      return option ? option.label : val;
     }
     return val;
   };
@@ -267,6 +278,25 @@ const RealtimeEditableCell = ({
           lineHeight: '1.4'
         }}
       />
+    );
+  }
+
+  if (type === 'select') {
+    return (
+      <select
+        ref={inputRef}
+        value={editValue}
+        onChange={handleChange}
+        onKeyDown={handleKeyDown}
+        onBlur={handleSave}
+        className="editable-input select-input"
+      >
+        {options.map((option, index) => (
+          <option key={option.value || index} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
     );
   }
 

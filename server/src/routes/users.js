@@ -3,7 +3,6 @@ import { getPool } from '../db.js';
 import { requireAuth, requireAnyRole } from '../middleware/auth.js';
 
 const router = Router();
-router.use(requireAuth, requireAnyRole(['admin', 'leader', 'supervisor']));
 
 // 测试人员列表接口对所有角色开放
 router.get('/technicians', requireAuth, async (req, res) => {
@@ -23,6 +22,9 @@ router.get('/technicians', requireAuth, async (req, res) => {
     return res.status(500).json({ error: e.message });
   }
 });
+
+// 其他接口需要特定权限
+router.use(requireAuth, requireAnyRole(['admin', 'leader', 'supervisor']));
 
 // 获取指定部门的组长
 router.get('/supervisors', async (req, res) => {

@@ -15,6 +15,8 @@ import equipmentRouter from './src/routes/equipment.js';
 import sampleTrackingRouter from './src/routes/sample_tracking.js';
 import filesRouter from './src/routes/files.js';
 import commissionFormRouter from './src/routes/commission_form.js';
+import departmentsRouter from './src/routes/departments.js';
+import labGroupsRouter from './src/routes/lab_groups.js';
 import { setupSocket } from './src/socket.js';
 import { getPool } from './src/db.js';
 
@@ -49,6 +51,8 @@ app.use('/api/equipment', equipmentRouter);
 app.use('/api/sample-tracking', sampleTrackingRouter);
 app.use('/api/files', filesRouter);
 app.use('/api/commission-form', commissionFormRouter);
+app.use('/api/departments', departmentsRouter);
+app.use('/api/lab-groups', labGroupsRouter);
 
 // 设置WebSocket
 const io = setupSocket(server);
