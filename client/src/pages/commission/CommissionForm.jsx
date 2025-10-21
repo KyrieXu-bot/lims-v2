@@ -31,6 +31,7 @@ const CommissionForm = () => {
   const [selectedItems, setSelectedItems] = useState([]); // 选中的检测项目ID列表
   const [showBatchUploadModal, setShowBatchUploadModal] = useState(false);
   const [deletingItems, setDeletingItems] = useState(new Set()); // 正在删除的项目ID集合
+  const [showExportModal, setShowExportModal] = useState(false); // 导出弹框状态
   
   // WebSocket连接
   const {
@@ -46,9 +47,7 @@ const CommissionForm = () => {
 
   const fetchData = async () => {
     setLoading(true);
-    try {
-      console.log('开始获取委托单登记表数据...');
-      
+    try {      
       // 直接使用fetch而不是通过api对象
       const params = new URLSearchParams({
         q: searchQuery,
@@ -98,7 +97,6 @@ const CommissionForm = () => {
   useEffect(() => {
     const handleDataUpdate = (event) => {
       const data = event.detail;
-      console.log('收到实时数据更新:', data);
       setData(prevData => 
         prevData.map(item => 
           item.test_item_id === data.testItemId 
@@ -253,6 +251,385 @@ const CommissionForm = () => {
     setShowBatchUploadModal(true);
   };
 
+  // 导出功能
+  const handleExport = () => {
+    if (selectedItems.length === 0) {
+      alert('请先选择要导出的检测项目');
+      return;
+    }
+    setShowExportModal(true);
+  };
+
+  // 导出委托单模板
+  const handleExportOrderTemplate = async () => {
+    try {
+      const selectedData = data.filter(item => selectedItems.includes(item.test_item_id));
+      if (selectedData.length === 0) {
+        alert('没有选中的检测项目数据');
+        return;
+      }
+
+      // 检查委托单号是否一致
+      const orderIds = [...new Set(selectedData.map(item => item.order_id))];
+      if (orderIds.length > 1) {
+        alert('请选择同一委托单下的项目！');
+        return;
+      }
+
+      // 获取第一个检测项目的基本信息
+      const firstItem = selectedData[0];
+      
+      // 构建完整的模板数据，参考lab-ordering-v2的结构
+      const templateData = {
+        // 基本信息
+        order_num: firstItem.order_id,
+        customer_name: firstItem.customer_name || '',
+        customer_contactName: firstItem.customer_contact_name || '',
+        customer_address: firstItem.customer_address || '',
+        customer_contactEmail: firstItem.customer_contact_email || '',
+        customer_contactPhone: firstItem.customer_contact_phone || '',
+        
+        // 服务类型（默认正常）
+        serviceType1Symbol: '☑',
+        serviceType2Symbol: '☐',
+        serviceType3Symbol: '☐',
+        
+        // 报告标识章（默认普通报告）
+        reportSeals1Symbol: '☑',
+        reportSeals2Symbol: '☐',
+        reportSeals3Symbol: '☐',
+        
+        // 交付时间
+        delivery_days_after_receipt: firstItem.delivery_days || '',
+        
+        // 其他信息
+        sample_shipping_address: '',
+        total_price: firstItem.total_price || '',
+        other_requirements: firstItem.other_requirements || '',
+        subcontractingNotAcceptedSymbol: '☐',
+        
+        // 发票类型（默认增值税普通发票）
+        invoiceType1Symbol: '☑',
+        invoiceType2Symbol: '☐',
+        
+        // 报告内容（默认中文报告）
+        reportContent1Symbol: '☐',
+        reportContent2Symbol: '☑',
+        reportContent3Symbol: '☐',
+        reportContent4Symbol: '☐',
+        reportContent5Symbol: '☐',
+        reportContent6Symbol: '☐',
+        
+        // 纸质版报告寄送地址
+        paperReportType1Symbol: '☑',
+        paperReportType2Symbol: '☐',
+        paperReportType3Symbol: '☐',
+        
+        // 报告抬头
+        headerType1Symbol: '☑',
+        headerType2Symbol: '☐',
+        
+        // 报告版式
+        reportForm1Symbol: '☑',
+        reportForm2Symbol: '☐',
+        
+        // 报告附加信息
+        report_additional_info: '',
+        header_additional_info: '',
+        
+        // 样品处置
+        sampleHandlingType1Symbol: '☑',
+        sampleHandlingType2Symbol: '☐',
+        sampleHandlingType3Symbol: '☐',
+        sampleHandlingType4Symbol: '☐',
+        returnOptionSameSymbol: '☑',
+        returnOptionOtherSymbol: '☐',
+        return_address: '',
+        
+        // 样品危险特性
+        hazardSafetySymbol: '☑',
+        hazardFlammabilitySymbol: '☐',
+        hazardIrritationSymbol: '☐',
+        hazardVolatilitySymbol: '☐',
+        hazardFragileSymbol: '☐',
+        hazardOtherSymbol: '☐',
+        hazard_other: '',
+        
+        // 样品磁性
+        magnetismNonMagneticSymbol: '☑',
+        magnetismWeakMagneticSymbol: '☐',
+        magnetismStrongMagneticSymbol: '☐',
+        magnetismUnknownSymbol: '☐',
+        
+        // 样品导电性
+        conductivityConductorSymbol: '☐',
+        conductivitySemiconductorSymbol: '☐',
+        conductivityInsulatorSymbol: '☑',
+        conductivityUnknownSymbol: '☐',
+        
+        // 是否可破坏
+        breakableYesSymbol: '☑',
+        breakableNoSymbol: '☐',
+        
+        // 是否孤品
+        brittleYesSymbol: '☐',
+        brittleNoSymbol: '☑',
+        
+        // 业务员信息
+        sales_name: firstItem.sales_name || '',
+        sales_email: firstItem.sales_email || '',
+        sales_phone: firstItem.sales_phone || '',
+        
+        // 检测项目列表
+        testItems: selectedData.map((item, index) => ({
+          idx: index + 1,
+          sample_name: item.sample_name || '',
+          material: item.material || '',
+          sample_type: item.sample_type || '',
+          sampleTypeLabel: getSampleTypeLabel(item.sample_type),
+          original_no: item.original_no || '',
+          test_item: item.detail_name || '',
+          test_method: item.test_method || '',
+          sample_preparation: item.sample_preparation,
+          samplePrepYesSymbol: item.sample_preparation === 1 ? '☑' : '☐',
+          samplePrepNoSymbol: item.sample_preparation === 0 ? '☑' : '☐',
+          quantity: item.quantity || '',
+          note: item.note || '',
+          department_name: item.department_name || ''
+        })),
+        
+        // 付款方信息
+        payer_name: firstItem.payer_name || '',
+        payer_address: firstItem.payer_address || '',
+        payer_contactName: firstItem.payer_contact_name || '',
+        payer_contactEmail: firstItem.payer_contact_email || '',
+        payer_contactPhone: firstItem.payer_contact_phone || '',
+        payer_bankName: firstItem.payer_bank_name || '',
+        payer_taxNumber: firstItem.payer_tax_number || '',
+        payer_bankAccount: firstItem.payer_bank_account || ''
+      };
+
+      const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
+      const headers = {
+        'Authorization': `Bearer ${user.token}`,
+        'Content-Type': 'application/json'
+      };
+
+      const response = await fetch('/api/templates/generate-order-template', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(templateData)
+      });
+
+      if (!response.ok) {
+        throw new Error(`导出失败: ${response.status}`);
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${templateData.order_num}-${templateData.customer_name}-${templateData.customer_contactName}.docx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+
+      setShowExportModal(false);
+      alert('委托单模板导出成功');
+    } catch (error) {
+      console.error('导出委托单模板失败:', error);
+      alert('导出失败：' + error.message);
+    }
+  };
+
+  // 获取样品类型标签
+  const getSampleTypeLabel = (sampleType) => {
+    const sampleTypeMap = { 1: '板材', 2: '棒材', 3: '粉末', 4: '液体', 5: '其他' };
+    return sampleTypeMap[sampleType] || sampleType || '';
+  };
+
+  // 导出流转单模板
+  const handleExportProcessTemplate = async () => {
+    try {
+      const selectedData = data.filter(item => selectedItems.includes(item.test_item_id));
+      if (selectedData.length === 0) {
+        alert('没有选中的检测项目数据');
+        return;
+      }
+
+      // 检查委托单号是否一致
+      const orderIds = [...new Set(selectedData.map(item => item.order_id))];
+      if (orderIds.length > 1) {
+        alert('请选择同一委托单下的项目！');
+        return;
+      }
+
+      const firstItem = selectedData[0];
+      
+      // 按部门分类检测项目
+      const machiningItems = [];
+      const mechanicsItems = [];
+      const microItems = [];
+      const physchemItems = [];
+      
+      selectedData.forEach((item, index) => {
+        const row = {
+          idx: index + 1,
+          sample_code: `${firstItem.order_id}-${String(index + 1).padStart(3, '0')}`,
+          test_item: item.detail_name || '',
+          project_code: item.test_code || '',
+          method: item.test_method || '',
+          quantity: item.quantity || '',
+          note: item.note || '',
+          original_no: item.original_no || '',
+          sample_name: item.sample_name || ''
+        };
+        
+        // 根据部门ID分类
+        if (item.test_code && item.test_code.startsWith('LX')) {
+          machiningItems.push(row);
+        } else {
+          switch (String(item.department_id)) {
+            case '3': mechanicsItems.push(row); break;
+            case '1': microItems.push(row); break;
+            case '2': physchemItems.push(row); break;
+            default: break;
+          }
+        }
+      });
+
+      // 检查是否有对应部门
+      const hasDept = (id) => selectedData.some(item => String(item.department_id) === String(id));
+      
+      // 获取当前日期
+      const now = new Date();
+      const yyyy = now.getFullYear();
+      const mm = String(now.getMonth() + 1).padStart(2, '0');
+      const dd = String(now.getDate()).padStart(2, '0');
+      const receiptDate = `${yyyy}-${mm}-${dd}`;
+
+      // 构建完整的流转单数据
+      const flowData = {
+        order_num: firstItem.order_id,
+        
+        // 部门标识
+        machiningCenterSymbol: machiningItems.length > 0 ? '☑' : '☐',
+        mechanicsSymbol: mechanicsItems.length > 0 ? '☑' : '☐',
+        microSymbol: hasDept(1) ? '☑' : '☐',
+        physchemSymbol: hasDept(2) ? '☑' : '☐',
+        
+        // 收样日期
+        sampleReceivedDate: receiptDate,
+        
+        // 表格显示控制
+        showMechanicsTable: hasDept(3),
+        showMicroTable: hasDept(1),
+        showPhyschemTable: hasDept(2),
+        
+        // 报告内容
+        reportContent1Symbol: '☐',
+        reportContent2Symbol: '☑',
+        reportContent3Symbol: '☐',
+        reportContent6Symbol: '☐',
+        
+        // 报告标识章
+        reportSeals1Symbol: '☑',
+        reportSeals2Symbol: '☐',
+        reportSeals3Symbol: '☐',
+        
+        // 报告版式
+        reportForm1Symbol: '☑',
+        reportForm2Symbol: '☐',
+        
+        // 报告抬头
+        headerType1Symbol: '☑',
+        headerType2Symbol: '☐',
+        header_additional_info: '',
+        
+        // 服务类型
+        serviceType1Symbol: '☑',
+        serviceType2Symbol: '☐',
+        serviceType3Symbol: '☐',
+        delivery_days_after_receipt: firstItem.delivery_days || '',
+        
+        // 样品处置
+        returnNoSymbol: '☑',
+        returnPickupSymbol: '☐',
+        returnMailSymbol: '☐',
+        
+        // 其他要求
+        other_requirements: firstItem.other_requirements || '',
+        
+        // 样品危险特性
+        hazardSafetySymbol: '☑ 无危险性',
+        hazardFlammabilitySymbol: null,
+        hazardIrritationSymbol: null,
+        hazardVolatilitySymbol: null,
+        hazardFragileSymbol: null,
+        hazardOtherSymbol: null,
+        
+        // 样品磁性
+        magnetismNonMagneticSymbol: '☑ 无磁',
+        magnetismWeakMagneticSymbol: null,
+        magnetismStrongMagneticSymbol: null,
+        magnetismUnknownSymbol: null,
+        
+        // 样品导电性
+        conductivityConductorSymbol: null,
+        conductivitySemiconductorSymbol: null,
+        conductivityInsulatorSymbol: '☑ 绝缘体',
+        conductivityUnknownSymbol: null,
+        
+        // 是否可破坏
+        breakableYesSymbol: '☑ 是',
+        brittleYesSymbol: null,
+        brittleNoSymbol: '☑ 否',
+        
+        // 项目负责人
+        projectLeader: '',
+        
+        // 各部门检测项目
+        machiningItems,
+        mechanicsItems,
+        microItems,
+        physchemItems
+      };
+
+      const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
+      const headers = {
+        'Authorization': `Bearer ${user.token}`,
+        'Content-Type': 'application/json'
+      };
+
+      const response = await fetch('/api/templates/generate-process-template', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(flowData)
+      });
+
+      if (!response.ok) {
+        throw new Error(`导出失败: ${response.status}`);
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${flowData.order_num}_流转单.docx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+
+      setShowExportModal(false);
+      alert('流转单模板导出成功');
+    } catch (error) {
+      console.error('导出流转单模板失败:', error);
+      alert('导出失败：' + error.message);
+    }
+  };
+
   // 删除单个检测项目
   const handleDeleteItem = async (testItemId) => {
     if (!window.confirm('确定要删除这个检测项目吗？删除后将无法恢复，包括所有相关的分配、委外、样品等信息。')) {
@@ -307,6 +684,61 @@ const CommissionForm = () => {
     } finally {
       setDeletingItems(new Set());
     }
+  };
+
+  // 复制检测项目
+  const handleCopyTestItem = (item) => {
+    // 构建复制数据的URL参数，排除ID相关字段
+    const copyData = {
+      order_id: item.order_id,
+      category_name: item.category_name,
+      detail_name: item.detail_name,
+      sample_name: item.sample_name,
+      material: item.material,
+      sample_type: item.sample_type,
+      original_no: item.original_no,
+      test_code: item.test_code,
+      standard_code: item.standard_code,
+      department_id: item.department_id,
+      group_id: item.group_id,
+      unit_price: item.unit_price,
+      discount_rate: item.discount_rate,
+      final_unit_price: item.final_unit_price,
+      line_total: item.line_total,
+      quantity: item.quantity,
+      machine_hours: item.machine_hours,
+      work_hours: item.work_hours,
+      is_add_on: 1, // 标记为加测
+      is_outsourced: item.is_outsourced,
+      seq_no: item.seq_no,
+      sample_preparation: item.sample_preparation,
+      note: item.note,
+      // 不复制分配相关字段，让用户重新选择
+      // current_assignee: item.current_assignee,
+      // supervisor_id: item.supervisor_id,
+      // technician_id: item.technician_id,
+      equipment_id: item.equipment_id,
+      arrival_mode: item.arrival_mode,
+      sample_arrival_status: item.sample_arrival_status,
+      actual_sample_quantity: item.actual_sample_quantity,
+      // 不复制交付日期，让用户重新填写
+      // actual_delivery_date: item.actual_delivery_date,
+      field_test_time: item.field_test_time,
+      price_note: item.price_note,
+      // 添加其他可能缺失的字段
+      status: 'new' // 确保状态为新建
+    };
+
+    // 将数据编码为URL参数
+    const params = new URLSearchParams();
+    Object.keys(copyData).forEach(key => {
+      if (copyData[key] !== null && copyData[key] !== undefined && copyData[key] !== '') {
+        params.append(key, copyData[key]);
+      }
+    });
+
+    // 跳转到新增页面，并传递复制数据
+    navigate(`/test-items/new?copy=${encodeURIComponent(params.toString())}`);
   };
 
 
@@ -441,7 +873,6 @@ const CommissionForm = () => {
         });
       }, 2000);
 
-      console.log('更新成功:', field, value);
     } catch (error) {
       console.error('保存编辑失败:', error);
       // 设置保存失败状态
@@ -563,14 +994,24 @@ const CommissionForm = () => {
               一键上传 ({selectedItems.length})
             </button>
             {user?.role === 'admin' && (
-              <button 
-                onClick={handleBatchDelete} 
-                className="btn btn-danger"
-                disabled={selectedItems.length === 0}
-                style={{backgroundColor: '#dc3545', color: 'white'}}
-              >
-                批量删除 ({selectedItems.length})
-              </button>
+              <>
+                <button 
+                  onClick={handleExport} 
+                  className="btn btn-primary"
+                  disabled={selectedItems.length === 0}
+                  style={{backgroundColor: '#007bff', color: 'white'}}
+                >
+                  导出 ({selectedItems.length})
+                </button>
+                <button 
+                  onClick={handleBatchDelete} 
+                  className="btn btn-danger"
+                  disabled={selectedItems.length === 0}
+                  style={{backgroundColor: '#dc3545', color: 'white'}}
+                >
+                  批量删除 ({selectedItems.length})
+                </button>
+              </>
             )}
           </div>
           <div className="online-indicator">
@@ -610,6 +1051,7 @@ const CommissionForm = () => {
                     <th className="order-creator-field">归属部门</th>
                     <th className="order-creator-field">收费标准</th>
                     <th className="order-creator-field">价格备注</th>
+                    <th className="order-creator-field">数量</th>
                     <th className="order-creator-field">标准价</th>
                     <th className="order-creator-field">折扣</th>
                     <th className="order-creator-field">备注</th>
@@ -620,7 +1062,6 @@ const CommissionForm = () => {
                     <th className="lab-field">检测设备</th>
                     <th className="lab-field">负责人</th>
                     <th className="lab-field">测试人员</th>
-                    <th className="lab-field">数量</th>
                     <th className="lab-field">测试样品数量</th>
                     <th className="lab-field">测试工时</th>
                     <th className="lab-field">测试机时</th>
@@ -658,28 +1099,36 @@ const CommissionForm = () => {
                       <td className="order-creator-field">
                         <span className="readonly-field">{item.assignee_name || ''}</span>
                       </td>
-                      <td className="order-creator-field">{item.test_item_name || ''}</td>
+                      <td className="order-creator-field">
+                        <div style={{fontSize: '12px', lineHeight: '1.3'}}>
+                          <div>{item.category_name || ''} - {item.detail_name || ''}</div>
+                          <div><strong>样品原号:</strong> {item.original_no || ''}</div>
+                        </div>
+                      </td>
                       <td className="order-creator-field">{item.test_code || ''}</td>
                       <td className="order-creator-field">{item.department_name || ''}</td>
-                      <td className="order-creator-field">{formatCurrency(item.unit_price)}</td>
+                      <td className="order-creator-field">{formatCurrency(item.original_unit_price)}</td>
+                      <td className="order-creator-field">
+                        <span className="readonly-field">{item.price_note || ''}</span>
+                      </td>
+                      <td className="order-creator-field">{item.quantity || ''}</td>
                       <td className="order-creator-field">
                         <div className="editable-field-container">
                           <RealtimeEditableCell
-                            value={item.price_note}
-                            type="textarea"
+                            value={item.standard_price}
+                            type="number"
                             onSave={handleSaveEdit}
-                            field="price_note"
+                            field="unit_price"
                             testItemId={item.test_item_id}
-                            placeholder="输入价格备注"
+                            placeholder="输入标准价"
                             isFieldBeingEdited={isFieldBeingEdited}
                             getEditingUser={getEditingUser}
                             emitUserEditing={emitUserEditing}
                             emitUserStopEditing={emitUserStopEditing}
                           />
-                          <SavingIndicator testItemId={item.test_item_id} field="price_note" />
+                          <SavingIndicator testItemId={item.test_item_id} field="unit_price" />
                         </div>
                       </td>
-                      <td className="order-creator-field">{formatCurrency(item.standard_price)}</td>
                       <td className="order-creator-field">{formatPercentage(item.discount_rate)}</td>
                       <td className="order-creator-field">
                         <div className="editable-field-container">
@@ -815,23 +1264,6 @@ const CommissionForm = () => {
                       <td className="lab-field">
                         <div className="editable-field-container">
                           <RealtimeEditableCell
-                            value={item.quantity}
-                            type="number"
-                            onSave={handleSaveEdit}
-                            field="quantity"
-                            testItemId={item.test_item_id}
-                            placeholder="数量"
-                            isFieldBeingEdited={isFieldBeingEdited}
-                            getEditingUser={getEditingUser}
-                            emitUserEditing={emitUserEditing}
-                            emitUserStopEditing={emitUserStopEditing}
-                          />
-                          <SavingIndicator testItemId={item.test_item_id} field="quantity" />
-                        </div>
-                      </td>
-                      <td className="lab-field">
-                        <div className="editable-field-container">
-                          <RealtimeEditableCell
                             value={item.actual_sample_quantity}
                             type="number"
                             onSave={handleSaveEdit}
@@ -917,7 +1349,7 @@ const CommissionForm = () => {
                         </button>
                       </td>
                       {user?.role === 'admin' && (
-                        <td style={{minWidth: '180px', whiteSpace: 'nowrap'}}>
+                        <td style={{minWidth: '220px', whiteSpace: 'nowrap'}}>
                           <div style={{display: 'flex', gap: '2px', alignItems: 'center'}}>
                             <button 
                               className="btn btn-info"
@@ -947,6 +1379,22 @@ const CommissionForm = () => {
                               }}
                             >
                               编辑
+                            </button>
+                            <button 
+                              className="btn btn-info"
+                              onClick={() => handleCopyTestItem(item)}
+                              title="复制加测"
+                              style={{
+                                padding: '2px 6px',
+                                fontSize: '11px',
+                                minWidth: 'auto',
+                                backgroundColor: '#17a2b8',
+                                color: '#fff',
+                                border: '1px solid #17a2b8',
+                                lineHeight: '1.2'
+                              }}
+                            >
+                              复制
                             </button>
                             <button 
                               className="btn-delete" 
@@ -1050,6 +1498,43 @@ const CommissionForm = () => {
                   setSelectedItems([]);
                 }}
               />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 导出模态框 */}
+      {showExportModal && (
+        <div className="file-modal-overlay" onClick={() => setShowExportModal(false)}>
+          <div className="file-modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="file-modal-header">
+              <h3>导出模板 - 已选择 {selectedItems.length} 个检测项目</h3>
+              <button className="close-button" onClick={() => setShowExportModal(false)}>×</button>
+            </div>
+            <div className="file-modal-body">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', padding: '20px' }}>
+                <button 
+                  className="btn btn-secondary" 
+                  style={{ padding: '10px 20px', fontSize: '14px' }}
+                  disabled
+                >
+                  导出Excel (功能开发中)
+                </button>
+                <button 
+                  className="btn btn-primary" 
+                  style={{ padding: '10px 20px', fontSize: '14px' }}
+                  onClick={handleExportOrderTemplate}
+                >
+                  导出委托单模板
+                </button>
+                <button 
+                  className="btn btn-info" 
+                  style={{ padding: '10px 20px', fontSize: '14px' }}
+                  onClick={handleExportProcessTemplate}
+                >
+                  导出流转单模板
+                </button>
+              </div>
             </div>
           </div>
         </div>

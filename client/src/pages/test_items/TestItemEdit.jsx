@@ -74,13 +74,37 @@ export default function TestItemEdit() {
   };
 
   useEffect(()=>{
-    if (!isNew) api.getTestItem(id).then(data => {
-      // 规范化样品到达状态为英文枚举
-      let s = data.sample_arrival_status;
-      if (s === '已到') s = 'arrived';
-      if (s === '未到') s = 'not_arrived';
-      setIt({ ...data, sample_arrival_status: s });
-    }).catch(e=>alert(e.message));
+    if (!isNew) {
+      api.getTestItem(id).then(data => {
+        // 规范化样品到达状态为英文枚举
+        let s = data.sample_arrival_status;
+        if (s === '已到') s = 'arrived';
+        if (s === '未到') s = 'not_arrived';
+        setIt({ ...data, sample_arrival_status: s });
+      }).catch(e=>alert(e.message));
+    } else {
+      // 检查是否有复制数据
+      const copyParam = new URLSearchParams(location.search).get('copy');
+      if (copyParam) {
+        try {
+          const copyData = new URLSearchParams(decodeURIComponent(copyParam));
+          const copyObj = {};
+          for (const [key, value] of copyData.entries()) {
+            // 处理数字类型字段
+            if (['quantity', 'unit_price', 'discount_rate', 'final_unit_price', 'line_total', 
+                 'machine_hours', 'work_hours', 'is_add_on', 'is_outsourced', 'department_id', 
+                 'group_id', 'supervisor_id', 'technician_id', 'equipment_id', 'actual_sample_quantity'].includes(key)) {
+              copyObj[key] = value === '' ? '' : (key.includes('is_') ? parseInt(value) : parseFloat(value));
+            } else {
+              copyObj[key] = value;
+            }
+          }
+          setIt(prev => ({ ...prev, ...copyObj }));
+        } catch (error) {
+          console.error('解析复制数据失败:', error);
+        }
+      }
+    }
     // 加载价格表选项
     api.listPrice({ pageSize: 1000 }).then(res => setPriceOptions(res.data)).catch(e => console.error(e));
     // 加载所有委托单数据用于本地搜索
@@ -88,7 +112,7 @@ export default function TestItemEdit() {
     loadPayers();
     loadDepartments();
     loadLabGroups();
-  }, [id]);
+  }, [id, location.search]);
 
   // 加载所有委托单数据
   const loadAllOrders = async () => {
@@ -104,7 +128,6 @@ export default function TestItemEdit() {
   const loadPayers = async () => {
     try {
       const res = await api.listPayers({ pageSize: 1000 });
-      console.log('付款方API返回:', res);
       setPayers(Array.isArray(res) ? res : (res.data || []));
     } catch (error) {
       console.error('加载付款方数据失败:', error);
@@ -115,7 +138,6 @@ export default function TestItemEdit() {
   const loadDepartments = async () => {
     try {
       const res = await api.listDepartments({ pageSize: 1000 });
-      console.log('部门API返回:', res);
       setDepartments(Array.isArray(res) ? res : (res.data || []));
     } catch (error) {
       console.error('加载部门数据失败:', error);
@@ -126,7 +148,6 @@ export default function TestItemEdit() {
   const loadLabGroups = async () => {
     try {
       const res = await api.listLabGroups({ pageSize: 1000 });
-      console.log('实验室组API返回:', res);
       setLabGroups(Array.isArray(res) ? res : (res.data || []));
     } catch (error) {
       console.error('加载实验室组数据失败:', error);
@@ -180,17 +201,12 @@ export default function TestItemEdit() {
     
     // 获取该委托单的完整信息，包括payer_id
     try {
-      console.log('选择的委托单:', order);
       const orderDetail = await api.getOrder(order.order_id);
-      console.log('委托单详情:', orderDetail);
       
       if (orderDetail.payer_id) {
-        console.log('委托单的付款方ID:', orderDetail.payer_id);
         const payer = payers.find(p => p.payer_id === orderDetail.payer_id);
-        console.log('找到的付款方:', payer);
         if (payer) {
           setIt(prev => ({...prev, discount_rate: payer.discount_rate || 0}));
-          console.log('已设置折扣率:', payer.discount_rate);
         } else {
           console.log('未找到对应的付款方');
         }
@@ -204,9 +220,7 @@ export default function TestItemEdit() {
 
   // 选择价格项目
   const selectPriceItem = (priceItem) => {
-    console.log('选择的价格项目:', priceItem);
-    console.log('可用的部门数据:', departments);
-    console.log('可用的实验室组数据:', labGroups);
+
     
     setSelectedPrice(priceItem);
     setIt(prev => ({
@@ -221,29 +235,19 @@ export default function TestItemEdit() {
     
     // 根据选择的项目自动填充部门和组别信息
     if (priceItem.department_id) {
-      console.log('价格项目的部门ID:', priceItem.department_id, typeof priceItem.department_id);
-      console.log('所有部门数据:', departments);
+
       const department = departments.find(d => d.department_id == priceItem.department_id);
-      console.log('找到的部门:', department);
       if (department) {
         setIt(prev => ({...prev, department_id: priceItem.department_id}));
-        console.log('已设置部门ID:', priceItem.department_id);
       }
     } else {
       console.log('价格项目没有部门ID');
     }
     
     if (priceItem.group_id) {
-      console.log('价格项目的小组ID:', priceItem.group_id, typeof priceItem.group_id);
-      console.log('所有实验室组数据:', labGroups);
       const labGroup = labGroups.find(g => g.group_id == priceItem.group_id);
-      console.log('找到的实验室组:', labGroup);
       if (labGroup) {
         setIt(prev => ({...prev, group_id: priceItem.group_id}));
-        console.log('已设置小组ID:', priceItem.group_id);
-        
-        // 注意：lab_groups表中没有supervisor_id字段
-        // 如果需要自动填充负责人，需要其他方式获取组长信息
       }
     } else {
       console.log('价格项目没有小组ID');

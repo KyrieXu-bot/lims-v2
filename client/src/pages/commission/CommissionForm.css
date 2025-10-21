@@ -541,8 +541,8 @@
 
 .commission-form .data-table th:nth-child(7), 
 .commission-form .data-table td:nth-child(7) { 
-  min-width: 200px !important; 
-  width: 200px !important;
+  min-width: 280px !important; 
+  width: 280px !important;
 } /* 检测项目 */
 
 .commission-form .data-table th:nth-child(8), 
@@ -556,6 +556,32 @@
   min-width: 100px !important; 
   width: 100px !important;
 } /* 归属部门 */
+
+.commission-form .data-table th:nth-child(10), 
+.commission-form .data-table td:nth-child(10) { 
+  min-width: 100px !important; 
+  width: 100px !important;
+} /* 收费标准 */
+
+.commission-form .data-table th:nth-child(11), 
+.commission-form .data-table td:nth-child(11) { 
+  min-width: 150px !important; 
+  max-width: 200px !important; 
+  width: 180px !important;
+} /* 价格备注 */
+
+.commission-form .data-table th:nth-child(12), 
+.commission-form .data-table td:nth-child(12) { 
+  min-width: 60px !important; 
+  width: 60px !important;
+} /* 数量 */
+
+
+.commission-form .data-table th:nth-child(13), 
+.commission-form .data-table td:nth-child(13) { 
+  min-width: 100px !important; 
+  width: 100px !important;
+} /* 标准价 */
 
 .commission-form .data-table th:nth-child(10), 
 .commission-form .data-table td:nth-child(10) { 
@@ -814,4 +840,12 @@
   .data-table td {
     padding: 8px 4px;
   }
+}
+
+/* 操作列 - 最后一个子元素 */
+.commission-form .data-table th:last-child,
+.commission-form .data-table td:last-child {
+  min-width: 220px !important;
+  width: 220px !important;
+  white-space: nowrap;
 }

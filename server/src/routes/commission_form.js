@@ -73,15 +73,26 @@ router.get('/commission-form', async (req, res) => {
         ti.created_at as test_item_created_at,
         c.customer_id,
         c.customer_name,
+        c.address as customer_address,
+        c.phone as customer_phone,
+        comm.contact_name as customer_contact_name,
+        comm.contact_phone as customer_contact_phone,
+        comm.email as customer_contact_email,
+        o.commissioner_id,
         u.name as assignee_name,
         ti.current_assignee,
         NULL as unpaid_amount, -- 开票未到款金额（暂时为空）
         CONCAT(ti.category_name, ' - ', ti.detail_name) as test_item_name,
+        ti.category_name,
+        ti.detail_name,
+        ti.sample_name,
+        ti.material,
+        ti.original_no,
         ti.test_code,
         ti.department_id,
         d.department_name,
-        p.unit_price as standard_price,
-        ti.unit_price,
+        ti.unit_price as standard_price,
+        p.unit_price as original_unit_price,
         COALESCE(pay.discount_rate, 0) / 100 as discount_rate,
         CASE 
           WHEN o.period_type = 'normal' THEN '不加急'
@@ -102,13 +113,31 @@ router.get('/commission-form', async (req, res) => {
         ti.arrival_mode,
         ti.sample_arrival_status,
         sup.name as supervisor_name,
-        ti.supervisor_id
+        ti.supervisor_id,
+        -- 业务员信息
+        sales.name as sales_name,
+        sales.email as sales_email,
+        sales.phone as sales_phone,
+        -- 付款方信息
+        pay.contact_name as payer_name,
+        pay.contact_phone as payer_contact_phone,
+        NULL as payer_contact_email, -- payers表没有email字段
+        c.bank_name as payer_bank_name, -- 从customers表获取
+        c.tax_id as payer_tax_number, -- 从customers表获取
+        c.bank_account as payer_bank_account, -- 从customers表获取
+        c.address as payer_address, -- 从customers表获取
+        -- 其他信息
+        o.delivery_days_after_receipt as delivery_days,
+        o.remarks as other_requirements,
+        o.total_price
       FROM test_items ti
       LEFT JOIN orders o ON o.order_id = ti.order_id
       LEFT JOIN customers c ON c.customer_id = o.customer_id
+      LEFT JOIN commissioners comm ON comm.commissioner_id = o.commissioner_id
       LEFT JOIN users u ON u.user_id = ti.current_assignee
       LEFT JOIN users tech ON tech.user_id = ti.technician_id
       LEFT JOIN users sup ON sup.user_id = ti.supervisor_id
+      LEFT JOIN users sales ON sales.user_id = c.owner_user_id
       LEFT JOIN departments d ON d.department_id = ti.department_id
       LEFT JOIN price p ON p.price_id = ti.price_id
       LEFT JOIN payers pay ON pay.payer_id = o.payer_id
