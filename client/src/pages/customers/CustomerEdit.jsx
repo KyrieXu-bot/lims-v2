@@ -17,10 +17,8 @@ export default function CustomerEdit() {
   const isNew = id === 'new';
   const [it, setIt] = useState({ is_active: 1 });
   const navigate = useNavigate();
-  const [sales, setSales] = useState([]);
 
   useEffect(()=>{
-    api.salesOptions().then(setSales).catch(e=>alert(e.message));
     if (!isNew) api.getCustomer(id).then(setIt).catch(e=>alert(e.message));
   }, [id]);
 
@@ -147,33 +145,16 @@ export default function CustomerEdit() {
               </select>
             </div>
 
-            {/* 客户分级 */}
+            {/* 合作时间 */}
             <div>
-              <label>客户分级</label>
-              <select
+              <label>合作时间</label>
+              <input
                 className="input"
-                value={it.grade || ''}
-                onChange={e=>setIt({...it, grade:e.target.value})}
-              >
-                <option value="">请选择</option>
-                <option value="一级">一级</option>
-                <option value="二级">二级</option>
-                <option value="三级">三级</option>
-              </select>
+                type="month"
+                value={it.cooperation_time || ''}
+                onChange={e=>setIt({...it, cooperation_time:e.target.value})}
+              />
             </div>
-        </div>
-        <div>
-          <label>业务员</label>
-          <select
-            className="input"
-            value={it.owner_user_id || ''}
-            onChange={e=>setIt({...it, owner_user_id: e.target.value || null})}
-          >
-            <option value="">未分配</option>
-            {sales.map(s => (
-              <option key={s.user_id} value={s.user_id}>{s.name}（{s.user_id}）</option>
-            ))}
-          </select>
         </div>
         <div>
           <label>地址</label>

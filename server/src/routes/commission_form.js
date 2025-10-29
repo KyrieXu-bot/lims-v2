@@ -107,11 +107,15 @@ router.get('/commission-form', async (req, res) => {
         ti.actual_sample_quantity,
         ti.work_hours,
         ti.machine_hours,
+        ti.test_notes,
+        ti.unit,
+        ti.line_total,
         ti.actual_delivery_date,
         ti.status,
         ti.quantity,
         ti.arrival_mode,
         ti.sample_arrival_status,
+        ti.price_note,
         sup.name as supervisor_name,
         ti.supervisor_id,
         -- 业务员信息
@@ -137,13 +141,13 @@ router.get('/commission-form', async (req, res) => {
       LEFT JOIN users u ON u.user_id = ti.current_assignee
       LEFT JOIN users tech ON tech.user_id = ti.technician_id
       LEFT JOIN users sup ON sup.user_id = ti.supervisor_id
-      LEFT JOIN users sales ON sales.user_id = c.owner_user_id
+      LEFT JOIN payers pay ON pay.payer_id = o.payer_id
+      LEFT JOIN users sales ON sales.user_id = pay.owner_user_id
       LEFT JOIN departments d ON d.department_id = ti.department_id
       LEFT JOIN price p ON p.price_id = ti.price_id
-      LEFT JOIN payers pay ON pay.payer_id = o.payer_id
       LEFT JOIN equipment e ON e.equipment_id = ti.equipment_id
       ${where}
-      ORDER BY ti.test_item_id DESC
+      ORDER BY ti.order_id ASC, ti.test_item_id ASC
       LIMIT ? OFFSET ?`,
       [...params, Number(pageSize), offset]
     );

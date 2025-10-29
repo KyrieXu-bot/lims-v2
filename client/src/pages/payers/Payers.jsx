@@ -49,7 +49,7 @@ export default function Payers() {
       <table className="table">
         <thead>
           <tr>
-            <th>ID</th><th>付款人</th><th>客户</th><th>电话号码</th><th>付款期限 (天)</th><th>折扣 (%)</th><th>状态</th><th>操作</th>
+            <th>ID</th><th>付款人</th><th>客户</th><th>电话号码</th><th>付款期限 (天)</th><th>折扣 (%)</th><th>业务员</th><th>状态</th><th>操作</th>
           </tr>
         </thead>
         <tbody>
@@ -61,6 +61,7 @@ export default function Payers() {
               <td>{it.contact_phone}</td>
               <td>{it.payment_term_days}</td>
               <td>{it.discount_rate}</td>
+              <td>{it.owner_user_id ? `${it.owner_name||''}（${it.owner_user_id}）` : ''}</td>
               <td>{it.is_active ? <span className="badge">启用</span> : <span className="badge">禁用</span>}</td>
               <td className="actions">
                 <button className="btn" onClick={()=>navigate(`/payers/${it.payer_id}`)}>编辑</button>

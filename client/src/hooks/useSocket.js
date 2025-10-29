@@ -12,11 +12,20 @@ export const useSocket = (room) => {
     const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
     if (!user || !user.token) return;
 
+    // 获取Socket.IO服务器地址
+    // 使用环境变量或默认到当前域（支持代理）
+    const socketUrl = import.meta.env.VITE_SOCKET_URL || 
+                      (import.meta.env.DEV ? 'http://localhost:3001' : '');
+    
     // 创建Socket连接
-    const newSocket = io('http://localhost:3001', {
+    const newSocket = io(socketUrl, {
       auth: {
         token: user.token
-      }
+      },
+      autoConnect: true,
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000
     });
 
     socketRef.current = newSocket;

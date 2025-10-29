@@ -11,6 +11,13 @@ export default defineConfig({
           ? 'http://192.168.9.46:3004' 
           : 'http://localhost:3001',
         changeOrigin: true
+      },
+      '/socket.io': {
+        target: process.env.NODE_ENV === 'production' 
+          ? 'http://192.168.9.46:3004' 
+          : 'http://localhost:3001',
+        changeOrigin: true,
+        ws: true
       }
     }
   },
@@ -18,6 +25,15 @@ export default defineConfig({
     outDir: 'dist',
     assetsDir: 'assets',
     sourcemap: false,
-    minify: 'terser'
+    minify: 'terser',
+    rollupOptions: {
+      external: [],
+      output: {
+        manualChunks: {
+          vendor: ['react', 'react-dom', 'react-router-dom'],
+          utils: ['xlsx', 'docxtemplater', 'pizzip']
+        }
+      }
+    }
   }
 })

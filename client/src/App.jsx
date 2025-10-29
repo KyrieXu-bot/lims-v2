@@ -3,6 +3,7 @@ import { Routes, Route, NavLink, useNavigate } from 'react-router-dom';
 import Login from './pages/Login.jsx';
 import Customers from './pages/customers/Customers.jsx';
 import CustomerEdit from './pages/customers/CustomerEdit.jsx';
+import CustomerIntegratedAdd from './pages/customers/CustomerIntegratedAdd.jsx';
 import Payers from './pages/payers/Payers.jsx';
 import PayerEdit from './pages/payers/PayerEdit.jsx';
 import Commissioners from './pages/commissioners/Commissioners.jsx';
@@ -82,6 +83,7 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<Layout><Login/></Layout>} />
       <Route path="/customers" element={<Layout><Customers/></Layout>} />
+      <Route path="/customers/new" element={<Layout><CustomerIntegratedAdd/></Layout>} />
       <Route path="/customers/:id" element={<Layout><CustomerEdit/></Layout>} />
       <Route path="/payers" element={<Layout><Payers/></Layout>} />
       <Route path="/payers/:id" element={<Layout><PayerEdit/></Layout>} />

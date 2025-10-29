@@ -98,7 +98,36 @@ const SimpleFileUpload = ({
       throw new Error(errorData.error || '上传失败');
     }
 
-    return await response.json();
+    const uploaded = await response.json();
+
+    // 如果上传的是“实验原始数据”，则把上传时间写入对应检测项目的实际交付日期
+    try {
+      if (selectedCategory === 'raw_data' && testItemId) {
+        const uploadedAt = uploaded.created_at || new Date().toISOString();
+        // 提取日期部分，表格展示为date
+        const dateOnly = new Date(uploadedAt).toISOString().slice(0, 10);
+
+        const updateRes = await fetch(`/api/test-items/${testItemId}`, {
+          method: 'PUT',
+          headers: {
+            'Authorization': `Bearer ${user.token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ actual_delivery_date: dateOnly })
+        });
+        if (updateRes.ok) {
+          // 发出页面级事件，通知列表更新（CommissionForm中已监听）
+          const event = new CustomEvent('realtime-data-update', {
+            detail: { testItemId, field: 'actual_delivery_date', value: dateOnly }
+          });
+          window.dispatchEvent(event);
+        }
+      }
+    } catch (err) {
+      console.error('更新实际交付日期失败:', err);
+    }
+
+    return uploaded;
   };
 
   const handleDownload = async (file) => {

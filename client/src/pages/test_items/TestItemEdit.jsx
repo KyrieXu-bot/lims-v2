@@ -223,6 +223,8 @@ export default function TestItemEdit() {
 
     
     setSelectedPrice(priceItem);
+    // 仅在价格表单价为数值时预填到检测项目的数值单价字段
+    const numericUnitPrice = Number(priceItem.unit_price);
     setIt(prev => ({
       ...prev,
       price_id: priceItem.price_id,
@@ -230,7 +232,7 @@ export default function TestItemEdit() {
       detail_name: priceItem.detail_name,
       test_code: priceItem.test_code,
       is_outsourced: priceItem.is_outsourced,
-      unit_price: priceItem.unit_price
+      unit_price: Number.isFinite(numericUnitPrice) ? numericUnitPrice : prev.unit_price
     }));
     
     // 根据选择的项目自动填充部门和组别信息
@@ -563,7 +565,7 @@ export default function TestItemEdit() {
                         <td>{price.category_name}</td>
                         <td>{price.detail_name}</td>
                         <td>{price.test_code}</td>
-                        <td>¥{price.unit_price}</td>
+                        <td>{price.unit_price}</td>
                         <td>
                           <span className={`price-outsource-badge ${price.is_outsourced ? 'outsourced' : 'internal'}`}>
                             {price.is_outsourced ? '是' : '否'}

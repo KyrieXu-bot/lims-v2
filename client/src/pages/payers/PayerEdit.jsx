@@ -16,10 +16,12 @@ export default function PayerEdit() {
   const isNew = id === 'new';
   const [it, setIt] = useState({ is_active: 1 });
   const [customerOptions, setCustomerOptions] = useState([]);
+  const [sales, setSales] = useState([]);
   const navigate = useNavigate();
 
   useEffect(()=>{
     api.customersOptions().then(setCustomerOptions);
+    api.salesOptions().then(setSales).catch(e=>alert(e.message));
     if (!isNew) api.getPayer(id).then(setIt).catch(e=>alert(e.message));
   }, [id]);
 
@@ -50,6 +52,19 @@ export default function PayerEdit() {
           <Field label="电话号码" value={it.contact_phone} onChange={v=>setIt({...it, contact_phone:v})} />
           <Field label="付款期限 (天)" value={it.payment_term_days} onChange={v=>setIt({...it, payment_term_days:v})} />
           <Field label="折扣 (%)" value={it.discount_rate} onChange={v=>setIt({...it, discount_rate:v})} />
+        </div>
+        <div>
+          <label>业务员</label>
+          <select
+            className="input"
+            value={it.owner_user_id || ''}
+            onChange={e=>setIt({...it, owner_user_id: e.target.value || null})}
+          >
+            <option value="">未分配</option>
+            {sales.map(s => (
+              <option key={s.user_id} value={s.user_id}>{s.name}（{s.user_id}）</option>
+            ))}
+          </select>
         </div>
         <div>
           <label>状态</label>

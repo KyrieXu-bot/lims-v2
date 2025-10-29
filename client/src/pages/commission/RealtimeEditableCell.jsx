@@ -19,7 +19,6 @@ const RealtimeEditableCell = ({
   const [editValue, setEditValue] = useState(value || '');
   const [filteredOptions, setFilteredOptions] = useState(options);
   const [showOptions, setShowOptions] = useState(false);
-  const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
   const inputRef = useRef(null);
   const optionsRef = useRef(null);
   const editingTimeoutRef = useRef(null);
@@ -40,6 +39,11 @@ const RealtimeEditableCell = ({
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (optionsRef.current && !optionsRef.current.contains(event.target)) {
+        // 检查点击是否在下拉框中
+        const dropdown = document.querySelector('.options-dropdown');
+        if (dropdown && dropdown.contains(event.target)) {
+          return;
+        }
         setShowOptions(false);
         setIsEditing(false);
         // 通知其他用户我停止了编辑
@@ -62,16 +66,6 @@ const RealtimeEditableCell = ({
     }
   }, [onDataUpdate, field, testItemId]);
 
-  const calculateDropdownPosition = () => {
-    if (inputRef.current) {
-      const rect = inputRef.current.getBoundingClientRect();
-      setDropdownPosition({
-        top: rect.bottom + window.scrollY + 4,
-        left: rect.left + window.scrollX
-      });
-    }
-  };
-
   const handleClick = () => {
     // 检查是否有其他用户正在编辑
     if (isFieldBeingEdited && isFieldBeingEdited(field, testItemId)) {
@@ -88,8 +82,6 @@ const RealtimeEditableCell = ({
         // 初始显示所有选项
         setFilteredOptions(options);
         setShowOptions(true);
-        // 计算下拉框位置
-        setTimeout(calculateDropdownPosition, 0);
       }
       
       // 通知其他用户我正在编辑
@@ -120,8 +112,6 @@ const RealtimeEditableCell = ({
         setFilteredOptions(filtered);
       }
       setShowOptions(true);
-      // 重新计算下拉框位置
-      calculateDropdownPosition();
     }
 
     // 对于select类型，选择后立即保存
@@ -261,23 +251,39 @@ const RealtimeEditableCell = ({
 
   if (type === 'textarea') {
     return (
-      <textarea
-        ref={inputRef}
-        value={editValue}
-        onChange={handleChange}
-        onKeyDown={handleKeyDown}
-        onBlur={handleSave}
-        className="editable-input textarea-input"
-        placeholder={placeholder}
-        rows={3}
-        style={{
-          resize: 'vertical',
-          minHeight: '40px',
-          width: '100%',
-          fontFamily: 'inherit',
-          lineHeight: '1.4'
-        }}
-      />
+      <div style={{ 
+        position: 'relative',
+        width: '100%'
+      }}>
+        <textarea
+          ref={inputRef}
+          value={editValue}
+          onChange={handleChange}
+          onKeyDown={handleKeyDown}
+          onBlur={handleSave}
+          className="editable-input textarea-input"
+          placeholder={placeholder}
+          rows={6}
+          style={{
+            resize: 'vertical',
+            height: 'auto',
+            minHeight: '100px',
+            width: '100%',
+            maxWidth: '100%',
+            fontFamily: 'inherit',
+            lineHeight: '1.5',
+            padding: '8px',
+            border: '1px solid #ddd',
+            borderRadius: '4px',
+            overflow: 'auto',
+            boxSizing: 'border-box',
+            display: 'block',
+            backgroundColor: 'white',
+            wordWrap: 'break-word',
+            wordBreak: 'break-all'
+          }}
+        />
+      </div>
     );
   }
 
@@ -313,13 +319,10 @@ const RealtimeEditableCell = ({
           placeholder={placeholder}
         />
         {showOptions && filteredOptions.length > 0 && (
-          <div 
-            className="options-dropdown"
-            style={{
-              top: dropdownPosition.top,
-              left: dropdownPosition.left
-            }}
-          >
+          <div className="options-dropdown" style={{ 
+            left: 0,
+            right: 0
+          }}>
             {filteredOptions.map((option, index) => (
               <div
                 key={option.id || index}

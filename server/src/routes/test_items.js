@@ -155,74 +155,124 @@ router.post('/', async (req, res) => {
   const finalStatus = is_outsourced === 1 ? 'outsource' : status;
   const pool = await getPool();
   try {
-    // 调试：检查参数数量
-    const paramArray = [
-      order_id, 
-      price_id || null, 
-      category_name, 
-      detail_name, 
-      sample_name || null, 
-      material || null, 
-      sample_type || null, 
-      original_no || null,
-      test_code || null, 
-      standard_code || null, 
-      department_id || null, 
-      group_id || null, 
-      quantity || 1, 
-      unit_price || null, 
-      discount_rate || null,
-      final_unit_price || null, 
-      line_total || null, 
-      machine_hours || 0, 
-      work_hours || 0, 
-      Number(is_add_on) || 0, 
-      Number(is_outsourced) || 0,
-      seq_no || null, 
-      sample_preparation || null, 
-      note || null, 
-      finalStatus, 
-      current_assignee || null, 
-      supervisor_id || null, 
-      technician_id || null,
-      arrival_mode || null, 
-      sample_arrival_status || null, 
-      equipment_id || null, 
-      check_notes || null, 
-      test_notes || null,
-      processedActualSampleQuantity, 
-      processedActualDeliveryDate, 
-      processedFieldTestTime,
-      price_note || null
-    ];
+    // 开始事务
+    await pool.query('START TRANSACTION');
     
-    // 重新构建SQL语句，确保字段和占位符数量匹配
-    const sqlFields = [
-      'order_id', 'price_id', 'category_name', 'detail_name', 'sample_name', 'material', 'sample_type', 'original_no',
-      'test_code', 'standard_code', 'department_id', 'group_id', 'quantity', 'unit_price', 'discount_rate',
-      'final_unit_price', 'line_total', 'machine_hours', 'work_hours', 'is_add_on', 'is_outsourced',
-      'seq_no', 'sample_preparation', 'note', 'status', 'current_assignee', 'supervisor_id', 'technician_id',
-      'arrival_mode', 'sample_arrival_status', 'equipment_id', 'check_notes', 'test_notes',
-      'actual_sample_quantity', 'actual_delivery_date', 'field_test_time', 'price_note'
-    ];
-    
-    const placeholders = sqlFields.map(() => '?').join(',');
-    const sql = `INSERT INTO test_items (${sqlFields.join(', ')}) VALUES (${placeholders})`;
-    
-    const [r] = await pool.query(sql, paramArray);
-    const [rows] = await pool.query(
-      `SELECT ti.*, 
-              u.name AS assignee_name,
-              supervisor.name AS supervisor_name,
-              technician.name AS technician_name
-       FROM test_items ti
-       LEFT JOIN users u ON u.user_id = ti.current_assignee
-       LEFT JOIN users supervisor ON supervisor.user_id = ti.supervisor_id
-       LEFT JOIN users technician ON technician.user_id = ti.technician_id
-       WHERE ti.test_item_id = ?`,
-      [r.insertId]
-    );
-    res.status(201).json(rows[0]);
+    try {
+      // 如果是标准项目（非委外），自动分配组长
+      let finalSupervisorId = supervisor_id;
+      if (is_outsourced === 0 && !supervisor_id && department_id) {
+        // 查找该部门的组长
+        const [supervisorRows] = await pool.query(
+          `SELECT u.user_id 
+           FROM users u
+           JOIN user_roles ur ON ur.user_id = u.user_id
+           JOIN roles r ON r.role_id = ur.role_id
+           WHERE r.role_code = 'supervisor' 
+           AND u.is_active = 1
+           AND u.department_id = ?
+           LIMIT 1`,
+          [department_id]
+        );
+        
+        if (supervisorRows.length > 0) {
+          finalSupervisorId = supervisorRows[0].user_id;
+        }
+      }
+      
+      // 调试：检查参数数量
+      const paramArray = [
+        order_id, 
+        price_id || null, 
+        category_name, 
+        detail_name, 
+        sample_name || null, 
+        material || null, 
+        sample_type || null, 
+        original_no || null,
+        test_code || null, 
+        standard_code || null, 
+        department_id || null, 
+        group_id || null, 
+        quantity || 1, 
+        unit_price || null, 
+        discount_rate || null,
+        final_unit_price || null, 
+        line_total || null, 
+        machine_hours || 0, 
+        work_hours || 0, 
+        Number(is_add_on) || 0, 
+        Number(is_outsourced) || 0,
+        seq_no || null, 
+        sample_preparation || null, 
+        note || null, 
+        finalStatus, 
+        current_assignee || null, 
+        finalSupervisorId || null, 
+        technician_id || null,
+        arrival_mode || null, 
+        sample_arrival_status || null, 
+        equipment_id || null, 
+        check_notes || null, 
+        test_notes || null,
+        processedActualSampleQuantity, 
+        processedActualDeliveryDate, 
+        processedFieldTestTime,
+        price_note || null
+      ];
+      
+      // 重新构建SQL语句，确保字段和占位符数量匹配
+      const sqlFields = [
+        'order_id', 'price_id', 'category_name', 'detail_name', 'sample_name', 'material', 'sample_type', 'original_no',
+        'test_code', 'standard_code', 'department_id', 'group_id', 'quantity', 'unit_price', 'discount_rate',
+        'final_unit_price', 'line_total', 'machine_hours', 'work_hours', 'is_add_on', 'is_outsourced',
+        'seq_no', 'sample_preparation', 'note', 'status', 'current_assignee', 'supervisor_id', 'technician_id',
+        'arrival_mode', 'sample_arrival_status', 'equipment_id', 'check_notes', 'test_notes',
+        'actual_sample_quantity', 'actual_delivery_date', 'field_test_time', 'price_note'
+      ];
+      
+      const placeholders = sqlFields.map(() => '?').join(',');
+      const sql = `INSERT INTO test_items (${sqlFields.join(', ')}) VALUES (${placeholders})`;
+      
+      const [r] = await pool.query(sql, paramArray);
+      const testItemId = r.insertId;
+      
+      // 如果分配了组长，在assignments表中添加记录
+      if (finalSupervisorId) {
+        // 先删除该test_item_id的所有现有分配记录（因为唯一约束）
+        await pool.query(
+          `DELETE FROM assignments WHERE test_item_id = ?`,
+          [testItemId]
+        );
+        
+        await pool.query(
+          `INSERT INTO assignments (test_item_id, assigned_to, supervisor_id, created_by, note) 
+           VALUES (?, ?, ?, ?, ?)`,
+          [testItemId, String(finalSupervisorId), String(finalSupervisorId), String(req.user.user_id), '组长']
+        );
+      }
+      
+      // 提交事务
+      await pool.query('COMMIT');
+      
+      const [rows] = await pool.query(
+        `SELECT ti.*, 
+                u.name AS assignee_name,
+                supervisor.name AS supervisor_name,
+                technician.name AS technician_name
+         FROM test_items ti
+         LEFT JOIN users u ON u.user_id = ti.current_assignee
+         LEFT JOIN users supervisor ON supervisor.user_id = ti.supervisor_id
+         LEFT JOIN users technician ON technician.user_id = ti.technician_id
+         WHERE ti.test_item_id = ?`,
+        [testItemId]
+      );
+      res.status(201).json(rows[0]);
+    } catch (error) {
+      // 回滚事务
+      await pool.query('ROLLBACK');
+      throw error;
+    }
   } catch (e) {
     return res.status(500).json({ error: e.message });
   }
@@ -254,7 +304,7 @@ router.put('/:id', async (req, res) => {
     test_code, standard_code, department_id, group_id, quantity, unit_price, discount_rate,
     final_unit_price, line_total, machine_hours, work_hours, is_add_on, is_outsourced,
     seq_no, sample_preparation, note, status, current_assignee, supervisor_id, technician_id,
-    arrival_mode, sample_arrival_status, equipment_id, check_notes, test_notes,
+    arrival_mode, sample_arrival_status, equipment_id, check_notes, test_notes, unit,
     actual_sample_quantity, actual_delivery_date, field_test_time, price_note
   } = req.body || {};
 
@@ -288,66 +338,165 @@ router.put('/:id', async (req, res) => {
   const processedActualDeliveryDate = processDate(actual_delivery_date);
   const processedFieldTestTime = processDateTime(field_test_time);
   const pool = await getPool();
-  await pool.query(
-    `UPDATE test_items SET
-      order_id = COALESCE(?, order_id),
-      price_id = COALESCE(?, price_id),
-      category_name = COALESCE(?, category_name),
-      detail_name = COALESCE(?, detail_name),
-      sample_name = COALESCE(?, sample_name),
-      material = COALESCE(?, material),
-      sample_type = COALESCE(?, sample_type),
-      original_no = COALESCE(?, original_no),
-      test_code = COALESCE(?, test_code),
-      standard_code = COALESCE(?, standard_code),
-      department_id = COALESCE(?, department_id),
-      group_id = COALESCE(?, group_id),
-      quantity = COALESCE(?, quantity),
-      unit_price = COALESCE(?, unit_price),
-      discount_rate = COALESCE(?, discount_rate),
-      final_unit_price = COALESCE(?, final_unit_price),
-      line_total = COALESCE(?, line_total),
-      machine_hours = COALESCE(?, machine_hours),
-      work_hours = COALESCE(?, work_hours),
-      is_add_on = COALESCE(?, is_add_on),
-      is_outsourced = COALESCE(?, is_outsourced),
-      seq_no = COALESCE(?, seq_no),
-      sample_preparation = COALESCE(?, sample_preparation),
-      note = COALESCE(?, note),
-      status = COALESCE(?, status),
-      current_assignee = COALESCE(?, current_assignee),
-      supervisor_id = COALESCE(?, supervisor_id),
-      technician_id = COALESCE(?, technician_id),
-      arrival_mode = COALESCE(?, arrival_mode),
-      sample_arrival_status = COALESCE(?, sample_arrival_status),
-      equipment_id = COALESCE(?, equipment_id),
-      check_notes = COALESCE(?, check_notes),
-      test_notes = COALESCE(?, test_notes),
-      actual_sample_quantity = COALESCE(?, actual_sample_quantity),
-      actual_delivery_date = COALESCE(?, actual_delivery_date),
-      field_test_time = COALESCE(?, field_test_time),
-      price_note = COALESCE(?, price_note)
-     WHERE test_item_id = ?`,
-    [order_id, price_id, category_name, detail_name, sample_name, material, sample_type, original_no,
-     test_code, standard_code, department_id, group_id, quantity, unit_price, discount_rate,
-     final_unit_price, line_total, machine_hours, work_hours, is_add_on, is_outsourced, seq_no,
-     sample_preparation, note, status, current_assignee, supervisor_id, technician_id, arrival_mode, sample_arrival_status, equipment_id, check_notes, test_notes, processedActualSampleQuantity, processedActualDeliveryDate, processedFieldTestTime, price_note, req.params.id]
-  );
-  const pool2 = await getPool();
-  const [rows] = await pool2.query(
-    `SELECT ti.*, 
-            u.name AS assignee_name,
-            supervisor.name AS supervisor_name,
-            technician.name AS technician_name
-     FROM test_items ti
-     LEFT JOIN users u ON u.user_id = ti.current_assignee
-     LEFT JOIN users supervisor ON supervisor.user_id = ti.supervisor_id
-     LEFT JOIN users technician ON technician.user_id = ti.technician_id
-     WHERE ti.test_item_id = ?`,
-    [req.params.id]
-  );
-  if (rows.length === 0) return res.status(404).json({ error: 'Not found after update' });
-  res.json(rows[0]);
+  
+  try {
+    // 开始事务
+    await pool.query('START TRANSACTION');
+    
+    try {
+      // 获取更新前的数据
+      const [oldRows] = await pool.query(
+        `SELECT supervisor_id, technician_id, current_assignee FROM test_items WHERE test_item_id = ?`,
+        [req.params.id]
+      );
+      
+      if (oldRows.length === 0) {
+        await pool.query('ROLLBACK');
+        return res.status(404).json({ error: 'Test item not found' });
+      }
+      
+      const oldData = oldRows[0];
+      
+      // 构建动态更新语句
+      const updateFields = [];
+      const updateValues = [];
+      
+      const addUpdate = (field, value) => {
+        if (value !== undefined) {
+          updateFields.push(`${field} = ?`);
+          updateValues.push(value);
+        }
+      };
+      
+      addUpdate('order_id', order_id);
+      addUpdate('price_id', price_id);
+      addUpdate('category_name', category_name);
+      addUpdate('detail_name', detail_name);
+      addUpdate('sample_name', sample_name);
+      addUpdate('material', material);
+      addUpdate('sample_type', sample_type);
+      addUpdate('original_no', original_no);
+      addUpdate('test_code', test_code);
+      addUpdate('standard_code', standard_code);
+      addUpdate('department_id', department_id);
+      addUpdate('group_id', group_id);
+      addUpdate('quantity', quantity);
+      addUpdate('unit_price', unit_price);
+      addUpdate('discount_rate', discount_rate);
+      addUpdate('final_unit_price', final_unit_price);
+      addUpdate('line_total', line_total);
+      addUpdate('machine_hours', machine_hours);
+      addUpdate('work_hours', work_hours);
+      addUpdate('is_add_on', is_add_on);
+      addUpdate('is_outsourced', is_outsourced);
+      addUpdate('seq_no', seq_no);
+      addUpdate('sample_preparation', sample_preparation);
+      addUpdate('note', note);
+      addUpdate('status', status);
+      addUpdate('current_assignee', current_assignee);
+      addUpdate('supervisor_id', supervisor_id);
+      addUpdate('technician_id', technician_id);
+      addUpdate('arrival_mode', arrival_mode);
+      addUpdate('sample_arrival_status', sample_arrival_status);
+      addUpdate('equipment_id', equipment_id);
+      addUpdate('check_notes', check_notes);
+      addUpdate('test_notes', test_notes);
+      addUpdate('unit', unit);
+      addUpdate('actual_sample_quantity', processedActualSampleQuantity);
+      addUpdate('actual_delivery_date', processedActualDeliveryDate);
+      addUpdate('field_test_time', processedFieldTestTime);
+      addUpdate('price_note', price_note);
+      
+      // 如果没有要更新的字段，直接返回
+      if (updateFields.length === 0) {
+        await pool.query('COMMIT');
+        return res.status(400).json({ error: 'No fields to update' });
+      }
+      
+      updateValues.push(req.params.id);
+      
+      // 更新test_items表
+      await pool.query(
+        `UPDATE test_items SET ${updateFields.join(', ')} WHERE test_item_id = ?`,
+        updateValues
+      );
+      
+      // 获取更新后的数据
+      const [newRows] = await pool.query(
+        `SELECT supervisor_id, technician_id, current_assignee FROM test_items WHERE test_item_id = ?`,
+        [req.params.id]
+      );
+      const newData = newRows[0];
+      
+      // 同步assignments表
+      // 由于assignments表有唯一约束，需要先删除所有现有记录，然后添加新的记录
+      const hasChanges = oldData.supervisor_id !== newData.supervisor_id || 
+                        oldData.technician_id !== newData.technician_id || 
+                        oldData.current_assignee !== newData.current_assignee;
+      
+      if (hasChanges) {
+        // 删除该test_item_id的所有现有分配记录
+        await pool.query(
+          `DELETE FROM assignments WHERE test_item_id = ?`,
+          [req.params.id]
+        );
+        
+        // 根据优先级添加新的分配记录：组长 > 实验员 > 业务员
+        if (newData.supervisor_id) {
+          await pool.query(
+            `INSERT INTO assignments (test_item_id, assigned_to, supervisor_id, created_by, note) 
+             VALUES (?, ?, ?, ?, ?)`,
+            [req.params.id, String(newData.supervisor_id), String(newData.supervisor_id), String(req.user.user_id), '组长']
+          );
+        } else if (newData.technician_id) {
+          await pool.query(
+            `INSERT INTO assignments (test_item_id, assigned_to, supervisor_id, created_by, note) 
+             VALUES (?, ?, ?, ?, ?)`,
+            [req.params.id, String(newData.technician_id), String(newData.supervisor_id), String(req.user.user_id), '实验员']
+          );
+        } else if (newData.current_assignee) {
+          await pool.query(
+            `INSERT INTO assignments (test_item_id, assigned_to, supervisor_id, created_by, note) 
+             VALUES (?, ?, ?, ?, ?)`,
+            [req.params.id, String(newData.current_assignee), String(newData.supervisor_id), String(req.user.user_id), '业务员']
+          );
+        }
+      }
+      
+      // 提交事务
+      await pool.query('COMMIT');
+      
+      const [rows] = await pool.query(
+        `SELECT ti.*, 
+                u.name AS assignee_name,
+                supervisor.name AS supervisor_name,
+                technician.name AS technician_name
+         FROM test_items ti
+         LEFT JOIN users u ON u.user_id = ti.current_assignee
+         LEFT JOIN users supervisor ON supervisor.user_id = ti.supervisor_id
+         LEFT JOIN users technician ON technician.user_id = ti.technician_id
+         WHERE ti.test_item_id = ?`,
+        [req.params.id]
+      );
+      if (rows.length === 0) return res.status(404).json({ error: 'Not found after update' });
+      res.json(rows[0]);
+    } catch (error) {
+      // 回滚事务
+      await pool.query('ROLLBACK');
+      console.error('Update error in transaction:', error);
+      console.error('Error stack:', error.stack);
+      throw error;
+    }
+  } catch (e) {
+    console.error('Test item update failed:', e);
+    console.error('Error details:', {
+      message: e.message,
+      stack: e.stack,
+      body: req.body,
+      params: req.params
+    });
+    return res.status(500).json({ error: e.message });
+  }
 });
 
 // delete
@@ -417,31 +566,86 @@ router.post('/batch-assign', async (req, res) => {
   
   const pool = await getPool();
   try {
-    // 构建更新字段
-    const updateFields = ['status = ?'];
-    const updateValues = [status];
+    // 开始事务
+    await pool.query('START TRANSACTION');
     
-    if (supervisor_id) {
-      updateFields.push('supervisor_id = ?');
-      updateValues.push(supervisor_id);
+    try {
+      // 获取更新前的数据
+      const placeholders = testItemIds.map(() => '?').join(',');
+      const [oldRows] = await pool.query(
+        `SELECT test_item_id, supervisor_id, technician_id, current_assignee FROM test_items WHERE test_item_id IN (${placeholders})`,
+        testItemIds
+      );
+      
+      // 构建更新字段
+      const updateFields = ['status = ?'];
+      const updateValues = [status];
+      
+      if (supervisor_id) {
+        updateFields.push('supervisor_id = ?');
+        updateValues.push(supervisor_id);
+      }
+      
+      if (technician_id) {
+        updateFields.push('technician_id = ?');
+        updateValues.push(technician_id);
+      }
+      
+      // 更新test_items表
+      const query = `UPDATE test_items SET ${updateFields.join(', ')} WHERE test_item_id IN (${placeholders})`;
+      await pool.query(query, [...updateValues, ...testItemIds]);
+      
+      // 获取更新后的数据
+      const [newRows] = await pool.query(
+        `SELECT test_item_id, supervisor_id, technician_id, current_assignee FROM test_items WHERE test_item_id IN (${placeholders})`,
+        testItemIds
+      );
+      
+      // 同步assignments表
+      for (const newData of newRows) {
+        const oldData = oldRows.find(row => row.test_item_id === newData.test_item_id);
+        
+        // 检查是否有变更
+        const hasChanges = (supervisor_id && oldData.supervisor_id !== newData.supervisor_id) ||
+                          (technician_id && oldData.technician_id !== newData.technician_id);
+        
+        if (hasChanges) {
+          // 删除该test_item_id的所有现有分配记录
+          await pool.query(
+            `DELETE FROM assignments WHERE test_item_id = ?`,
+            [newData.test_item_id]
+          );
+          
+          // 根据优先级添加新的分配记录：组长 > 实验员
+          if (newData.supervisor_id) {
+            await pool.query(
+              `INSERT INTO assignments (test_item_id, assigned_to, supervisor_id, created_by, note) 
+               VALUES (?, ?, ?, ?, ?)`,
+              [newData.test_item_id, String(newData.supervisor_id), String(newData.supervisor_id), String(user.user_id), '组长']
+            );
+          } else if (newData.technician_id) {
+            await pool.query(
+              `INSERT INTO assignments (test_item_id, assigned_to, supervisor_id, created_by, note) 
+               VALUES (?, ?, ?, ?, ?)`,
+              [newData.test_item_id, String(newData.technician_id), String(newData.supervisor_id), String(user.user_id), '实验员']
+            );
+          }
+        }
+      }
+      
+      // 提交事务
+      await pool.query('COMMIT');
+      
+      res.json({ 
+        ok: true, 
+        message: `Successfully assigned ${testItemIds.length} items`,
+        assignedCount: testItemIds.length
+      });
+    } catch (error) {
+      // 回滚事务
+      await pool.query('ROLLBACK');
+      throw error;
     }
-    
-    if (technician_id) {
-      updateFields.push('technician_id = ?');
-      updateValues.push(technician_id);
-    }
-    
-    // 构建IN子句
-    const placeholders = testItemIds.map(() => '?').join(',');
-    const query = `UPDATE test_items SET ${updateFields.join(', ')} WHERE test_item_id IN (${placeholders})`;
-    
-    await pool.query(query, [...updateValues, ...testItemIds]);
-    
-    res.json({ 
-      ok: true, 
-      message: `Successfully assigned ${testItemIds.length} items`,
-      assignedCount: testItemIds.length
-    });
   } catch (e) {
     return res.status(500).json({ error: e.message });
   }

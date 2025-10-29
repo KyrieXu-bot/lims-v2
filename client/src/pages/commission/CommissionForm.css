@@ -218,6 +218,16 @@
   position: relative;
 }
 
+/* 保持滚动条，避免编辑时布局位移 */
+.table-wrapper:has(.textarea-input) {
+  overflow: auto !important;
+}
+
+/* 保持滚动条，避免编辑时布局位移 */
+.table-wrapper:has(.autocomplete-input) {
+  overflow: auto !important;
+}
+
 .data-table {
   width: 100%;
   border-collapse: collapse;
@@ -225,12 +235,12 @@
 }
 
 .data-table th {
-  background-color: #f8f9fa;
+  background-color: #bbdefb !important;
   color: #333;
   font-weight: 600;
   padding: 12px 14px;
   text-align: left;
-  border-bottom: 2px solid #dee2e6;
+  border-bottom: 2px solid #90caf9 !important;
   position: sticky;
   top: 0;
   z-index: 10;
@@ -246,18 +256,51 @@
   overflow: visible;
   text-overflow: ellipsis;
   position: relative;
+  background-color: inherit !important;
+}
+
+/* 数量、折扣列紧凑宽度控制（基于类名，避免受列序号影响） */
+.data-table th.quantity-col, .data-table td.quantity-col {
+  min-width: 60px !important;
+  width: 70px !important;
+  max-width: 80px !important;
+  text-align: right;
+}
+.data-table th.discount-col, .data-table td.discount-col {
+  min-width: 60px !important;
+  width: 70px !important;
+  max-width: 80px !important;
+  text-align: right;
+}
+
+/* 编辑时带下拉的单元格层级提升，防止被下一行遮挡 */
+.data-table td:has(.options-dropdown) {
+  position: relative !important;
+  overflow: visible !important;
+  z-index: 2000 !important;
+}
+
+/* 对应行也抬高一些层级，确保整行之上显示 */
+.data-table tbody tr:has(.options-dropdown) {
+  position: relative !important;
+  z-index: 1500 !important;
+}
+
+/* 行背景：默认淡蓝，偶数行更浅，悬停更明显 */
+.data-table tbody tr {
+  background-color: #f3f8ff !important;
 }
 
 .data-table tbody tr:hover {
-  background-color: #f8f9fa;
+  background-color: #e3f2fd !important;
 }
 
 .data-table tbody tr:nth-child(even) {
-  background-color: #fafafa;
+  background-color: #eaf3ff !important;
 }
 
 .data-table tbody tr:nth-child(even):hover {
-  background-color: #f0f0f0;
+  background-color: #d6e9f9 !important;
 }
 
 .status {
@@ -417,6 +460,56 @@
   gap: 4px;
 }
 
+/* textarea输入框容器特殊处理 */
+.editable-field-container .textarea-input {
+  position: relative !important;
+  z-index: 1001 !important;
+  overflow: auto !important;
+  word-wrap: break-word !important;
+  word-break: break-all !important;
+  background-color: white !important;
+}
+
+.editable-field-container .textarea-input::-webkit-resizer {
+  display: block;
+  background-color: #ddd;
+}
+
+/* 确保textarea不会被表格的overflow影响 */
+.data-table td .editable-field-container {
+  position: relative;
+  z-index: 100;
+}
+
+/* 为实验备注列设置合适的宽度 - 固定在200px */
+.data-table th.test-notes-column {
+  min-width: 200px !important;
+  width: 200px !important;
+}
+
+.data-table td.test-notes-column {
+  min-width: 200px !important;
+  width: 200px !important;
+  max-width: 200px !important;
+}
+
+/* 实验备注列中的容器要固定宽度 */
+.data-table td.test-notes-column .editable-field-container {
+  position: relative !important;
+  width: 180px !important;
+  min-width: 180px !important;
+  max-width: 180px !important;
+}
+
+/* 实验备注列中的textarea要占据整个容器 */
+.data-table td.test-notes-column .editable-field-container textarea {
+  position: relative !important;
+  width: 180px !important;
+  min-width: 180px !important;
+  max-width: 180px !important;
+  box-sizing: border-box !important;
+}
+
 /* 保存状态指示器 */
 .saving-indicator {
   font-size: 11px;
@@ -485,6 +578,13 @@
   border: 1px solid #e9ecef;
 }
 
+/* 删除冗余：收费标准/价格备注列宽度改由 class-based 规则统一管理（见文件底部） */
+
+/* 去掉价格备注单元内多余的间距 */
+.price-note-col .editable-field-container {
+  gap: 2px;
+}
+
 /* 开单员填写字段背景色 */
 .order-creator-field {
   background-color: #e8f4fd !important; /* 浅蓝色背景 */
@@ -498,209 +598,27 @@
 .lab-field {
   background-color: #f0f8e8 !important; /* 浅绿色背景 */
 }
+/* 以“服务加急”为界：第2列到第18列为淡蓝；第19列及以后为浅绿 */
+.commission-form .data-table th:nth-child(n+2):nth-child(-n+18),
+.commission-form .data-table td:nth-child(n+2):nth-child(-n+18) {
+  background-color: #eef6ff !important;
+}
+
+.commission-form .data-table th:nth-child(n+19),
+.commission-form .data-table td:nth-child(n+19) {
+  background-color: #f0f8e8 !important;
+}
+
 
 .lab-field:hover {
   background-color: #e0f0d0 !important; /* 悬停时稍深的绿色 */
 }
 
-/* 特定列宽度调整 - 使用更高优先级 */
-.commission-form .data-table th:nth-child(1), 
-.commission-form .data-table td:nth-child(1) { 
-  min-width: 50px !important; 
-  width: 50px !important;
-} /* 多选框 */
+/* 取消旧的 nth-child 宽度规则，避免与当前表头顺序不一致导致列错位、折叠。
+   列宽统一改由类名或组件自身控制；保留固定列与操作列的规则。 */
 
-.commission-form .data-table th:nth-child(2), 
-.commission-form .data-table td:nth-child(2) { 
-  min-width: 100px !important; 
-  width: 100px !important;
-} /* 委托单号 */
-
-.commission-form .data-table th:nth-child(3), 
-.commission-form .data-table td:nth-child(3) { 
-  min-width: 80px !important; 
-  width: 80px !important;
-} /* 收样日期 */
-
-.commission-form .data-table th:nth-child(4), 
-.commission-form .data-table td:nth-child(4) { 
-  min-width: 80px !important; 
-  width: 80px !important;
-} /* 开单日期 */
-.commission-form .data-table th:nth-child(5), 
-.commission-form .data-table td:nth-child(5) { 
-  min-width: 150px !important; 
-  width: 150px !important;
-} /* 委托单位 */
-
-.commission-form .data-table th:nth-child(6), 
-.commission-form .data-table td:nth-child(6) { 
-  min-width: 100px !important; 
-  width: 100px !important;
-} /* 业务负责人 */
-
-.commission-form .data-table th:nth-child(7), 
-.commission-form .data-table td:nth-child(7) { 
-  min-width: 280px !important; 
-  width: 280px !important;
-} /* 检测项目 */
-
-.commission-form .data-table th:nth-child(8), 
-.commission-form .data-table td:nth-child(8) { 
-  min-width: 120px !important; 
-  width: 120px !important;
-} /* 项目编号 */
-
-.commission-form .data-table th:nth-child(9), 
-.commission-form .data-table td:nth-child(9) { 
-  min-width: 100px !important; 
-  width: 100px !important;
-} /* 归属部门 */
-
-.commission-form .data-table th:nth-child(10), 
-.commission-form .data-table td:nth-child(10) { 
-  min-width: 100px !important; 
-  width: 100px !important;
-} /* 收费标准 */
-
-.commission-form .data-table th:nth-child(11), 
-.commission-form .data-table td:nth-child(11) { 
-  min-width: 150px !important; 
-  max-width: 200px !important; 
-  width: 180px !important;
-} /* 价格备注 */
-
-.commission-form .data-table th:nth-child(12), 
-.commission-form .data-table td:nth-child(12) { 
-  min-width: 60px !important; 
-  width: 60px !important;
-} /* 数量 */
-
-
-.commission-form .data-table th:nth-child(13), 
-.commission-form .data-table td:nth-child(13) { 
-  min-width: 100px !important; 
-  width: 100px !important;
-} /* 标准价 */
-
-.commission-form .data-table th:nth-child(10), 
-.commission-form .data-table td:nth-child(10) { 
-  min-width: 100px !important; 
-  width: 100px !important;
-} /* 收费标准 */
-
-.commission-form .data-table th:nth-child(11), 
-.commission-form .data-table td:nth-child(11) { 
-  min-width: 150px !important; 
-  max-width: 200px !important; 
-  width: 180px !important;
-} /* 价格备注 */
-
-.commission-form .data-table th:nth-child(12), 
-.commission-form .data-table td:nth-child(12) { 
-  min-width: 100px !important; 
-  width: 100px !important;
-} /* 标准价 */
-
-.commission-form .data-table th:nth-child(13), 
-.commission-form .data-table td:nth-child(13) { 
-  min-width: 60px !important; 
-  width: 60px !important;
-} /* 折扣 */
-
-.commission-form .data-table th:nth-child(14), 
-.commission-form .data-table td:nth-child(14) { 
-  min-width: 200px !important; 
-  max-width: 300px !important; 
-  width: 250px !important;
-} /* 备注 */
-
-.commission-form .data-table th:nth-child(15), 
-.commission-form .data-table td:nth-child(15) { 
-  min-width: 120px !important; 
-  width: 120px !important;
-} /* 样品到达方式 */
-
-.commission-form .data-table th:nth-child(16), 
-.commission-form .data-table td:nth-child(16) { 
-  min-width: 120px !important; 
-  width: 120px !important;
-} /* 样品是否已到 */
-
-.commission-form .data-table th:nth-child(17), 
-.commission-form .data-table td:nth-child(17) { 
-  min-width: 120px !important; 
-  width: 120px !important;
-} /* 服务加急 */
-
-.commission-form .data-table th:nth-child(18), 
-.commission-form .data-table td:nth-child(18) { 
-  min-width: 150px !important; 
-  width: 150px !important;
-} /* 现场测试时间 */
-
-.commission-form .data-table th:nth-child(19), 
-.commission-form .data-table td:nth-child(19) { 
-  min-width: 150px !important; 
-  width: 150px !important;
-} /* 检测设备 */
-
-.commission-form .data-table th:nth-child(20), 
-.commission-form .data-table td:nth-child(20) { 
-  min-width: 100px !important; 
-  width: 100px !important;
-} /* 负责人 */
-
-.commission-form .data-table th:nth-child(21), 
-.commission-form .data-table td:nth-child(21) { 
-  min-width: 100px !important; 
-  width: 100px !important;
-} /* 测试人员 */
-
-.commission-form .data-table th:nth-child(22), 
-.commission-form .data-table td:nth-child(22) { 
-  min-width: 80px !important; 
-  width: 80px !important;
-} /* 数量 */
-
-.commission-form .data-table th:nth-child(23), 
-.commission-form .data-table td:nth-child(23) { 
-  min-width: 120px !important; 
-  width: 120px !important;
-} /* 测试样品数量 */
-
-.commission-form .data-table th:nth-child(24), 
-.commission-form .data-table td:nth-child(24) { 
-  min-width: 100px !important; 
-  width: 100px !important;
-} /* 测试工时 */
-
-.commission-form .data-table th:nth-child(25), 
-.commission-form .data-table td:nth-child(25) { 
-  min-width: 100px !important; 
-  width: 100px !important;
-} /* 测试机时 */
-
-.commission-form .data-table th:nth-child(26), 
-.commission-form .data-table td:nth-child(26) { 
-  min-width: 120px !important; 
-  width: 120px !important;
-} /* 实际交付日期 */
-
-.commission-form .data-table th:nth-child(27), 
-.commission-form .data-table td:nth-child(27) { 
-  min-width: 120px !important; 
-  width: 120px !important;
-} /* 开票未到款金额 */
-
-.commission-form .data-table th:nth-child(28), 
-.commission-form .data-table td:nth-child(28) { 
-  min-width: 100px !important; 
-  width: 100px !important;
-} /* 项目状态 */
-
-/* 价格备注列特殊样式 */
-.data-table td:nth-child(11) {
+/* 价格备注列特殊样式（改为 class-based，避免 nth-child 干扰） */
+.data-table td.price-note-col {
   white-space: pre-wrap;
   word-wrap: break-word;
   word-break: break-word;
@@ -712,11 +630,11 @@
 }
 
 /* 价格备注列编辑状态样式 */
-.data-table td:nth-child(11) .editable-field-container {
+.data-table td.price-note-col .editable-field-container {
   width: 100%;
 }
 
-.data-table td:nth-child(11) .editable-input {
+.data-table td.price-note-col .editable-input {
   width: 100%;
   min-height: 40px;
   resize: vertical;
@@ -724,14 +642,14 @@
   line-height: 1.4;
 }
 
-.data-table td:nth-child(11) .realtime-editable-cell {
+.data-table td.price-note-col .realtime-editable-cell {
   width: 100%;
   min-height: 40px;
   display: flex;
   align-items: flex-start;
 }
 
-.data-table td:nth-child(11) .editable-cell {
+.data-table td.price-note-col .editable-cell {
   width: 100%;
   min-height: 20px;
   display: block;
@@ -848,4 +766,110 @@
   min-width: 220px !important;
   width: 220px !important;
   white-space: nowrap;
+}
+
+/* 固定复选框列 */
+.commission-form .data-table th.fixed-left-checkbox,
+.commission-form .data-table td.fixed-left-checkbox {
+  position: sticky;
+  left: 0;
+  background: white !important;
+  z-index: 30 !important;
+  width: 50px;
+  min-width: 50px;
+  max-width: 50px;
+  text-align: center;
+  border-right: none !important;
+  outline: 1px solid rgba(255,255,255,0.9);
+  outline-offset: -1px;
+  box-shadow: 5px 0 10px -3px rgba(0,0,0,0.1);
+}
+
+/* 固定左侧列样式 */
+.commission-form .data-table th.fixed-left,
+.commission-form .data-table td.fixed-left {
+  position: sticky;
+  background: white !important;
+  z-index: 25 !important;
+  border-right: none !important;
+  outline: 1px solid rgba(255,255,255,0.9);
+  outline-offset: -1px;
+  box-shadow: 5px 0 10px -3px rgba(0,0,0,0.1);
+}
+
+/* 为固定列添加背景 */
+.commission-form .data-table thead th.fixed-left {
+  z-index: 30 !important;
+  background: white !important;
+}
+
+.commission-form .data-table tbody td.fixed-left {
+  z-index: 25 !important;
+  background: white !important;
+}
+
+/* 为普通列添加轻微的模糊效果，使其看起来被虚化 */
+.commission-form .data-table th:not(.fixed-left):not(.fixed-left-checkbox),
+.commission-form .data-table td:not(.fixed-left):not(.fixed-left-checkbox) {
+  z-index: 1;
+}
+
+/* 移除模糊覆盖层 */
+
+/* 确保固定列有足够的宽度并正确累加left位置 */
+/* 委托单号 - 第2列 */
+.commission-form .data-table th.fixed-left:nth-child(2),
+.commission-form .data-table td.fixed-left:nth-child(2) {
+  width: 130px !important;
+  min-width: 130px !important;
+  max-width: 130px !important;
+  left: 50px; /* checkbox宽度50px */
+}
+
+/* 委托单位 - 第3列 */
+.commission-form .data-table th.fixed-left:nth-child(3),
+.commission-form .data-table td.fixed-left:nth-child(3) {
+  width: 150px !important;
+  min-width: 150px !important;
+  max-width: 150px !important;
+  left: 180px; /* 50 + 130 */
+}
+
+/* 检测项目 - 第4列 */
+.commission-form .data-table th.fixed-left:nth-child(4),
+.commission-form .data-table td.fixed-left:nth-child(4) {
+  width: 280px !important;
+  min-width: 280px !important;
+  max-width: 280px !important;
+  left: 330px; /* 50 + 130 + 150 */
+}
+
+/* 项目编号 - 第5列 */
+.commission-form .data-table th.fixed-left:nth-child(5),
+.commission-form .data-table td.fixed-left:nth-child(5) {
+  width: 120px !important;
+  min-width: 120px !important;
+  max-width: 120px !important;
+  left: 610px; /* 50 + 130 + 150 + 280 */
+}
+
+/* class-based 精准控制收费标准和价格备注列宽度，不受nth-child影响
+   提升选择器优先级以覆盖旧的 nth-child 宽度设置 */
+.commission-form .data-table th.price-original-col, .commission-form .data-table td.price-original-col {
+  min-width: 85px !important;
+  width: 85px !important;
+  max-width: 85px !important;
+  padding-left: 6px !important;
+  padding-right: 6px !important;
+  box-sizing: border-box !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  text-align: left;
+}
+.commission-form .data-table th.price-note-col, .commission-form .data-table td.price-note-col {
+  min-width: 120px !important;
+  width: 130px !important;
+  max-width: 150px !important;
+  padding-left: 6px !important;
+  padding-right: 6px !important;
 }

@@ -46,9 +46,8 @@ router.get('/', async (req, res) => {
 
   const where = filters.length ? 'WHERE ' + filters.join(' AND ') : '';
   const [rows] = await pool.query(
-    `SELECT c.*, u.name AS owner_name
+    `SELECT c.*
      FROM customers c
-     LEFT JOIN users u ON u.user_id = c.owner_user_id
      ${where.replace(/\bcustomer_name\b/g, 'c.customer_name').replace(/\btax_id\b/g, 'c.tax_id').replace(/\bphone\b/g, 'c.phone').replace(/\bprovince\b/g, 'c.province').replace(/\bis_active\b/g, 'c.is_active')}
      ORDER BY c.customer_id DESC LIMIT ? OFFSET ?`,
     [...params, Number(pageSize), offset]
@@ -59,14 +58,14 @@ router.get('/', async (req, res) => {
 
 router.post('/', async (req, res) => {
   const { customer_name, address, phone, bank_name, tax_id, bank_account,
-          province, nature, scale, grade, owner_user_id, is_active = 1 } = req.body || {};
+          province, nature, scale, cooperation_time, is_active = 1 } = req.body || {};
   if (!customer_name || !tax_id) return res.status(400).json({ error: 'customer_name and tax_id are required' });
   const pool = await getPool();
   try {
     const [r] = await pool.query(
-      `INSERT INTO customers (customer_name, address, phone, bank_name, tax_id, bank_account, province, nature, scale, grade, owner_user_id, is_active)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [customer_name, address, phone, bank_name, tax_id, bank_account, province, nature, scale, grade, owner_user_id || null, Number(is_active)]
+      `INSERT INTO customers (customer_name, address, phone, bank_name, tax_id, bank_account, province, nature, scale, cooperation_time, is_active)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+      [customer_name, address, phone, bank_name, tax_id, bank_account, province, nature, scale, cooperation_time || null, Number(is_active)]
     );
     const [rows] = await pool.query('SELECT * FROM customers WHERE customer_id = ?', [r.insertId]);
     res.status(201).json(rows[0]);
@@ -85,7 +84,7 @@ router.get('/:id', async (req, res) => {
 
 router.put('/:id', async (req, res) => {
   const { customer_name, address, phone, bank_name, tax_id, bank_account,
-          province, nature, scale, grade, owner_user_id, is_active } = req.body || {};
+          province, nature, scale, cooperation_time, is_active } = req.body || {};
   const pool = await getPool();
   try {
     await pool.query(
@@ -99,12 +98,11 @@ router.put('/:id', async (req, res) => {
         province = COALESCE(?, province),
         nature = COALESCE(?, nature),
         scale = COALESCE(?, scale),
-        grade = COALESCE(?, grade),
-        owner_user_id = COALESCE(?, owner_user_id),
+        cooperation_time = COALESCE(?, cooperation_time),
         is_active = COALESCE(?, is_active)
        WHERE customer_id = ?`,
       [customer_name, address, phone, bank_name, tax_id, bank_account,
-       province, nature, scale, grade, owner_user_id, is_active, req.params.id]
+       province, nature, scale, cooperation_time, is_active, req.params.id]
     );
     const [rows] = await pool.query('SELECT * FROM customers WHERE customer_id = ?', [req.params.id]);
     if (rows.length === 0) return res.status(404).json({ error: 'Not found after update' });
