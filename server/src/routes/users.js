@@ -114,5 +114,72 @@ router.get('/department-by-group', async (req, res) => {
   }
 });
 
+// 获取业务员（department_id=4）
+router.get('/business-staff', async (req, res) => {
+  const { q = '' } = req.query;
+  const pool = await getPool();
+  try {
+    const [rows] = await pool.query(
+      `SELECT u.user_id, u.name, u.account
+       FROM users u
+       WHERE u.department_id = 4 
+       AND u.is_active = 1
+       AND (u.name LIKE ? OR u.account LIKE ?)
+       ORDER BY u.name ASC
+       LIMIT 50`,
+      [`%${q}%`, `%${q}%`]
+    );
+    res.json(rows);
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// 获取所有组长（role=supervisor）
+router.get('/all-supervisors', async (req, res) => {
+  const { q = '' } = req.query;
+  const pool = await getPool();
+  try {
+    const [rows] = await pool.query(
+      `SELECT u.user_id, u.name, u.account
+       FROM users u
+       JOIN user_roles ur ON ur.user_id = u.user_id
+       JOIN roles r ON r.role_id = ur.role_id
+       WHERE r.role_code = 'supervisor' 
+       AND u.is_active = 1
+       AND (u.name LIKE ? OR u.account LIKE ?)
+       ORDER BY u.name ASC
+       LIMIT 50`,
+      [`%${q}%`, `%${q}%`]
+    );
+    res.json(rows);
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// 获取所有实验员（role=employee）
+router.get('/all-employees', async (req, res) => {
+  const { q = '' } = req.query;
+  const pool = await getPool();
+  try {
+    const [rows] = await pool.query(
+      `SELECT u.user_id, u.name, u.account
+       FROM users u
+       JOIN user_roles ur ON ur.user_id = u.user_id
+       JOIN roles r ON r.role_id = ur.role_id
+       WHERE r.role_code = 'employee' 
+       AND u.is_active = 1
+       AND (u.name LIKE ? OR u.account LIKE ?)
+       ORDER BY u.name ASC
+       LIMIT 50`,
+      [`%${q}%`, `%${q}%`]
+    );
+    res.json(rows);
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
 
 export default router;

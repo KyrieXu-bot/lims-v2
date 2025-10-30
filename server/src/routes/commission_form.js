@@ -7,7 +7,7 @@ router.use(requireAuth, requireAnyRole(['admin', 'leader', 'supervisor', 'employ
 
 // 获取委托单登记表数据（扁平化，以test_item_id为单位）
 router.get('/commission-form', async (req, res) => {
-  const { q = '', page = 1, pageSize = 100, status, department_id } = req.query;
+  const { q = '', page = 1, pageSize = 100, status, department_id, field_test_date } = req.query;
   const offset = (Number(page) - 1) * Number(pageSize);
   const pool = await getPool();
   const like = `%${q}%`;
@@ -50,8 +50,17 @@ router.get('/commission-form', async (req, res) => {
   }
 
   if (q) {
-    filters.push('(ti.category_name LIKE ? OR ti.detail_name LIKE ? OR ti.test_code LIKE ? OR ti.order_id LIKE ? OR c.customer_name LIKE ?)');
-    params.push(like, like, like, like, like);
+    // 检查是否是日期格式 (yyyy-MM-dd)
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    if (dateRegex.test(q)) {
+      // 如果是日期格式，搜索当天的现场测试时间
+      filters.push('DATE(ti.field_test_time) = ?');
+      params.push(q);
+    } else {
+      // 普通文本搜索
+      filters.push('(ti.category_name LIKE ? OR ti.detail_name LIKE ? OR ti.test_code LIKE ? OR ti.order_id LIKE ? OR c.customer_name LIKE ?)');
+      params.push(like, like, like, like, like);
+    }
   }
   if (status) {
     filters.push('ti.status = ?');
@@ -60,6 +69,10 @@ router.get('/commission-form', async (req, res) => {
   if (department_id) {
     filters.push('ti.department_id = ?');
     params.push(department_id);
+  }
+  if (field_test_date) {
+    filters.push('DATE(ti.field_test_time) = ?');
+    params.push(field_test_date);
   }
 
   const where = filters.length ? 'WHERE ' + filters.join(' AND ') : '';

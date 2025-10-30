@@ -49,6 +49,7 @@ const CommissionForm = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
+  const [fieldTestDateFilter, setFieldTestDateFilter] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [technicians, setTechnicians] = useState([]);
@@ -90,6 +91,7 @@ const CommissionForm = () => {
       
       if (statusFilter) params.append('status', statusFilter);
       if (departmentFilter) params.append('department_id', departmentFilter);
+      if (fieldTestDateFilter) params.append('field_test_date', fieldTestDateFilter);
 
       const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
       const headers = {
@@ -124,7 +126,7 @@ const CommissionForm = () => {
     // 获取当前用户信息
     const currentUser = JSON.parse(localStorage.getItem('lims_user') || 'null');
     setUser(currentUser);
-  }, [page, searchQuery, statusFilter, departmentFilter]);
+  }, [page, searchQuery, statusFilter, departmentFilter, fieldTestDateFilter]);
 
   // 监听实时数据更新
   useEffect(() => {
@@ -227,6 +229,7 @@ const CommissionForm = () => {
     setSearchQuery('');
     setStatusFilter('');
     setDepartmentFilter('');
+    setFieldTestDateFilter('');
     setPage(1);
   };
 
@@ -1134,6 +1137,39 @@ const CommissionForm = () => {
     return `${(Number(rate) * 100).toFixed(1)}%`;
   };
 
+  const handleExportWH = async () => {
+    try {
+      if (selectedItems.length === 0) {
+        alert('请先选择检测项目');
+        return;
+      }
+      const selectedData = data.filter(item => selectedItems.includes(item.test_item_id));
+      const uniqueOrders = Array.from(new Set(selectedData.map(it => it.order_id)));
+      if (uniqueOrders.length !== 1) {
+        alert('必须选择同一委托单号下的项目');
+        return;
+      }
+      // 仅物化部门用户可见该功能；再次校验所选项目均为物化部门
+      const nonWH = selectedData.find(it => String(it.department_id) !== '2');
+      if (nonWH) {
+        alert('仅支持物化部门(2)的项目导出物化报告');
+        return;
+      }
+
+      const orderId = uniqueOrders[0];
+      const blob = await api.generateWHReport({ order_id: orderId, test_item_ids: selectedItems });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${orderId}_物化报告.docx`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+      setShowExportModal(false);
+    } catch (e) {
+      alert(e.message || '导出失败');
+    }
+  };
+
   // 保存状态指示器组件
   const SavingIndicator = ({ testItemId, field }) => {
     const statusKey = `${testItemId}-${field}`;
@@ -1202,6 +1238,15 @@ const CommissionForm = () => {
               </select>
             </div>
           )}
+          <div className="filter-group">
+            <label>现场测试时间:</label>
+            <input
+              type="date"
+              value={fieldTestDateFilter}
+              onChange={(e) => setFieldTestDateFilter(e.target.value)}
+              placeholder="选择日期"
+            />
+          </div>
           <div className="filter-actions">
             <button 
               onClick={() => navigate('/test-items/new')} 
@@ -1216,25 +1261,23 @@ const CommissionForm = () => {
             >
               一键上传 ({selectedItems.length})
             </button>
+            <button 
+              onClick={handleExport} 
+              className="btn btn-primary"
+              disabled={selectedItems.length === 0}
+              style={{backgroundColor: '#007bff', color: 'white'}}
+            >
+              导出 ({selectedItems.length})
+            </button>
             {user?.role === 'admin' && (
-              <>
-                <button 
-                  onClick={handleExport} 
-                  className="btn btn-primary"
-                  disabled={selectedItems.length === 0}
-                  style={{backgroundColor: '#007bff', color: 'white'}}
-                >
-                  导出 ({selectedItems.length})
-                </button>
-                <button 
-                  onClick={handleBatchDelete} 
-                  className="btn btn-danger"
-                  disabled={selectedItems.length === 0}
-                  style={{backgroundColor: '#dc3545', color: 'white'}}
-                >
-                  批量删除 ({selectedItems.length})
-                </button>
-              </>
+              <button 
+                onClick={handleBatchDelete} 
+                className="btn btn-danger"
+                disabled={selectedItems.length === 0}
+                style={{backgroundColor: '#dc3545', color: 'white'}}
+              >
+                批量删除 ({selectedItems.length})
+              </button>
             )}
           </div>
           <div className="online-indicator">
@@ -1854,20 +1897,39 @@ const CommissionForm = () => {
                 >
                   导出Excel
                 </button>
-                <button 
-                  className="btn btn-primary" 
-                  style={{ padding: '10px 20px', fontSize: '14px' }}
-                  onClick={handleExportOrderTemplate}
-                >
-                  导出委托单模板
-                </button>
-                <button 
-                  className="btn btn-info" 
-                  style={{ padding: '10px 20px', fontSize: '14px' }}
-                  onClick={handleExportProcessTemplate}
-                >
-                  导出流转单模板
-                </button>
+                {user?.role === 'admin' && (
+                  <button 
+                    className="btn btn-primary" 
+                    style={{ padding: '10px 20px', fontSize: '14px' }}
+                    onClick={handleExportOrderTemplate}
+                  >
+                    导出委托单模板
+                  </button>
+                )}
+                {user?.role === 'admin' && (
+                  <button 
+                    className="btn btn-info" 
+                    style={{ padding: '10px 20px', fontSize: '14px' }}
+                    onClick={handleExportProcessTemplate}
+                  >
+                    导出流转单模板
+                  </button>
+                )}
+                {user?.role !== 'admin' ? null : null}
+                {(() => {
+                  if (String(user?.department_id) === '2') return true;
+                  const selectedData = data.filter(item => selectedItems.includes(item.test_item_id));
+                  if (selectedData.length === 0) return false;
+                  return selectedData.every(it => String(it.department_id) === '2');
+                })() && (
+                  <button 
+                    className="btn btn-warning" 
+                    style={{ padding: '10px 20px', fontSize: '14px', backgroundColor: '#f0ad4e', color: 'white' }}
+                    onClick={handleExportWH}
+                  >
+                    检测报告（物化）
+                  </button>
+                )}
               </div>
             </div>
           </div>

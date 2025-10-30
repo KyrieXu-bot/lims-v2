@@ -9,6 +9,16 @@ export const api = {
     if (!r.ok) throw new Error((await r.json()).error || 'Login failed');
     return r.json();
   },
+  async generateWHReport({ order_id, test_item_ids }) {
+    const r = await fetch('/api/templates/generate-wh-report', {
+      method: 'POST',
+      headers: this.authHeaders(),
+      body: JSON.stringify({ order_id, test_item_ids })
+    });
+    if (!r.ok) throw new Error((await r.json()).error || 'Export failed');
+    const blob = await r.blob();
+    return blob;
+  },
 
   // helper
   authHeaders() {
@@ -170,6 +180,24 @@ export const api = {
   },
   async getDepartmentIdByGroupId(groupId) {
     const r = await fetch(`/api/users/department-by-group?group_id=${groupId}`, { headers: this.authHeaders() });
+    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
+    return r.json();
+  },
+  async getBusinessStaff({ q = '' } = {}) {
+    const params = new URLSearchParams({ q });
+    const r = await fetch(`/api/users/business-staff?${params.toString()}`, { headers: this.authHeaders() });
+    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
+    return r.json();
+  },
+  async getAllSupervisors({ q = '' } = {}) {
+    const params = new URLSearchParams({ q });
+    const r = await fetch(`/api/users/all-supervisors?${params.toString()}`, { headers: this.authHeaders() });
+    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
+    return r.json();
+  },
+  async getAllEmployees({ q = '' } = {}) {
+    const params = new URLSearchParams({ q });
+    const r = await fetch(`/api/users/all-employees?${params.toString()}`, { headers: this.authHeaders() });
     if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
     return r.json();
   },

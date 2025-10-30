@@ -66,6 +66,13 @@ export default function TestItemEdit() {
   const [labGroups, setLabGroups] = useState([]); // 存储实验室组数据
   const [selectedOrder, setSelectedOrder] = useState(null); // 选中的委托单
   const [selectedPrice, setSelectedPrice] = useState(null); // 选中的价格项目
+  const [businessStaffSuggestions, setBusinessStaffSuggestions] = useState([]);
+  const [showBusinessStaffSuggestions, setShowBusinessStaffSuggestions] = useState(false);
+  const [supervisorSuggestions, setSupervisorSuggestions] = useState([]);
+  const [showSupervisorSuggestions, setShowSupervisorSuggestions] = useState(false);
+  const [employeeSuggestions, setEmployeeSuggestions] = useState([]);
+  const [showEmployeeSuggestions, setShowEmployeeSuggestions] = useState(false);
+  const [userSearchTimeout, setUserSearchTimeout] = useState(null);
   const navigate = useNavigate();
 
   // 样品类型映射
@@ -75,11 +82,24 @@ export default function TestItemEdit() {
 
   useEffect(()=>{
     if (!isNew) {
-      api.getTestItem(id).then(data => {
+      api.getTestItem(id).then(async data => {
         // 规范化样品到达状态为英文枚举
         let s = data.sample_arrival_status;
         if (s === '已到') s = 'arrived';
         if (s === '未到') s = 'not_arrived';
+        
+        // 如果检测项目没有折扣率，尝试从委托单获取
+        if ((!data.discount_rate || data.discount_rate === 0) && data.order_id) {
+          try {
+            const orderDetail = await api.getOrder(data.order_id);
+            if (orderDetail.discount_rate) {
+              data.discount_rate = orderDetail.discount_rate;
+            }
+          } catch (error) {
+            console.log('获取委托单折扣率失败:', error);
+          }
+        }
+        
         setIt({ ...data, sample_arrival_status: s });
       }).catch(e=>alert(e.message));
     } else {
@@ -160,8 +180,11 @@ export default function TestItemEdit() {
       if (searchTimeout) {
         clearTimeout(searchTimeout);
       }
+      if (userSearchTimeout) {
+        clearTimeout(userSearchTimeout);
+      }
     };
-  }, [searchTimeout]);
+  }, [searchTimeout, userSearchTimeout]);
 
   // 搜索委托单号 - 本地模糊搜索
   const searchOrders = (query) => {
@@ -191,6 +214,131 @@ export default function TestItemEdit() {
     }, 300);
 
     setSearchTimeout(timeout);
+  };
+
+  // 搜索业务员
+  const searchBusinessStaff = (query) => {
+    if (userSearchTimeout) {
+      clearTimeout(userSearchTimeout);
+    }
+
+    if (query.length < 1) {
+      setBusinessStaffSuggestions([]);
+      setShowBusinessStaffSuggestions(false);
+      return;
+    }
+
+    const timeout = setTimeout(async () => {
+      try {
+        const users = await api.getBusinessStaff({ q: query });
+        setBusinessStaffSuggestions(users);
+        setShowBusinessStaffSuggestions(true);
+      } catch (error) {
+        console.error('搜索业务员失败:', error);
+        setBusinessStaffSuggestions([]);
+        setShowBusinessStaffSuggestions(false);
+      }
+    }, 300);
+
+    setUserSearchTimeout(timeout);
+  };
+
+  // 搜索组长
+  const searchSupervisors = (query) => {
+    if (userSearchTimeout) {
+      clearTimeout(userSearchTimeout);
+    }
+
+    if (query.length < 1) {
+      setSupervisorSuggestions([]);
+      setShowSupervisorSuggestions(false);
+      return;
+    }
+
+    const timeout = setTimeout(async () => {
+      try {
+        const users = await api.getAllSupervisors({ q: query });
+        setSupervisorSuggestions(users);
+        setShowSupervisorSuggestions(true);
+      } catch (error) {
+        console.error('搜索组长失败:', error);
+        setSupervisorSuggestions([]);
+        setShowSupervisorSuggestions(false);
+      }
+    }, 300);
+
+    setUserSearchTimeout(timeout);
+  };
+
+  // 搜索实验员
+  const searchEmployees = (query) => {
+    if (userSearchTimeout) {
+      clearTimeout(userSearchTimeout);
+    }
+
+    if (query.length < 1) {
+      setEmployeeSuggestions([]);
+      setShowEmployeeSuggestions(false);
+      return;
+    }
+
+    const timeout = setTimeout(async () => {
+      try {
+        const users = await api.getAllEmployees({ q: query });
+        setEmployeeSuggestions(users);
+        setShowEmployeeSuggestions(true);
+      } catch (error) {
+        console.error('搜索实验员失败:', error);
+        setEmployeeSuggestions([]);
+        setShowEmployeeSuggestions(false);
+      }
+    }, 300);
+
+    setUserSearchTimeout(timeout);
+  };
+
+  // 选择业务员
+  const selectBusinessStaff = (user) => {
+    setIt({...it, current_assignee: user.user_id});
+    setShowBusinessStaffSuggestions(false);
+  };
+
+  // 根据负责人和组员选择自动更新状态
+  const updateStatusBasedOnAssignment = (supervisorId, technicianId) => {
+    if (supervisorId && technicianId) {
+      // 既有组长又有组员，状态为进行中
+      return 'running';
+    } else if (supervisorId) {
+      // 只有组长，状态为已分配
+      return 'assigned';
+    } else {
+      // 都没有，保持原状态或新建
+      return it.status || 'new';
+    }
+  };
+
+  // 选择组长
+  const selectSupervisor = (user) => {
+    const newSupervisorId = user.user_id;
+    const newStatus = updateStatusBasedOnAssignment(newSupervisorId, it.technician_id);
+    setIt(prev => ({
+      ...prev, 
+      supervisor_id: newSupervisorId,
+      status: newStatus
+    }));
+    setShowSupervisorSuggestions(false);
+  };
+
+  // 选择实验员
+  const selectEmployee = (user) => {
+    const newTechnicianId = user.user_id;
+    const newStatus = updateStatusBasedOnAssignment(it.supervisor_id, newTechnicianId);
+    setIt(prev => ({
+      ...prev, 
+      technician_id: newTechnicianId,
+      status: newStatus
+    }));
+    setShowEmployeeSuggestions(false);
   };
 
   // 选择委托单号
@@ -231,6 +379,7 @@ export default function TestItemEdit() {
       category_name: priceItem.category_name,
       detail_name: priceItem.detail_name,
       test_code: priceItem.test_code,
+      standard_code: priceItem.standard_code || '',
       is_outsourced: priceItem.is_outsourced,
       unit_price: Number.isFinite(numericUnitPrice) ? numericUnitPrice : prev.unit_price
     }));
@@ -378,7 +527,7 @@ export default function TestItemEdit() {
           </div>
           <Field label="原始编号" value={it.original_no} onChange={v=>setIt({...it, original_no:v})} disabled={isView} />
           <Field label="代码" value={it.test_code} onChange={v=>setIt({...it, test_code:v})} disabled={isView} />
-          <Field label="标准号" value={it.standard_code} onChange={v=>setIt({...it, standard_code:v})} disabled={isView} />
+          <Field label="检测标准" value={it.standard_code} onChange={v=>setIt({...it, standard_code:v})} disabled={isView} />
           <div>
             <label>执行部门</label>
             <input 
@@ -414,7 +563,11 @@ export default function TestItemEdit() {
             <label>折扣率%</label>
             <input 
               className="input" 
-              value={it.discount_rate || ''} 
+              value={(() => {
+                const rate = it.discount_rate;
+                if (rate === undefined || rate === null || rate === '') return '0';
+                return rate;
+              })()} 
               disabled 
               style={{background: '#f5f5f5'}}
             />
@@ -463,9 +616,157 @@ export default function TestItemEdit() {
               <option value="cancelled">已取消</option>
             </select>
           </div>
-          <Field label="当前执行人工号" value={it.current_assignee} onChange={v=>setIt({...it, current_assignee:v})} disabled={isView} />
-          <Field label="负责人工号" value={it.supervisor_id} onChange={v=>setIt({...it, supervisor_id:v})} disabled={isView} />
-          <Field label="实验员工号" value={it.technician_id} onChange={v=>setIt({...it, technician_id:v})} disabled={isView} />
+          <div>
+            <label>业务员工号</label>
+            <div style={{position: 'relative'}}>
+              <input 
+                className="input" 
+                value={it.current_assignee || ''} 
+                onChange={e => {
+                  const value = e.target.value;
+                  setIt({...it, current_assignee: value});
+                  searchBusinessStaff(value);
+                }}
+                placeholder="输入业务员姓名或工号"
+                disabled={isView}
+              />
+              {showBusinessStaffSuggestions && businessStaffSuggestions && businessStaffSuggestions.length > 0 && (
+                <div style={{
+                  position: 'absolute',
+                  top: '100%',
+                  left: 0,
+                  right: 0,
+                  background: 'white',
+                  border: '1px solid #ddd',
+                  borderTop: 'none',
+                  maxHeight: '200px',
+                  overflowY: 'auto',
+                  zIndex: 1000
+                }}>
+                  {businessStaffSuggestions.map(user => (
+                    <div 
+                      key={user.user_id}
+                      style={{
+                        padding: '8px 12px',
+                        cursor: 'pointer',
+                        borderBottom: '1px solid #eee'
+                      }}
+                      onMouseDown={() => selectBusinessStaff(user)}
+                      onMouseEnter={e => e.target.style.background = '#f5f5f5'}
+                      onMouseLeave={e => e.target.style.background = 'white'}
+                    >
+                      <div style={{fontWeight: 'bold'}}>{user.name}</div>
+                      <div style={{fontSize: '12px', color: '#666'}}>{user.account}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+          <div>
+            <label>负责人工号</label>
+            <div style={{position: 'relative'}}>
+              <input 
+                className="input" 
+                value={it.supervisor_id || ''} 
+                onChange={e => {
+                  const value = e.target.value;
+                  const newStatus = updateStatusBasedOnAssignment(value, it.technician_id);
+                  setIt(prev => ({
+                    ...prev, 
+                    supervisor_id: value,
+                    status: newStatus
+                  }));
+                  searchSupervisors(value);
+                }}
+                placeholder="输入组长姓名或工号"
+                disabled={isView}
+              />
+              {showSupervisorSuggestions && supervisorSuggestions && supervisorSuggestions.length > 0 && (
+                <div style={{
+                  position: 'absolute',
+                  top: '100%',
+                  left: 0,
+                  right: 0,
+                  background: 'white',
+                  border: '1px solid #ddd',
+                  borderTop: 'none',
+                  maxHeight: '200px',
+                  overflowY: 'auto',
+                  zIndex: 1000
+                }}>
+                  {supervisorSuggestions.map(user => (
+                    <div 
+                      key={user.user_id}
+                      style={{
+                        padding: '8px 12px',
+                        cursor: 'pointer',
+                        borderBottom: '1px solid #eee'
+                      }}
+                      onMouseDown={() => selectSupervisor(user)}
+                      onMouseEnter={e => e.target.style.background = '#f5f5f5'}
+                      onMouseLeave={e => e.target.style.background = 'white'}
+                    >
+                      <div style={{fontWeight: 'bold'}}>{user.name}</div>
+                      <div style={{fontSize: '12px', color: '#666'}}>{user.account}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+          <div>
+            <label>实验员工号</label>
+            <div style={{position: 'relative'}}>
+              <input 
+                className="input" 
+                value={it.technician_id || ''} 
+                onChange={e => {
+                  const value = e.target.value;
+                  const newStatus = updateStatusBasedOnAssignment(it.supervisor_id, value);
+                  setIt(prev => ({
+                    ...prev, 
+                    technician_id: value,
+                    status: newStatus
+                  }));
+                  searchEmployees(value);
+                }}
+                placeholder="输入实验员姓名或工号"
+                disabled={isView}
+              />
+              {showEmployeeSuggestions && employeeSuggestions && employeeSuggestions.length > 0 && (
+                <div style={{
+                  position: 'absolute',
+                  top: '100%',
+                  left: 0,
+                  right: 0,
+                  background: 'white',
+                  border: '1px solid #ddd',
+                  borderTop: 'none',
+                  maxHeight: '200px',
+                  overflowY: 'auto',
+                  zIndex: 1000
+                }}>
+                  {employeeSuggestions.map(user => (
+                    <div 
+                      key={user.user_id}
+                      style={{
+                        padding: '8px 12px',
+                        cursor: 'pointer',
+                        borderBottom: '1px solid #eee'
+                      }}
+                      onMouseDown={() => selectEmployee(user)}
+                      onMouseEnter={e => e.target.style.background = '#f5f5f5'}
+                      onMouseLeave={e => e.target.style.background = 'white'}
+                    >
+                      <div style={{fontWeight: 'bold'}}>{user.name}</div>
+                      <div style={{fontSize: '12px', color: '#666'}}>{user.account}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
           <div>
             <label>样品到达方式</label>
             <select className="input" value={it.arrival_mode || ''} onChange={e=>setIt({...it, arrival_mode:e.target.value})} disabled={isView}>
@@ -483,10 +784,10 @@ export default function TestItemEdit() {
             </select>
           </div>
         </div>
-        <div>
+        {/* <div>
           <label>样品预处理</label>
           <textarea className="input" rows="2" value={it.sample_preparation||''} onChange={e=>setIt({...it, sample_preparation:e.target.value})} disabled={isView}></textarea>
-        </div>
+        </div> */}
         <div>
           <label>备注</label>
           <textarea className="input" rows="2" value={it.note||''} onChange={e=>setIt({...it, note:e.target.value})} disabled={isView}></textarea>
@@ -546,6 +847,7 @@ export default function TestItemEdit() {
                       <th>大类</th>
                       <th>细项</th>
                       <th>代码</th>
+                      <th>检测标准</th>
                       <th>单价</th>
                       <th>委外</th>
                     </tr>
@@ -565,6 +867,7 @@ export default function TestItemEdit() {
                         <td>{price.category_name}</td>
                         <td>{price.detail_name}</td>
                         <td>{price.test_code}</td>
+                        <td>{price.standard_code || '-'}</td>
                         <td>{price.unit_price}</td>
                         <td>
                           <span className={`price-outsource-badge ${price.is_outsourced ? 'outsourced' : 'internal'}`}>

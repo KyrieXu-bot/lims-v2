@@ -639,7 +639,30 @@ export default function CustomerIntegratedAdd() {
               ]}
             />
             
-            <Field label="合作时间" type="month" value={customer.cooperation_time} onChange={(val) => setCustomer({...customer, cooperation_time: val})} placeholder="选择合作时间" />
+            <div className="form-field">
+              <label>合作时间</label>
+              <input
+                className="input"
+                type="month"
+                value={customer.cooperation_time || ''}
+                max="9999-12"
+                onChange={(e) => {
+                  let v = e.target.value || '';
+                  if (v) {
+                    const [yRaw, mRaw] = v.split('-');
+                    let y = (yRaw || '').replace(/\D/g, '').slice(0, 4);
+                    if (y) {
+                      const yNum = Math.min(parseInt(y, 10) || 0, 9999);
+                      y = String(yNum).padStart(y.length, '0');
+                    }
+                    const m = (mRaw || '').replace(/\D/g, '').slice(0, 2);
+                    v = y && m ? `${y}-${m}` : (y ? `${y}` : '');
+                  }
+                  setCustomer({ ...customer, cooperation_time: v });
+                }}
+                placeholder="选择合作时间"
+              />
+            </div>
             
             <SelectField
               label="状态"

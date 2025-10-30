@@ -152,7 +152,21 @@ export default function CustomerEdit() {
                 className="input"
                 type="month"
                 value={it.cooperation_time || ''}
-                onChange={e=>setIt({...it, cooperation_time:e.target.value})}
+                max="9999-12"
+                onChange={e=>{
+                  let v = e.target.value || '';
+                  if (v) {
+                    const [yRaw, mRaw] = v.split('-');
+                    let y = (yRaw || '').replace(/\D/g, '').slice(0, 4);
+                    if (y) {
+                      const yNum = Math.min(parseInt(y, 10) || 0, 9999);
+                      y = String(yNum).padStart(y.length, '0');
+                    }
+                    const m = (mRaw || '').replace(/\D/g, '').slice(0, 2);
+                    v = y && m ? `${y}-${m}` : (y ? `${y}` : '');
+                  }
+                  setIt({...it, cooperation_time: v});
+                }}
               />
             </div>
         </div>
