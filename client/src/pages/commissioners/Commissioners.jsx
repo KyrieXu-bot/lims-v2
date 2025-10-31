@@ -49,18 +49,20 @@ export default function Commissioners() {
       <table className="table">
         <thead>
           <tr>
-            <th>ID</th><th>委托人</th><th>付款人</th><th>客户</th><th>电话号码</th><th>Email</th><th>状态</th><th>操作</th>
+            <th>ID</th><th>委托方名称</th><th>委托人联系人</th><th>付款人</th><th>客户</th><th>电话号码</th><th>Email</th><th>地址</th><th>状态</th><th>操作</th>
           </tr>
         </thead>
         <tbody>
           {items.map(it => (
             <tr key={it.commissioner_id}>
               <td>{it.commissioner_id}</td>
+              <td>{it.commissioner_name || '-'}</td>
               <td>{it.contact_name}</td>
               <td>{it.payer_contact}</td>
               <td>{it.customer_name}</td>
               <td>{it.contact_phone}</td>
               <td>{it.email}</td>
+              <td>{it.address || '-'}</td>
               <td>{it.is_active ? <span className="badge">启用</span> : <span className="badge">禁用</span>}</td>
               <td className="actions">
                 <button className="btn" onClick={()=>navigate(`/commissioners/${it.commissioner_id}`)}>编辑</button>

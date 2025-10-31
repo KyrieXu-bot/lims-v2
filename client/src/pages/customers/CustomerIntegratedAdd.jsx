@@ -225,9 +225,11 @@ export default function CustomerIntegratedAdd() {
   
   // 委托人信息
   const [commissioner, setCommissioner] = useState({
+    commissioner_name: '',
     contact_name: '',
     contact_phone: '',
     email: '',
+    address: '',
     is_active: 1
   });
 
@@ -728,6 +730,12 @@ export default function CustomerIntegratedAdd() {
           
           <div className="section-content">
             <Field
+              label="委托方名称"
+              value={commissioner.commissioner_name}
+              onChange={(val) => setCommissioner({...commissioner, commissioner_name: val})}
+              placeholder="输入委托方名称"
+            />
+            <Field
               label="委托人"
               value={commissioner.contact_name}
               onChange={handleCommissionerChange}
@@ -736,6 +744,7 @@ export default function CustomerIntegratedAdd() {
             
             <Field label="联系电话" value={commissioner.contact_phone} onChange={(val) => setCommissioner({...commissioner, contact_phone: val})} placeholder="输入联系电话" />
             <Field label="邮箱" type="email" value={commissioner.email} onChange={(val) => setCommissioner({...commissioner, email: val})} placeholder="输入邮箱地址" />
+            <Field label="地址" value={commissioner.address} onChange={(val) => setCommissioner({...commissioner, address: val})} placeholder="输入地址" />
             
             <SelectField
               label="状态"

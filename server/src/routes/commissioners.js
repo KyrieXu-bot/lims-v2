@@ -42,14 +42,14 @@ router.get('/', async (req, res) => {
 });
 
 router.post('/', async (req, res) => {
-  const { payer_id, contact_name, contact_phone, email, is_active = 1 } = req.body || {};
+  const { payer_id, contact_name, contact_phone, email, commissioner_name, address, is_active = 1 } = req.body || {};
   if (!payer_id || !contact_name) return res.status(400).json({ error: 'payer_id and contact_name are required' });
   const pool = await getPool();
   try {
     const [r] = await pool.query(
-      `INSERT INTO commissioners (payer_id, contact_name, contact_phone, email, is_active)
-       VALUES (?,?,?,?,?)`,
-      [payer_id, contact_name, contact_phone, email, Number(is_active)]
+      `INSERT INTO commissioners (payer_id, contact_name, contact_phone, email, commissioner_name, address, is_active)
+       VALUES (?,?,?,?,?,?,?)`,
+      [payer_id, contact_name, contact_phone, email, commissioner_name, address, Number(is_active)]
     );
     const [rows] = await pool.query(
       `SELECT m.*, p.contact_name AS payer_contact, c.customer_name
@@ -78,7 +78,7 @@ router.get('/:id', async (req, res) => {
 });
 
 router.put('/:id', async (req, res) => {
-  const { payer_id, contact_name, contact_phone, email, is_active } = req.body || {};
+  const { payer_id, contact_name, contact_phone, email, commissioner_name, address, is_active } = req.body || {};
   const pool = await getPool();
   await pool.query(
     `UPDATE commissioners SET
@@ -86,9 +86,11 @@ router.put('/:id', async (req, res) => {
       contact_name = COALESCE(?, contact_name),
       contact_phone = COALESCE(?, contact_phone),
       email = COALESCE(?, email),
+      commissioner_name = COALESCE(?, commissioner_name),
+      address = COALESCE(?, address),
       is_active = COALESCE(?, is_active)
      WHERE commissioner_id = ?`,
-    [payer_id, contact_name, contact_phone, email, is_active, req.params.id]
+    [payer_id, contact_name, contact_phone, email, commissioner_name, address, is_active, req.params.id]
   );
   const [rows] = await pool.query(
     `SELECT m.*, p.contact_name AS payer_contact, c.customer_name

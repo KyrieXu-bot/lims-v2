@@ -25,6 +25,26 @@ export default function OrderPartyDetailModal({ isOpen, onClose, orderId }) {
   const [payer, setPayer] = useState(null);
   const [commissioner, setCommissioner] = useState(null);
 
+  // 结算状态映射
+  const getSettlementStatusText = (status) => {
+    const statusMap = {
+      'unpaid': '未付款',
+      'paid': '已付款',
+      'partial': '部分付款'
+    };
+    return statusMap[status] || status;
+  };
+
+  // 周期类型映射
+  const getPeriodTypeText = (periodType) => {
+    const periodMap = {
+      'normal': '不加急',
+      'urgent_1_5x': '加急1.5倍',
+      'urgent_2x': '特急2倍'
+    };
+    return periodMap[periodType] || periodType || '不加急';
+  };
+
   useEffect(() => {
     if (!isOpen || !orderId) return;
     let cancelled = false;
@@ -71,10 +91,10 @@ export default function OrderPartyDetailModal({ isOpen, onClose, orderId }) {
             <div className="customer-info">
               <Section title="委托单信息">
                 <Item label="委托单号" value={order?.order_id} />
-                <Item label="结算状态" value={order?.settlement_status} />
+                <Item label="结算状态" value={getSettlementStatusText(order?.settlement_status)} />
                 <Item label="创建时间" value={order?.created_at ? new Date(order.created_at).toLocaleString('zh-CN') : '-'} />
                 <Item label="总金额" value={order?.total_price} />
-                <Item label="周期类型" value={order?.period_type} />
+                <Item label="周期类型" value={getPeriodTypeText(order?.period_type)} />
               </Section>
 
               <Section title="客户信息">
@@ -102,9 +122,11 @@ export default function OrderPartyDetailModal({ isOpen, onClose, orderId }) {
 
               <Section title="委托方信息">
                 <Item label="委托方ID" value={commissioner?.commissioner_id} />
+                <Item label="委托方名称" value={commissioner?.commissioner_name} />
                 <Item label="联系人" value={commissioner?.contact_name} />
                 <Item label="联系电话" value={commissioner?.contact_phone} />
                 <Item label="Email" value={commissioner?.email} />
+                <Item label="地址" value={commissioner?.address} full />
               </Section>
             </div>
           )}

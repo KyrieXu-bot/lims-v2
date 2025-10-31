@@ -598,17 +598,16 @@
 .lab-field {
   background-color: #f0f8e8 !important; /* 浅绿色背景 */
 }
-/* 以“服务加急”为界：第2列到第18列为淡蓝；第19列及以后为浅绿 */
-.commission-form .data-table th:nth-child(n+2):nth-child(-n+18),
-.commission-form .data-table td:nth-child(n+2):nth-child(-n+18) {
+/* 以"服务加急"为界：第2列到第17列（服务加急）为淡蓝；第18列（现场测试时间）及以后为浅绿 */
+.commission-form .data-table th:nth-child(n+2):nth-child(-n+17),
+.commission-form .data-table td:nth-child(n+2):nth-child(-n+17) {
   background-color: #eef6ff !important;
 }
 
-.commission-form .data-table th:nth-child(n+19),
-.commission-form .data-table td:nth-child(n+19) {
+.commission-form .data-table th:nth-child(n+18),
+.commission-form .data-table td:nth-child(n+18) {
   background-color: #f0f8e8 !important;
 }
-
 
 .lab-field:hover {
   background-color: #e0f0d0 !important; /* 悬停时稍深的绿色 */

@@ -18,8 +18,39 @@ export default function CustomerEdit() {
   const [it, setIt] = useState({ is_active: 1 });
   const navigate = useNavigate();
 
+  const [province, setProvince] = useState('');
+  const [city, setCity] = useState('');
+  const [district, setDistrict] = useState('');
+
   useEffect(()=>{
-    if (!isNew) api.getCustomer(id).then(setIt).catch(e=>alert(e.message));
+    if (!isNew) {
+      api.getCustomer(id).then(customerData => {
+        setIt(customerData);
+        // 解析省份地区
+        if (customerData.province) {
+          const provinceNames = Object.keys(regions);
+          const matchedProvince = provinceNames.find(p => customerData.province.startsWith(p));
+          if (matchedProvince) {
+            setProvince(matchedProvince);
+            if (customerData.province.length > matchedProvince.length) {
+              const rest = customerData.province.substring(matchedProvince.length);
+              const cityNames = Object.keys(regions[matchedProvince] || {});
+              const matchedCity = cityNames.find(c => rest.startsWith(c));
+              if (matchedCity) {
+                setCity(matchedCity);
+                if (rest.length > matchedCity.length) {
+                  const districtNames = regions[matchedProvince][matchedCity] || [];
+                  const matchedDistrict = districtNames.find(d => rest.substring(matchedCity.length).startsWith(d));
+                  if (matchedDistrict) {
+                    setDistrict(matchedDistrict);
+                  }
+                }
+              }
+            }
+          }
+        }
+      }).catch(e=>alert(e.message));
+    }
   }, [id]);
 
   async function onSubmit(e) {
@@ -30,10 +61,6 @@ export default function CustomerEdit() {
     else await api.updateCustomer(id, it);
     navigate('/customers');
   }
-
-  const [province, setProvince] = useState('');
-  const [city, setCity] = useState('');
-  const [district, setDistrict] = useState('');
 
   const handleProvinceChange = (e) => {
     const p = e.target.value;

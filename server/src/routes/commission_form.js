@@ -38,9 +38,8 @@ router.get('/commission-form', async (req, res) => {
     filters.push('ti.technician_id = ?');
     params.push(user.user_id);
   } else if (user.role === 'sales') {
-    // 业务员：只能看到分配给他的检测项目
-    filters.push('ti.current_assignee = ?');
-    params.push(user.user_id);
+    // 业务员：可以看到所有项目，前端会根据current_assignee判断是否需要模糊处理
+    // 不再在这里过滤数据
   }
 
   // 默认排除已取消的项目（除非明确查询已取消状态）
@@ -91,8 +90,11 @@ router.get('/commission-form', async (req, res) => {
         comm.contact_name as customer_contact_name,
         comm.contact_phone as customer_contact_phone,
         comm.email as customer_contact_email,
+        comm.commissioner_name as customer_commissioner_name,
+        comm.address as customer_commissioner_address,
         o.commissioner_id,
         u.name as assignee_name,
+        u.account as assignee_account,
         ti.current_assignee,
         NULL as unpaid_amount, -- 开票未到款金额（暂时为空）
         CONCAT(ti.category_name, ' - ', ti.detail_name) as test_item_name,
@@ -123,6 +125,7 @@ router.get('/commission-form', async (req, res) => {
         ti.test_notes,
         ti.unit,
         ti.line_total,
+        ti.final_unit_price,
         ti.actual_delivery_date,
         ti.status,
         ti.quantity,
@@ -165,17 +168,8 @@ router.get('/commission-form', async (req, res) => {
       [...params, Number(pageSize), offset]
     );
 
-    // 业务员权限处理：隐藏非自己负责项目的敏感信息
-    if (user.role === 'sales') {
-      rows.forEach(item => {
-        const isOwner = item.customer_name && item.owner_user_id === user.user_id;
-        if (!isOwner) {
-          // 隐藏敏感信息
-          item.customer_name = '***';
-          item.assignee_name = '***';
-        }
-      });
-    }
+    // 业务员权限处理：不再在后端隐藏数据，让前端根据权限进行展示控制
+    // 业务员可以看到所有数据，但前端会根据current_assignee判断是否需要模糊处理
 
     const [cnt] = await pool.query(
       `SELECT COUNT(*) as cnt 

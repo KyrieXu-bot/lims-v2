@@ -126,7 +126,12 @@ export default function TestItemEdit() {
       }
     }
     // 加载价格表选项
-    api.listPrice({ pageSize: 1000 }).then(res => setPriceOptions(res.data)).catch(e => console.error(e));
+    api.listPrice({ pageSize: 1000 })
+      .then(res => setPriceOptions(res.data || []))
+      .catch(e => {
+        console.error('加载价格表选项失败:', e);
+        setPriceOptions([]);
+      });
     // 加载所有委托单数据用于本地搜索
     loadAllOrders();
     loadPayers();
@@ -499,7 +504,17 @@ export default function TestItemEdit() {
             <button 
               type="button" 
               className="btn" 
-              onClick={() => setShowPriceModal(true)}
+              onClick={async () => {
+                setShowPriceModal(true);
+                // 确保在打开模态框时加载价格数据
+                try {
+                  const res = await api.listPrice({ pageSize: 1000 });
+                  setPriceOptions(res.data || []);
+                } catch (e) {
+                  console.error('加载价格数据失败:', e);
+                  setPriceOptions([]);
+                }
+              }}
               style={{width: '100%'}}
               disabled={isView}
             >
@@ -831,53 +846,69 @@ export default function TestItemEdit() {
                   onChange={e => {
                     const query = e.target.value;
                     if (query.length >= 2) {
-                      api.listPrice({ q: query, pageSize: 100 }).then(res => setPriceOptions(res.data));
+                      api.listPrice({ q: query, pageSize: 100 })
+                        .then(res => setPriceOptions(res.data || []))
+                        .catch(e => {
+                          console.error('搜索价格项目失败:', e);
+                          setPriceOptions([]);
+                        });
                     } else {
-                      api.listPrice({ pageSize: 1000 }).then(res => setPriceOptions(res.data));
+                      api.listPrice({ pageSize: 1000 })
+                        .then(res => setPriceOptions(res.data || []))
+                        .catch(e => {
+                          console.error('加载价格项目失败:', e);
+                          setPriceOptions([]);
+                        });
                     }
                   }}
                 />
               </div>
               
               <div className="price-table-container">
-                <table className="price-table">
-                  <thead>
-                    <tr>
-                      <th>选择</th>
-                      <th>大类</th>
-                      <th>细项</th>
-                      <th>代码</th>
-                      <th>检测标准</th>
-                      <th>单价</th>
-                      <th>委外</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {priceOptions.map(price => (
-                      <tr key={price.price_id}>
-                        <td>
-                          <button 
-                            type="button" 
-                            className="price-select-btn" 
-                            onClick={() => selectPriceItem(price)}
-                          >
-                            选择
-                          </button>
-                        </td>
-                        <td>{price.category_name}</td>
-                        <td>{price.detail_name}</td>
-                        <td>{price.test_code}</td>
-                        <td>{price.standard_code || '-'}</td>
-                        <td>{price.unit_price}</td>
-                        <td>
-                          <span className={`price-outsource-badge ${price.is_outsourced ? 'outsourced' : 'internal'}`}>
-                            {price.is_outsourced ? '是' : '否'}
-                          </span>
-                        </td>
+                {priceOptions.length > 0 ? (
+                  <table className="price-table">
+                    <thead>
+                      <tr>
+                        <th>选择</th>
+                        <th>大类</th>
+                        <th>细项</th>
+                        <th>代码</th>
+                        <th>检测标准</th>
+                        <th>单价</th>
+                        <th>委外</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {priceOptions.map(price => (
+                        <tr key={price.price_id}>
+                          <td>
+                            <button 
+                              type="button" 
+                              className="price-select-btn" 
+                              onClick={() => selectPriceItem(price)}
+                            >
+                              选择
+                            </button>
+                          </td>
+                          <td>{price.category_name}</td>
+                          <td>{price.detail_name}</td>
+                          <td>{price.test_code}</td>
+                          <td>{price.standard_code || '-'}</td>
+                          <td>{price.unit_price}</td>
+                          <td>
+                            <span className={`price-outsource-badge ${price.is_outsourced ? 'outsourced' : 'internal'}`}>
+                              {price.is_outsourced ? '是' : '否'}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <div style={{ padding: '20px', textAlign: 'center', color: '#666' }}>
+                    暂无价格数据，请检查权限或联系管理员
+                  </div>
+                )}
               </div>
             </div>
             

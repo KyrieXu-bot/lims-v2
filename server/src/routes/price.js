@@ -1,9 +1,10 @@
 import { Router } from 'express';
 import { getPool } from '../db.js';
-import { requireAuth, requireAdmin } from '../middleware/auth.js';
+import { requireAuth, requireAnyRole } from '../middleware/auth.js';
 
 const router = Router();
-router.use(requireAuth, requireAdmin);
+// 允许管理员、室主任和组长访问价格表
+router.use(requireAuth, requireAnyRole(['admin', 'leader', 'supervisor']));
 
 // options for selects
 router.get('/options', async (req, res) => {

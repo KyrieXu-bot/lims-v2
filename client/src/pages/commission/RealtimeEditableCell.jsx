@@ -13,10 +13,18 @@ const RealtimeEditableCell = ({
   isFieldBeingEdited,
   getEditingUser,
   emitUserEditing,
-  emitUserStopEditing
+  emitUserStopEditing,
+  suffix = ''
 }) => {
   const [isEditing, setIsEditing] = useState(false);
-  const [editValue, setEditValue] = useState(value || '');
+  // 对于 number 类型，0 是有效值，应该保留；对于其他类型，null/undefined 转为空字符串
+  const getInitialEditValue = (val) => {
+    if (type === 'number') {
+      return val === null || val === undefined || val === '' ? '' : val;
+    }
+    return val || '';
+  };
+  const [editValue, setEditValue] = useState(getInitialEditValue(value));
   const [filteredOptions, setFilteredOptions] = useState(options);
   const [showOptions, setShowOptions] = useState(false);
   const inputRef = useRef(null);
@@ -24,7 +32,7 @@ const RealtimeEditableCell = ({
   const editingTimeoutRef = useRef(null);
 
   useEffect(() => {
-    setEditValue(value || '');
+    setEditValue(getInitialEditValue(value));
   }, [value]);
 
   useEffect(() => {
@@ -90,7 +98,19 @@ const RealtimeEditableCell = ({
   };
 
   const handleChange = (e) => {
-    const newValue = e.target.value;
+    let newValue = e.target.value;
+    
+    // 对于 number 类型，只允许数字、小数点和负号（仅在开头）
+    if (type === 'number') {
+      // 允许空字符串、数字、小数点
+      // 不允许非数字字符（除了小数点和负号）
+      const numberRegex = /^-?\d*\.?\d*$/;
+      if (newValue !== '' && !numberRegex.test(newValue)) {
+        // 如果输入不合法，不更新状态
+        return;
+      }
+    }
+    
     setEditValue(newValue);
     
     if (type === 'autocomplete') {
@@ -115,8 +135,9 @@ const RealtimeEditableCell = ({
     }
 
     // 对于select类型，选择后立即保存
+    // 注意：必须使用 newValue 而不是 editValue，因为 setEditValue 是异步的
     if (type === 'select') {
-      handleSave();
+      handleSaveWithValue(newValue);
       return;
     }
 
@@ -140,8 +161,12 @@ const RealtimeEditableCell = ({
   };
 
   const handleSave = async () => {
+    await handleSaveWithValue(editValue);
+  };
+
+  const handleSaveWithValue = async (valueToSave) => {
     try {
-      await onSave(field, editValue, testItemId);
+      await onSave(field, valueToSave, testItemId);
       setIsEditing(false);
       setShowOptions(false);
       
@@ -182,7 +207,14 @@ const RealtimeEditableCell = ({
   };
 
   const formatValue = (val) => {
-    if (!val) return '';
+    // 对于 number 类型，0 是有效值，不应该返回空字符串
+    if (type === 'number') {
+      if (val === null || val === undefined || val === '') return '';
+      const formatted = val;
+      return suffix ? `${formatted}${suffix}` : formatted;
+    }
+    // 对于其他类型，null/undefined/空字符串返回空
+    if (!val && val !== 0) return '';
     if (type === 'date') {
       return new Date(val).toLocaleDateString('zh-CN');
     }
@@ -194,7 +226,7 @@ const RealtimeEditableCell = ({
       const option = options.find(opt => opt.value === val);
       return option ? option.label : val;
     }
-    return val;
+    return suffix ? `${val}${suffix}` : val;
   };
 
   // 检查是否有其他用户正在编辑此字段
@@ -339,16 +371,30 @@ const RealtimeEditableCell = ({
   }
 
   return (
-    <input
-      ref={inputRef}
-      type={type}
-      value={editValue}
-      onChange={handleChange}
-      onKeyDown={handleKeyDown}
-      onBlur={handleSave}
-      className="editable-input"
-      placeholder={placeholder}
-    />
+    <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
+      <input
+        ref={inputRef}
+        type={type}
+        value={editValue}
+        onChange={handleChange}
+        onKeyDown={handleKeyDown}
+        onBlur={handleSave}
+        className="editable-input"
+        placeholder={placeholder}
+        style={suffix ? { paddingRight: suffix ? '20px' : undefined } : {}}
+      />
+      {suffix && isEditing && (
+        <span style={{ 
+          position: 'absolute', 
+          right: '8px', 
+          pointerEvents: 'none',
+          color: '#666',
+          userSelect: 'none'
+        }}>
+          {suffix}
+        </span>
+      )}
+    </div>
   );
 };
 

@@ -46,9 +46,14 @@ export default function CommissionerEdit() {
               ))}
             </select>
           </div>
+          <Field label="委托方名称" value={it.commissioner_name} onChange={v=>setIt({...it, commissioner_name:v})} />
           <Field label="委托人联系人 *" value={it.contact_name} onChange={v=>setIt({...it, contact_name:v})} />
           <Field label="电话号码" value={it.contact_phone} onChange={v=>setIt({...it, contact_phone:v})} />
           <Field label="Email" value={it.email} onChange={v=>setIt({...it, email:v})} />
+        </div>
+        <div>
+          <label>地址</label>
+          <textarea className="input" rows="2" value={it.address||''} onChange={e=>setIt({...it, address:e.target.value})}></textarea>
         </div>
         <div>
           <label>状态</label>
