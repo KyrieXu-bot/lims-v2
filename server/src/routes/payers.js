@@ -3,7 +3,7 @@ import { getPool } from '../db.js';
 import { requireAuth, requireAnyRole } from '../middleware/auth.js';
 
 const router = Router();
-router.use(requireAuth, requireAnyRole(['admin', 'sales']));
+router.use(requireAuth);
 
 // options for selects (id + label)
 router.get('/options', async (req, res) => {
@@ -53,7 +53,7 @@ router.get('/', async (req, res) => {
   res.json({ data: rows, total: cnt[0].cnt });
 });
 
-router.post('/', async (req, res) => {
+router.post('/', requireAnyRole(['admin', 'sales']), async (req, res) => {
   const { customer_id, contact_name, contact_phone, payment_term_days,
           discount_rate, owner_user_id, is_active = 1 } = req.body || {};
   if (!customer_id || !contact_name) return res.status(400).json({ error: 'customer_id and contact_name are required' });
@@ -89,7 +89,7 @@ router.get('/:id', async (req, res) => {
   res.json(rows[0]);
 });
 
-router.put('/:id', async (req, res) => {
+router.put('/:id', requireAnyRole(['admin', 'sales']), async (req, res) => {
   const { customer_id, contact_name, contact_phone, payment_term_days,
           discount_rate, owner_user_id, is_active } = req.body || {};
   const pool = await getPool();
@@ -115,7 +115,7 @@ router.put('/:id', async (req, res) => {
   res.json(rows[0]);
 });
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireAnyRole(['admin', 'sales']), async (req, res) => {
   const pool = await getPool();
   try {
     const [chk] = await pool.query('SELECT payer_id FROM payers WHERE payer_id = ?', [req.params.id]);

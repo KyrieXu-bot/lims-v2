@@ -29,49 +29,145 @@ if (!fs.existsSync(uploadDir)) {
 // 配置multer
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const category = req.body.category || 'experiment_report';
-    const categoryDir = path.join(uploadDir, category);
-    if (!fs.existsSync(categoryDir)) {
-      fs.mkdirSync(categoryDir, { recursive: true });
+    try {
+      const category = req.body.category || 'experiment_report';
+      const categoryDir = path.join(uploadDir, category);
+      if (!fs.existsSync(categoryDir)) {
+        fs.mkdirSync(categoryDir, { recursive: true });
+      }
+      cb(null, categoryDir);
+    } catch (error) {
+      console.error('创建上传目录失败:', error);
+      cb(new Error('无法创建上传目录，请检查服务器权限'), false);
     }
-    cb(null, categoryDir);
   },
   filename: (req, file, cb) => {
-    // 处理中文文件名编码问题
-    const originalName = decodeFileName(file.originalname);
-    const uniqueName = `${uuidv4()}_${originalName}`;
-    cb(null, uniqueName);
+    try {
+      // 处理中文文件名编码问题
+      const originalName = decodeFileName(file.originalname);
+      const uniqueName = `${uuidv4()}_${originalName}`;
+      cb(null, uniqueName);
+    } catch (error) {
+      console.error('处理文件名失败:', error);
+      cb(new Error('文件名处理失败: ' + error.message), false);
+    }
   }
 });
 
 const upload = multer({
   storage,
   limits: {
-    fileSize: 50 * 1024 * 1024, // 50MB限制
+    fileSize: 5 * 1024 * 1024 * 1024, // 5GB限制（服务器有14T容量，设置较大的限制以支持大文件上传）
   },
   fileFilter: (req, file, cb) => {
-    // 允许的文件类型
-    const allowedTypes = [
-      'image/jpeg', 'image/png', 'image/gif', 'image/webp',
-      'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'text/plain', 'text/csv',
-      'application/zip', 'application/x-rar-compressed'
+    // 允许的文件类型 MIME
+    const allowedMimeTypes = [
+      // 图片类型
+      'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/bmp',
+      // 文档类型
+      'application/pdf', 
+      'application/msword', 
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.ms-excel', 
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      // 文本类型
+      'text/plain', 
+      'text/csv',
+      'text/xml',
+      'text/html',
+      'text/yaml',
+      'text/x-yaml',
+      // YAML 相关
+      'application/x-yaml',
+      'application/yaml',
+      // 压缩文件
+      'application/zip', 
+      'application/x-rar-compressed',
+      'application/x-7z-compressed'
     ];
     
-    if (allowedTypes.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
-      cb(new Error('不支持的文件类型'), false);
+    // 允许的文件扩展名（作为后备方案，当 MIME 类型不确定或系统无法识别时使用）
+    const allowedExtensions = [
+      'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp',
+      'pdf',
+      'doc', 'docx',
+      'xls', 'xlsx',
+      'txt', 'csv', 'xml', 'html',
+      'yaml', 'yml',
+      'zip', 'rar', '7z'
+    ];
+    
+    // 获取文件扩展名
+    const fileExt = file.originalname.split('.').pop()?.toLowerCase();
+    const mimeType = file.mimetype || '';
+    
+    // 1. 首先检查 MIME 类型是否在允许列表中
+    if (mimeType && allowedMimeTypes.includes(mimeType)) {
+      return cb(null, true);
     }
+    
+    // 2. 如果 MIME 类型不在允许列表中，或者为空/无法识别（如 application/octet-stream）
+    // 检查文件扩展名作为后备验证方案
+    // 这处理了某些浏览器或系统无法正确识别文件类型的情况（特别是 YAML 和某些文本文件）
+    if (fileExt && allowedExtensions.includes(fileExt)) {
+      console.log(`文件 ${file.originalname} (扩展名: ${fileExt}) 的 MIME 类型为 ${mimeType || '未知'}，但扩展名已允许`);
+      return cb(null, true);
+    }
+    
+    // 3. 都不匹配，拒绝文件
+    console.warn(`文件类型被拒绝: ${file.originalname}, MIME: ${mimeType}, 扩展名: ${fileExt}`);
+    cb(new Error(`不支持的文件类型: ${mimeType || '未知类型'}。允许的类型包括：图片、PDF、Office文档、文本文件、YAML文件等。文件扩展名: ${fileExt || '无'}`), false);
   }
 });
+
+// Multer 错误处理中间件
+const handleMulterError = (err, req, res, next) => {
+  if (err) {
+    console.error('Multer 错误:', err);
+    
+    // multer 错误代码
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ error: '文件大小超过限制（最大5GB）。如果您的文件超过此限制，请联系管理员' });
+    }
+    if (err.code === 'LIMIT_UNEXPECTED_FILE') {
+      return res.status(400).json({ error: '不支持的文件字段名，请使用 "file" 作为字段名' });
+    }
+    if (err.code === 'LIMIT_PART_COUNT') {
+      return res.status(400).json({ error: '文件数量超过限制' });
+    }
+    if (err.code === 'LIMIT_FILE_COUNT') {
+      return res.status(400).json({ error: '文件数量超过限制' });
+    }
+    if (err.code === 'LIMIT_FIELD_KEY') {
+      return res.status(400).json({ error: '字段名过长' });
+    }
+    if (err.code === 'LIMIT_FIELD_VALUE') {
+      return res.status(400).json({ error: '字段值过长' });
+    }
+    if (err.code === 'LIMIT_FIELD_COUNT') {
+      return res.status(400).json({ error: '字段数量超过限制' });
+    }
+    
+    // fileFilter 或其他自定义错误
+    if (err.message) {
+      return res.status(400).json({ error: err.message });
+    }
+    
+    // 其他未处理的 multer 错误
+    return res.status(400).json({ error: '文件上传失败: ' + (err.message || '未知错误') });
+  }
+  next();
+};
 
 // 所有路由都需要认证
 router.use(requireAuth);
 
 // 上传文件
-router.post('/upload', requireAnyRole(['admin', 'leader', 'supervisor', 'employee']), upload.single('file'), async (req, res) => {
+router.post('/upload', 
+  requireAnyRole(['admin', 'leader', 'supervisor', 'employee']), 
+  upload.single('file'),
+  handleMulterError,
+  async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: '没有选择文件' });
@@ -243,9 +339,11 @@ router.get('/download/:id', requireAnyRole(['admin', 'leader', 'supervisor', 'em
 });
 
 // 删除文件
-router.delete('/:id', requireAnyRole(['admin', 'leader', 'supervisor']), async (req, res) => {
+router.delete('/:id', requireAnyRole(['admin', 'leader', 'supervisor', 'employee']), async (req, res) => {
   try {
     const pool = await getPool();
+    const user = req.user;
+    
     const [rows] = await pool.query(
       'SELECT * FROM project_files WHERE file_id = ?',
       [req.params.id]
@@ -256,6 +354,18 @@ router.delete('/:id', requireAnyRole(['admin', 'leader', 'supervisor']), async (
     }
     
     const file = rows[0];
+    
+    // 权限检查：实验员只能删除自己上传的原始数据文件
+    if (user.role === 'employee') {
+      // 实验员只能删除自己上传的文件
+      if (file.uploaded_by !== user.user_id) {
+        return res.status(403).json({ error: '您只能删除自己上传的文件' });
+      }
+      // 实验员只能删除原始数据类型的文件
+      if (file.category !== 'raw_data') {
+        return res.status(403).json({ error: '实验员只能删除原始数据文件' });
+      }
+    }
     
     // 删除数据库记录
     await pool.query('DELETE FROM project_files WHERE file_id = ?', [req.params.id]);
@@ -272,7 +382,11 @@ router.delete('/:id', requireAnyRole(['admin', 'leader', 'supervisor']), async (
 });
 
 // 批量上传文件
-router.post('/batch-upload', requireAnyRole(['admin', 'leader', 'supervisor', 'employee']), upload.single('file'), async (req, res) => {
+router.post('/batch-upload', 
+  requireAnyRole(['admin', 'leader', 'supervisor', 'employee']), 
+  upload.single('file'),
+  handleMulterError,
+  async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: '没有选择文件' });

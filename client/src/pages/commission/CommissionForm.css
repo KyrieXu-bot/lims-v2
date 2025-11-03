@@ -797,9 +797,16 @@
 }
 
 /* 为固定列添加背景 */
+.commission-form .data-table thead th.fixed-left-checkbox {
+  z-index: 30 !important;
+  background: #bbdefb !important;
+  border-bottom: 2px solid #90caf9 !important;
+}
+
 .commission-form .data-table thead th.fixed-left {
   z-index: 30 !important;
-  background: white !important;
+  background: #bbdefb !important;
+  border-bottom: 2px solid #90caf9 !important;
 }
 
 .commission-form .data-table tbody td.fixed-left {
@@ -825,31 +832,13 @@
   left: 50px; /* checkbox宽度50px */
 }
 
-/* 委托单位 - 第3列 */
+/* 检测项目 - 第3列 */
 .commission-form .data-table th.fixed-left:nth-child(3),
 .commission-form .data-table td.fixed-left:nth-child(3) {
-  width: 150px !important;
-  min-width: 150px !important;
-  max-width: 150px !important;
-  left: 180px; /* 50 + 130 */
-}
-
-/* 检测项目 - 第4列 */
-.commission-form .data-table th.fixed-left:nth-child(4),
-.commission-form .data-table td.fixed-left:nth-child(4) {
   width: 280px !important;
   min-width: 280px !important;
   max-width: 280px !important;
-  left: 330px; /* 50 + 130 + 150 */
-}
-
-/* 项目编号 - 第5列 */
-.commission-form .data-table th.fixed-left:nth-child(5),
-.commission-form .data-table td.fixed-left:nth-child(5) {
-  width: 120px !important;
-  min-width: 120px !important;
-  max-width: 120px !important;
-  left: 610px; /* 50 + 130 + 150 + 280 */
+  left: 180px; /* 50 + 130 */
 }
 
 /* class-based 精准控制收费标准和价格备注列宽度，不受nth-child影响
@@ -871,4 +860,45 @@
   max-width: 150px !important;
   padding-left: 6px !important;
   padding-right: 6px !important;
+}
+
+/* 固定右侧列样式 - 文件管理和操作列 - 淡绿色背景 */
+.commission-form .data-table th.fixed-right,
+.commission-form .data-table td.fixed-right {
+  position: sticky;
+  background: #e8f5e9 !important;
+  z-index: 25 !important;
+  border-left: none !important;
+  outline: 1px solid rgba(232,245,233,0.9);
+  outline-offset: -1px;
+  box-shadow: -5px 0 10px -3px rgba(0,0,0,0.1);
+}
+
+/* 为固定右侧列添加背景 */
+.commission-form .data-table thead th.fixed-right {
+  z-index: 30 !important;
+  background: #e8f5e9 !important;
+  border-bottom: 2px solid #90caf9 !important;
+}
+
+.commission-form .data-table tbody td.fixed-right {
+  z-index: 25 !important;
+  background: #e8f5e9 !important;
+}
+
+/* 固定右侧列悬停效果 */
+.commission-form .data-table tbody tr:hover td.fixed-right {
+  background: #c8e6c9 !important;
+}
+
+/* 文件管理列 - 倒数第2列 */
+.commission-form .data-table th.fixed-right:nth-last-child(2),
+.commission-form .data-table td.fixed-right:nth-last-child(2) {
+  right: 220px; /* 操作列宽度 */
+}
+
+/* 操作列 - 最后1列 */
+.commission-form .data-table th.fixed-right:last-child,
+.commission-form .data-table td.fixed-right:last-child {
+  right: 0;
 }

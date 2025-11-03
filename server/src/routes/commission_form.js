@@ -90,7 +90,7 @@ router.get('/commission-form', async (req, res) => {
         comm.contact_name as customer_contact_name,
         comm.contact_phone as customer_contact_phone,
         comm.email as customer_contact_email,
-        comm.commissioner_name as customer_commissioner_name,
+        COALESCE(comm.commissioner_name, c.customer_name) as customer_commissioner_name,
         comm.address as customer_commissioner_address,
         o.commissioner_id,
         u.name as assignee_name,

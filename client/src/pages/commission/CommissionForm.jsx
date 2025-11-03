@@ -6,6 +6,7 @@ import OrderPartyDetailModal from './OrderPartyDetailModal.jsx';
 import RealtimeEditableCell from './RealtimeEditableCell.jsx';
 import SimpleFileUpload from '../../components/SimpleFileUpload.jsx';
 import BatchFileUpload from '../../components/BatchFileUpload.jsx';
+import ReadonlyNoteField from '../../components/ReadonlyNoteField.jsx';
 import { useSocket } from '../../hooks/useSocket.js';
 import * as XLSX from 'xlsx';
 import './CommissionForm.css';
@@ -1434,11 +1435,11 @@ const CommissionForm = () => {
                         title="全选"
                       />
                     </th>
-                    <th className="pre-urgent-field">委托单号</th>
-                    <th className="pre-urgent-field">委托单位</th>
-                    <th className="pre-urgent-field">检测项目</th>
+                    <th className="pre-urgent-field fixed-left">委托单号</th>
+                    <th className="pre-urgent-field fixed-left">检测项目</th>
                     <th className="pre-urgent-field">项目编号</th>
-                    <th className="order-creator-field">归属部门</th>
+                    <th className="pre-urgent-field">委托单位</th>
+                    {user?.role === 'admin' && <th className="order-creator-field">归属部门</th>}
                     <th className="order-creator-field price-original-col">收费标准</th>
                     <th className="order-creator-field price-note-col">业务报价</th>
                     <th className="order-creator-field quantity-col">数量</th>
@@ -1465,8 +1466,10 @@ const CommissionForm = () => {
                     <th className="lab-field">实际交付日期</th>
                     <th className="lab-field">开票未到款金额</th>
                     <th className="lab-field">项目状态</th>
-                    <th className="lab-field">文件管理</th>
-                    {(user?.role === 'admin' || user?.role === 'supervisor' || user?.role === 'leader') && <th>操作</th>}
+                    <th className="lab-field fixed-right">文件管理</th>
+                    <th className="fixed-right">
+                      {user?.role === 'admin' || user?.role === 'supervisor' || user?.role === 'leader' ? '操作' : '查看'}
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1479,26 +1482,26 @@ const CommissionForm = () => {
                           onChange={(e) => handleItemSelect(item.test_item_id, e.target.checked)}
                         />
                       </td>
-                      <td className="pre-urgent-field">{item.order_id}</td>
-                      <td className="pre-urgent-field">
-                        {item.customer_name ? (
-                          <span 
-                            className="clickable-customer"
-                            onClick={() => handleOrderPartyClick(item.order_id, item.test_item_id)}
-                            title="点击查看委托单相关信息（委托方/付款方/客户）"
-                          >
-                            {item.customer_name}
-                          </span>
-                        ) : ''}
-                      </td>
-                      <td className="pre-urgent-field">
+                      <td className="pre-urgent-field fixed-left">{item.order_id}</td>
+                      <td className="pre-urgent-field fixed-left">
                         <div style={{fontSize: '12px', lineHeight: '1.3'}}>
                           <div>{item.category_name || ''} - {item.detail_name || ''}</div>
                           <div><strong>样品原号:</strong> {item.original_no || ''}</div>
                         </div>
                       </td>
                       <td className="pre-urgent-field">{item.test_code || ''}</td>
-                      <td className="order-creator-field">{item.department_name || ''}</td>
+                      <td className="pre-urgent-field">
+                        {item.customer_commissioner_name ? (
+                          <span 
+                            className="clickable-customer"
+                            onClick={() => handleOrderPartyClick(item.order_id)}
+                            title="点击查看委托单相关信息（委托方/付款方/客户）"
+                          >
+                            {item.customer_commissioner_name}
+                          </span>
+                        ) : ''}
+                      </td>
+                      {user?.role === 'admin' && <td className="order-creator-field">{item.department_name || ''}</td>}
                       <td className="order-creator-field price-original-col">{formatCurrency(item.original_unit_price)}</td>
                       <td className="order-creator-field price-note-col">
                         {user?.role === 'admin' ? (
@@ -1518,7 +1521,7 @@ const CommissionForm = () => {
                             <SavingIndicator testItemId={item.test_item_id} field="price_note" />
                           </div>
                         ) : (
-                          <span className="readonly-field">{item.price_note || ''}</span>
+                          <ReadonlyNoteField text={item.price_note || ''} maxLength={50} fieldName="业务报价" />
                         )}
                       </td>
                       <td className="order-creator-field quantity-col">{item.quantity || ''}</td>
@@ -1561,7 +1564,7 @@ const CommissionForm = () => {
                             <SavingIndicator testItemId={item.test_item_id} field="note" />
                           </div>
                         ) : (
-                          <span className="readonly-field">{item.note || ''}</span>
+                          <ReadonlyNoteField text={item.note || ''} maxLength={50} fieldName="备注" />
                         )}
                       </td>
                       <td className="order-creator-field">{formatDate(item.order_created_at)}</td>
@@ -1846,7 +1849,7 @@ const CommissionForm = () => {
                           {item.status === 'outsource' && '委外'}
                         </span>
                       </td>
-                      <td className="lab-field">
+                      <td className="lab-field fixed-right">
                         <button 
                           className="btn-file" 
                           onClick={() => toggleFileView(item)}
@@ -1855,22 +1858,24 @@ const CommissionForm = () => {
                           📁
                         </button>
                       </td>
-                      {(user?.role === 'admin' || user?.role === 'supervisor' || user?.role === 'leader') && (
-                        <td style={{minWidth: '240px', whiteSpace: 'nowrap'}}>
-                          <div style={{display: 'flex', gap: '4px', alignItems: 'center'}}>
-                            <button 
-                              className="btn btn-info"
-                              onClick={() => navigate(`/test-items/${item.test_item_id}?view=1`)}
-                              title="查看检测项目"
-                              style={{
-                                padding: '2px 6px',
-                                fontSize: '11px',
-                                minWidth: 'auto',
-                                lineHeight: '1.2'
-                              }}
-                            >
-                              查看
-                            </button>
+                      <td className="fixed-right" style={{minWidth: '240px', whiteSpace: 'nowrap'}}>
+                        <div style={{display: 'flex', gap: '4px', alignItems: 'center'}}>
+                          <button 
+                            className="btn btn-success"
+                            onClick={() => navigate(`/test-items/${item.test_item_id}?view=1`)}
+                            title="查看检测项目"
+                            style={{
+                              padding: '2px 6px',
+                              fontSize: '11px',
+                              minWidth: 'auto',
+                              lineHeight: '1.2'
+                            }}
+                          >
+                            查看
+                          </button>
+                          {/* 只有admin、supervisor、leader角色显示其他操作 */}
+                          {(user?.role === 'admin' || user?.role === 'supervisor' || user?.role === 'leader') && (
+                            <>
                             {/* 只有supervisor可以审批 */}
                             {user?.role === 'supervisor' && (
                               <button 
@@ -1964,9 +1969,10 @@ const CommissionForm = () => {
                                 取消
                               </button>
                             )}
-                          </div>
-                        </td>
-                      )}
+                            </>
+                          )}
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>

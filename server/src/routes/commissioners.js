@@ -3,7 +3,7 @@ import { getPool } from '../db.js';
 import { requireAuth, requireAnyRole } from '../middleware/auth.js';
 
 const router = Router();
-router.use(requireAuth, requireAnyRole(['admin', 'sales']));
+router.use(requireAuth);
 
 // list with joins (payer + customer)
 router.get('/', async (req, res) => {
@@ -41,7 +41,7 @@ router.get('/', async (req, res) => {
   res.json({ data: rows, total: cnt[0].cnt });
 });
 
-router.post('/', async (req, res) => {
+router.post('/', requireAnyRole(['admin', 'sales']), async (req, res) => {
   const { payer_id, contact_name, contact_phone, email, commissioner_name, address, is_active = 1 } = req.body || {};
   if (!payer_id || !contact_name) return res.status(400).json({ error: 'payer_id and contact_name are required' });
   const pool = await getPool();
@@ -77,7 +77,7 @@ router.get('/:id', async (req, res) => {
   res.json(rows[0]);
 });
 
-router.put('/:id', async (req, res) => {
+router.put('/:id', requireAnyRole(['admin', 'sales']), async (req, res) => {
   const { payer_id, contact_name, contact_phone, email, commissioner_name, address, is_active } = req.body || {};
   const pool = await getPool();
   await pool.query(
@@ -102,7 +102,7 @@ router.put('/:id', async (req, res) => {
   res.json(rows[0]);
 });
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireAnyRole(['admin', 'sales']), async (req, res) => {
   const pool = await getPool();
   try {
     const [chk] = await pool.query('SELECT commissioner_id FROM commissioners WHERE commissioner_id = ?', [req.params.id]);
