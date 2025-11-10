@@ -459,27 +459,86 @@ label {
   font-size: 13px;
 }
 
-/* 响应式设计 */
-@media (max-width: 768px) {
-  .container {
-    padding: 16px;
+/* 响应式设计 - 移动端 */
+@media (max-width: 767px) {
+  /* 头部导航优化 */
+  header .header-content {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 10px 12px;
+    gap: 10px;
   }
   
+  header h1 {
+    font-size: 18px;
+    text-align: center;
+  }
+  
+  nav {
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 4px;
+  }
+  
+  nav a {
+    padding: 6px 10px;
+    font-size: 12px;
+    flex: 1;
+    min-width: calc(50% - 2px);
+    text-align: center;
+  }
+  
+  /* 用户信息区域优化 - 缩小展示 */
+  .hstack {
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 4px;
+    width: 100%;
+    padding: 4px 0;
+    border-top: 1px solid var(--gray-300);
+    margin-top: 4px;
+  }
+  
+  .hstack .text-muted,
+  .hstack .badge {
+    font-size: 9px;
+    padding: 2px 6px;
+    line-height: 1.2;
+  }
+  
+  .hstack .btn {
+    width: 100%;
+    margin-top: 2px;
+    padding: 4px 8px;
+    font-size: 10px;
+  }
+  
+  /* 容器优化 */
+  .container {
+    padding: 8px 5px;
+  }
+  
+  /* 网格布局改为单列 */
   .grid-2,
   .grid-3,
   .grid-4 {
     grid-template-columns: 1fr;
+    gap: 12px;
   }
   
+  /* 工具栏优化 */
   .toolbar {
     flex-direction: column;
     align-items: stretch;
+    padding: 12px;
+    gap: 8px;
   }
   
   .toolbar .input {
     max-width: none;
   }
   
+  /* 表格优化 */
   .table {
     font-size: 12px;
   }
@@ -487,5 +546,16 @@ label {
   .table th,
   .table td {
     padding: 8px 6px;
+  }
+  
+  /* 按钮优化 */
+  .btn {
+    padding: 8px 12px;
+    font-size: 13px;
+  }
+  
+  .btn-sm {
+    padding: 6px 10px;
+    font-size: 11px;
   }
 }

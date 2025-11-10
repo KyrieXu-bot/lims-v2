@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { api } from '../../api.js';
 import './TestItemEdit.css';
@@ -73,7 +73,20 @@ export default function TestItemEdit() {
   const [employeeSuggestions, setEmployeeSuggestions] = useState([]);
   const [showEmployeeSuggestions, setShowEmployeeSuggestions] = useState(false);
   const [userSearchTimeout, setUserSearchTimeout] = useState(null);
+  const orderInputWrapperRef = useRef(null);
+  const businessInputWrapperRef = useRef(null);
+  const supervisorInputWrapperRef = useRef(null);
+  const employeeInputWrapperRef = useRef(null);
   const navigate = useNavigate();
+  const currentUser = React.useMemo(() => {
+    try {
+      const storedUser = localStorage.getItem('lims_user');
+      return storedUser ? JSON.parse(storedUser) : {};
+    } catch (error) {
+      console.warn('解析用户信息失败:', error);
+      return {};
+    }
+  }, []);
 
   // 样品类型映射
   const typeMappings = { 
@@ -221,6 +234,38 @@ export default function TestItemEdit() {
     setSearchTimeout(timeout);
   };
 
+  const autoFillFromOrder = useCallback(async (orderId) => {
+    const trimmedOrderId = (orderId || '').trim();
+    if (!trimmedOrderId) {
+      return;
+    }
+
+    try {
+      const orderDetail = await api.getOrder(trimmedOrderId);
+      if (!orderDetail) return;
+      setSelectedOrder(orderDetail);
+
+      setIt(prev => {
+        const next = { ...prev };
+        if (orderDetail.created_by) {
+          next.current_assignee = orderDetail.created_by;
+        }
+        if (orderDetail.discount_rate !== undefined && orderDetail.discount_rate !== null) {
+          next.discount_rate = orderDetail.discount_rate;
+        } else if (orderDetail.payer_id) {
+          const payer = payers.find(p => p.payer_id === orderDetail.payer_id);
+          if (payer && payer.discount_rate !== undefined && payer.discount_rate !== null) {
+            next.discount_rate = payer.discount_rate;
+          }
+        }
+        return next;
+      });
+      setShowBusinessStaffSuggestions(false);
+    } catch (error) {
+      console.warn('自动获取委托单信息失败:', error);
+    }
+  }, [payers]);
+
   // 搜索业务员
   const searchBusinessStaff = (query) => {
     if (userSearchTimeout) {
@@ -254,15 +299,12 @@ export default function TestItemEdit() {
       clearTimeout(userSearchTimeout);
     }
 
-    if (query.length < 1) {
-      setSupervisorSuggestions([]);
-      setShowSupervisorSuggestions(false);
-      return;
-    }
+    const departmentIdForQuery = it?.department_id ?? currentUser?.department_id ?? undefined;
 
     const timeout = setTimeout(async () => {
       try {
-        const users = await api.getAllSupervisors({ q: query });
+        const searchQuery = (query || '').trim();
+        const users = await api.getAllSupervisors({ q: searchQuery, department_id: departmentIdForQuery });
         setSupervisorSuggestions(users);
         setShowSupervisorSuggestions(true);
       } catch (error) {
@@ -281,15 +323,12 @@ export default function TestItemEdit() {
       clearTimeout(userSearchTimeout);
     }
 
-    if (query.length < 1) {
-      setEmployeeSuggestions([]);
-      setShowEmployeeSuggestions(false);
-      return;
-    }
+    const departmentIdForQuery = it?.department_id ?? currentUser?.department_id ?? undefined;
 
     const timeout = setTimeout(async () => {
       try {
-        const users = await api.getAllEmployees({ q: query });
+        const searchQuery = (query || '').trim();
+        const users = await api.getAllEmployees({ q: searchQuery, department_id: departmentIdForQuery });
         setEmployeeSuggestions(users);
         setShowEmployeeSuggestions(true);
       } catch (error) {
@@ -346,70 +385,126 @@ export default function TestItemEdit() {
     setShowEmployeeSuggestions(false);
   };
 
+  useEffect(() => {
+    const handleDocumentMouseDown = (event) => {
+      if (orderInputWrapperRef.current && !orderInputWrapperRef.current.contains(event.target)) {
+        setShowOrderSuggestions(false);
+      }
+      if (businessInputWrapperRef.current && !businessInputWrapperRef.current.contains(event.target)) {
+        setShowBusinessStaffSuggestions(false);
+      }
+      if (supervisorInputWrapperRef.current && !supervisorInputWrapperRef.current.contains(event.target)) {
+        setShowSupervisorSuggestions(false);
+      }
+      if (employeeInputWrapperRef.current && !employeeInputWrapperRef.current.contains(event.target)) {
+        setShowEmployeeSuggestions(false);
+      }
+    };
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        setShowOrderSuggestions(false);
+        setShowBusinessStaffSuggestions(false);
+        setShowSupervisorSuggestions(false);
+        setShowEmployeeSuggestions(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleDocumentMouseDown);
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('mousedown', handleDocumentMouseDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
+
   // 选择委托单号
   const selectOrder = async (order) => {
     setSelectedOrder(order);
-    setIt({...it, order_id: order.order_id});
+    setIt(prev => ({ ...prev, order_id: order.order_id }));
     setShowOrderSuggestions(false);
-    
-    // 获取该委托单的完整信息，包括payer_id
-    try {
-      const orderDetail = await api.getOrder(order.order_id);
-      
-      if (orderDetail.payer_id) {
-        const payer = payers.find(p => p.payer_id === orderDetail.payer_id);
-        if (payer) {
-          setIt(prev => ({...prev, discount_rate: payer.discount_rate || 0}));
-        } else {
-          console.log('未找到对应的付款方');
-        }
-      } else {
-        console.log('委托单没有付款方ID');
-      }
-    } catch (error) {
-      console.error('获取委托单详情失败:', error);
-    }
+    await autoFillFromOrder(order.order_id);
   };
 
   // 选择价格项目
-  const selectPriceItem = (priceItem) => {
+  const selectPriceItem = async (priceItem) => {
 
     
     setSelectedPrice(priceItem);
     // 仅在价格表单价为数值时预填到检测项目的数值单价字段
     const numericUnitPrice = Number(priceItem.unit_price);
-    setIt(prev => ({
-      ...prev,
-      price_id: priceItem.price_id,
-      category_name: priceItem.category_name,
-      detail_name: priceItem.detail_name,
-      test_code: priceItem.test_code,
-      standard_code: priceItem.standard_code || '',
-      is_outsourced: priceItem.is_outsourced,
-      unit_price: Number.isFinite(numericUnitPrice) ? numericUnitPrice : prev.unit_price
-    }));
-    
-    // 根据选择的项目自动填充部门和组别信息
-    if (priceItem.department_id) {
-
-      const department = departments.find(d => d.department_id == priceItem.department_id);
-      if (department) {
-        setIt(prev => ({...prev, department_id: priceItem.department_id}));
-      }
-    } else {
-      console.log('价格项目没有部门ID');
-    }
-    
-    if (priceItem.group_id) {
-      const labGroup = labGroups.find(g => g.group_id == priceItem.group_id);
-      if (labGroup) {
-        setIt(prev => ({...prev, group_id: priceItem.group_id}));
-      }
-    } else {
-      console.log('价格项目没有小组ID');
-    }
+    setIt(prev => {
+      const departmentId = priceItem.department_id ?? null;
+      const groupId = priceItem.group_id ?? null;
+      const newStatus = updateStatusBasedOnAssignment('', prev.technician_id);
+      const next = {
+        ...prev,
+        price_id: priceItem.price_id,
+        category_name: priceItem.category_name,
+        detail_name: priceItem.detail_name,
+        test_code: priceItem.test_code,
+        standard_code: priceItem.standard_code || '',
+        is_outsourced: priceItem.is_outsourced,
+        unit_price: Number.isFinite(numericUnitPrice) ? numericUnitPrice : prev.unit_price,
+        department_id: departmentId,
+        group_id: groupId,
+        supervisor_id: '',
+        status: newStatus
+      };
+      return next;
+    });
     
     setShowPriceModal(false);
+
+    if (priceItem.group_id) {
+      try {
+        const supervisor = await api.getSupervisorByGroup(priceItem.group_id);
+        if (supervisor && supervisor.user_id) {
+          setIt(prev => {
+            const newStatus = updateStatusBasedOnAssignment(supervisor.user_id, prev.technician_id);
+            return {
+              ...prev,
+              supervisor_id: supervisor.user_id,
+              status: newStatus,
+              group_id: priceItem.group_id
+            };
+          });
+          setShowSupervisorSuggestions(false);
+        } else {
+          console.log('该小组未找到负责人');
+          setIt(prev => {
+            const newStatus = updateStatusBasedOnAssignment('', prev.technician_id);
+            return {
+              ...prev,
+              supervisor_id: '',
+              status: newStatus
+            };
+          });
+        }
+      } catch (error) {
+        console.warn('根据group_id获取负责人失败:', error);
+        setIt(prev => {
+          const newStatus = updateStatusBasedOnAssignment('', prev.technician_id);
+          return {
+            ...prev,
+            supervisor_id: '',
+            status: newStatus
+          };
+        });
+      }
+    } else {
+      setIt(prev => {
+        const newStatus = updateStatusBasedOnAssignment('', prev.technician_id);
+        return {
+          ...prev,
+          supervisor_id: '',
+          status: newStatus,
+          group_id: null
+        };
+      });
+      setShowSupervisorSuggestions(false);
+    }
   };
 
   async function onSubmit(e) {
@@ -417,9 +512,22 @@ export default function TestItemEdit() {
     if (!it.order_id) return alert('委托单号必填');
     if (!it.category_name) return alert('大类必填');
     if (!it.detail_name) return alert('细项必填');
+    
     const payload = { ...it };
+    
+    // 验证和转换折扣率
+    if (payload.discount_rate !== undefined && payload.discount_rate !== null && payload.discount_rate !== '') {
+      const discountRate = Number(payload.discount_rate);
+      if (isNaN(discountRate)) {
+        return alert('折扣率必须是数字');
+      }
+      if (discountRate < 0 || discountRate > 100) {
+        return alert('折扣率必须在0-100之间');
+      }
+      payload.discount_rate = discountRate;
+    }
+    
     if (payload.unit_price !== undefined && payload.unit_price !== null && payload.unit_price !== '') payload.unit_price = Number(payload.unit_price);
-    if (payload.discount_rate !== undefined && payload.discount_rate !== null && payload.discount_rate !== '') payload.discount_rate = Number(payload.discount_rate);
     if (payload.final_unit_price !== undefined && payload.final_unit_price !== null && payload.final_unit_price !== '') payload.final_unit_price = Number(payload.final_unit_price);
     if (payload.line_total !== undefined && payload.line_total !== null && payload.line_total !== '') payload.line_total = Number(payload.line_total);
     if (payload.machine_hours !== undefined && payload.machine_hours !== null && payload.machine_hours !== '') payload.machine_hours = Number(payload.machine_hours);
@@ -453,14 +561,21 @@ export default function TestItemEdit() {
         <div className="grid-3">
           <div>
             <label>委托单号 *</label>
-            <div style={{position: 'relative'}}>
+            <div style={{position: 'relative'}} ref={orderInputWrapperRef}>
               <input 
                 className="input" 
                 value={it.order_id || ''} 
                 onChange={e => {
                   const value = e.target.value;
-                  setIt({...it, order_id: value});
+                  setSelectedOrder(null);
+                  setIt(prev => ({ ...prev, order_id: value }));
                   searchOrders(value);
+                }}
+                onBlur={() => {
+                  const trimmedOrderId = (it.order_id || '').trim();
+                  if (trimmedOrderId && (!selectedOrder || selectedOrder.order_id !== trimmedOrderId)) {
+                    autoFillFromOrder(trimmedOrderId);
+                  }
                 }}
                 placeholder="输入委托单号，如 JC09"
                 disabled={isView}
@@ -575,16 +690,32 @@ export default function TestItemEdit() {
             />
           </div>
           <div>
-            <label>折扣率%</label>
+            <label>折扣率% (0-100)</label>
             <input 
               className="input" 
+              type="number"
+              min="0"
+              max="100"
+              step="0.1"
               value={(() => {
                 const rate = it.discount_rate;
-                if (rate === undefined || rate === null || rate === '') return '0';
-                return rate;
+                if (rate === undefined || rate === null || rate === '') return '';
+                // 数据库存储的是十位数（如90表示90%），直接显示即可
+                return Number(rate);
               })()} 
-              disabled 
-              style={{background: '#f5f5f5'}}
+              onChange={(e) => {
+                const val = e.target.value;
+                if (val === '') {
+                  setIt({...it, discount_rate: ''});
+                } else {
+                  const numVal = Number(val);
+                  if (!isNaN(numVal) && numVal >= 0 && numVal <= 100) {
+                    setIt({...it, discount_rate: numVal});
+                  }
+                }
+              }}
+              disabled={isView}
+              placeholder="输入0-100的折扣率"
             />
           </div>
           <Field label="折后单价" value={it.final_unit_price} onChange={v=>setIt({...it, final_unit_price:v})} disabled={isView} />
@@ -633,7 +764,7 @@ export default function TestItemEdit() {
           </div>
           <div>
             <label>业务员工号</label>
-            <div style={{position: 'relative'}}>
+          <div style={{position: 'relative'}} ref={businessInputWrapperRef}>
               <input 
                 className="input" 
                 value={it.current_assignee || ''} 
@@ -680,7 +811,7 @@ export default function TestItemEdit() {
           </div>
           <div>
             <label>负责人工号</label>
-            <div style={{position: 'relative'}}>
+          <div style={{position: 'relative'}} ref={supervisorInputWrapperRef}>
               <input 
                 className="input" 
                 value={it.supervisor_id || ''} 
@@ -694,6 +825,7 @@ export default function TestItemEdit() {
                   }));
                   searchSupervisors(value);
                 }}
+                onFocus={() => searchSupervisors('')}
                 placeholder="输入组长姓名或工号"
                 disabled={isView}
               />
@@ -732,7 +864,7 @@ export default function TestItemEdit() {
           </div>
           <div>
             <label>实验员工号</label>
-            <div style={{position: 'relative'}}>
+          <div style={{position: 'relative'}} ref={employeeInputWrapperRef}>
               <input 
                 className="input" 
                 value={it.technician_id || ''} 
@@ -746,6 +878,7 @@ export default function TestItemEdit() {
                   }));
                   searchEmployees(value);
                 }}
+                onFocus={() => searchEmployees('')}
                 placeholder="输入实验员姓名或工号"
                 disabled={isView}
               />

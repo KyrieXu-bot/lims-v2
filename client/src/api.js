@@ -178,6 +178,11 @@ export const api = {
     if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
     return r.json();
   },
+  async getSupervisorByGroup(groupId) {
+    const r = await fetch(`/api/users/group-supervisor?group_id=${groupId}`, { headers: this.authHeaders() });
+    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
+    return r.json();
+  },
   async getDepartmentIdByGroupId(groupId) {
     const r = await fetch(`/api/users/department-by-group?group_id=${groupId}`, { headers: this.authHeaders() });
     if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
@@ -189,14 +194,16 @@ export const api = {
     if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
     return r.json();
   },
-  async getAllSupervisors({ q = '' } = {}) {
+  async getAllSupervisors({ q = '', department_id } = {}) {
     const params = new URLSearchParams({ q });
+    if (department_id) params.set('department_id', department_id);
     const r = await fetch(`/api/users/all-supervisors?${params.toString()}`, { headers: this.authHeaders() });
     if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
     return r.json();
   },
-  async getAllEmployees({ q = '' } = {}) {
+  async getAllEmployees({ q = '', department_id } = {}) {
     const params = new URLSearchParams({ q });
+    if (department_id) params.set('department_id', department_id);
     const r = await fetch(`/api/users/all-employees?${params.toString()}`, { headers: this.authHeaders() });
     if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
     return r.json();
@@ -379,6 +386,15 @@ export const api = {
   async getOrderStats() {
     const r = await fetch('/api/orders/stats', { headers: this.authHeaders() });
     if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
+    return r.json();
+  },
+
+  async deleteOrder(orderId) {
+    const r = await fetch(`/api/orders/${orderId}`, { 
+      method: 'DELETE', 
+      headers: this.authHeaders()
+    });
+    if (!r.ok) throw new Error((await r.json()).error || 'Delete failed');
     return r.json();
   },
 

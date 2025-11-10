@@ -427,25 +427,34 @@ function BatchAssignModal({ selectedItems, user, onClose, onSuccess }) {
     try {
       setLoadingOptions(true);
       let options = [];
-          
-      if (user.role === 'leader') {
-        
-        if (!user.department_id) {
-          // 临时解决方案：通过group_id查询department_id
-          console.log('department_id不存在，尝试通过group_id查询');
-          const departmentId = await api.getDepartmentIdByGroupId(user.group_id);
-          if (departmentId) {
-            options = await api.getSupervisorsByDepartment(departmentId);
-          } else {
-            alert('无法确定部门信息，请联系管理员设置department_id');
-            return;
+
+      let referenceItem = null;
+      if (selectedItems && selectedItems.length > 0) {
+        const firstItemId = selectedItems[0];
+        if (firstItemId) {
+          try {
+            referenceItem = await api.getTestItem(firstItemId);
+          } catch (error) {
+            console.warn('获取检测项目详情失败，将使用当前用户信息作为兜底:', error);
           }
-        } else {
-          options = await api.getSupervisorsByDepartment(user.department_id);
         }
-      } else if (user.role === 'supervisor') {
-        // 组长：获取该小组的所有实验员
-        options = await api.getEmployeesByGroup(user.group_id);
+      }
+
+      const referenceDepartmentId = referenceItem?.department_id ?? user?.department_id ?? null;
+      const referenceGroupId = referenceItem?.group_id ?? user?.group_id ?? null;
+
+      const isAssigningSupervisors = user.role === 'leader';
+
+      if (isAssigningSupervisors) {
+        options = await api.getAllSupervisors({ department_id: referenceDepartmentId ?? undefined });
+      } else {
+        if (referenceGroupId) {
+          options = await api.getEmployeesByGroup(referenceGroupId);
+        } else {
+          const params = {};
+          if (referenceDepartmentId) params.department_id = referenceDepartmentId;
+          options = await api.getAllEmployees(params);
+        }
       }
       
       setAssigneeOptions(options);
@@ -707,16 +716,39 @@ export default function TestItems() {
     setSelectedItems(new Set());
   };
 
-  // 检查是否有选中的项目
   const hasSelectedItems = selectedItems.size > 0;
 
-  // 检查当前用户是否可以批量分配
+  const userDepartmentId = user?.department_id ? Number(user.department_id) : null;
+  const isOutsourceLeader = user?.role === 'leader' && userDepartmentId === 5;
+
+  const canCreateTestItem = user && ['admin', 'leader', 'supervisor', 'sales'].includes(user.role);
+
+  const canEditTestItem = (item) => {
+    if (!user) return false;
+    if (user.role === 'admin') return true;
+    if (user.role === 'leader') {
+      if (userDepartmentId === 5) {
+        return Number(item?.department_id) === 5;
+      }
+      if (userDepartmentId !== null) {
+        return Number(item?.department_id) === userDepartmentId;
+      }
+      return false;
+    }
+    return false;
+  };
+
+  const canSelectForBatch = (item) => {
+    if (!user) return false;
+    if (user.role === 'supervisor') return true;
+    if (user.role === 'leader') return canEditTestItem(item);
+    return false;
+  };
+
   const canBatchAssign = user && (user.role === 'leader' || user.role === 'supervisor');
+  const canDelete = user?.role === 'admin';
 
   // 角色权限与动作
-  const canEdit = (user && (user.role === 'admin' || user.role === 'leader'));
-  const canDelete = canEdit;
-
   const canReview = (item) => user && user.role === 'supervisor' && item.status === 'waiting_review';
   const canAssignSingle = (item) => user && user.role === 'supervisor' && item.status === 'assigned';
   const canCompleteBySupervisor = (item) => user && user.role === 'supervisor' && item.status === 'running' && item.supervisor_id === user.user_id;
@@ -884,7 +916,9 @@ export default function TestItems() {
           <option value="completed">已完成</option>
           <option value="cancelled">已取消</option>
         </select>
-        <button className="btn btn-primary" onClick={()=>navigate('/test-items/new')}>+ 新增项目</button>
+        {canCreateTestItem && (
+          <button className="btn btn-primary" onClick={()=>navigate('/test-items/new')}>+ 新增项目</button>
+        )}
         {canBatchAssign && (
           <>
             <button className="btn btn-secondary" onClick={selectAll}>全选</button>
@@ -950,13 +984,18 @@ export default function TestItems() {
                       <thead>
                         <tr>
                           <th style={{width: '40px'}}>
-                            {canBatchAssign && (
-                              <input 
-                                type="checkbox" 
-                                checked={group.items.every(item => selectedItems.has(item.test_item_id))}
-                                onChange={() => toggleGroupSelection(group.items)}
-                              />
-                            )}
+                            {canBatchAssign && (() => {
+                              const selectableItems = group.items.filter(item => canSelectForBatch(item));
+                              if (selectableItems.length === 0) return null;
+                              const allSelected = selectableItems.every(item => selectedItems.has(item.test_item_id));
+                              return (
+                                <input 
+                                  type="checkbox" 
+                                  checked={allSelected}
+                                  onChange={() => toggleGroupSelection(selectableItems)}
+                                />
+                              );
+                            })()}
                           </th>
                           <th style={{width: '80px'}}>ID</th>
                           <th style={{width: '150px'}}>细项</th>
@@ -977,7 +1016,7 @@ export default function TestItems() {
                         {group.items.map(it => (
                           <tr key={it.test_item_id}>
                             <td>
-                              {canBatchAssign && (
+                              {canBatchAssign && canSelectForBatch(it) && (
                                 <input 
                                   type="checkbox" 
                                   checked={selectedItems.has(it.test_item_id)}
@@ -1041,7 +1080,7 @@ export default function TestItems() {
                                 <button className="btn btn-secondary" onClick={()=>navigate(`/test-items/${it.test_item_id}?view=1`)} title="查看详情">查看</button>
 
                                 {/* 编辑：管理员、室主任 */}
-                                {canEdit && (
+                                {canEditTestItem(it) && (
                                   <button className="btn btn-primary" onClick={()=>navigate(`/test-items/${it.test_item_id}`)} title="编辑项目">编辑</button>
                                 )}
 

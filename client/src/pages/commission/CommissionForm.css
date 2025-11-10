@@ -35,6 +35,7 @@
   margin-bottom: 12px;
   box-shadow: 0 2px 4px rgba(0,0,0,0.1);
   flex-shrink: 0;
+  position: relative;
 }
 
 .filter-row {
@@ -113,16 +114,34 @@
 
 .filter-actions {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   margin-left: auto;
 }
 
+.filter-actions .btn {
+  padding: 6px 12px;
+  font-size: 13px;
+}
+
+.filter-actions .btn-small {
+  padding: 5px 10px !important;
+  font-size: 12px !important;
+}
+
 .online-indicator {
-  margin-left: 20px;
-  font-size: 12px;
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  font-size: 10px;
   color: #666;
   display: flex;
   align-items: center;
+  white-space: nowrap;
+  padding: 3px 6px;
+  background-color: #f8f9fa;
+  border-radius: 3px;
+  border: 1px solid #e9ecef;
+  z-index: 10;
 }
 
 /* 按钮样式继承系统样式 */
@@ -230,7 +249,8 @@
 
 .data-table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: 14px;
 }
 
@@ -243,13 +263,18 @@
   border-bottom: 2px solid #90caf9 !important;
   position: sticky;
   top: 0;
-  z-index: 10;
+  z-index: 35;
   white-space: nowrap;
+  box-shadow: 0 2px 2px -1px rgba(0, 0, 0, 0.1);
 }
+
+/* 确保固定列的表头不受通用规则影响，保持 left 值 */
+/* 这些规则会在下面更具体的选择器中设置 */
 
 .data-table td {
   padding: 10px 14px;
   border-bottom: 1px solid #dee2e6;
+  border-top: none;
   vertical-align: top;
   white-space: nowrap;
   max-width: 200px;
@@ -259,12 +284,25 @@
   background-color: inherit !important;
 }
 
+/* 确保表格边框正确显示 */
+.data-table th,
+.data-table td {
+  border-right: 1px solid #dee2e6;
+}
+
+.data-table th:last-child,
+.data-table td:last-child {
+  border-right: none;
+}
+
 /* 数量、折扣列紧凑宽度控制（基于类名，避免受列序号影响） */
 .data-table th.quantity-col, .data-table td.quantity-col {
   min-width: 60px !important;
   width: 70px !important;
   max-width: 80px !important;
   text-align: right;
+  overflow: hidden !important; /* 确保数量列也正确显示省略号 */
+  text-overflow: ellipsis !important;
 }
 .data-table th.discount-col, .data-table td.discount-col {
   min-width: 60px !important;
@@ -481,33 +519,67 @@
   z-index: 100;
 }
 
-/* 为实验备注列设置合适的宽度 - 固定在200px */
-.data-table th.test-notes-column {
-  min-width: 200px !important;
-  width: 200px !important;
-}
-
-.data-table td.test-notes-column {
-  min-width: 200px !important;
-  width: 200px !important;
-  max-width: 200px !important;
-}
-
-/* 实验备注列中的容器要固定宽度 */
-.data-table td.test-notes-column .editable-field-container {
-  position: relative !important;
-  width: 180px !important;
-  min-width: 180px !important;
-  max-width: 180px !important;
-}
-
-/* 实验备注列中的textarea要占据整个容器 */
-.data-table td.test-notes-column .editable-field-container textarea {
-  position: relative !important;
-  width: 180px !important;
-  min-width: 180px !important;
-  max-width: 180px !important;
+/* 备注列统一使用note-col类，宽度为160px */
+.commission-form .data-table th.note-col,
+.commission-form .data-table td.note-col {
+  min-width: 160px !important;
+  width: 160px !important;
+  max-width: 160px !important;
   box-sizing: border-box !important;
+  padding-left: 8px !important;
+  padding-right: 8px !important;
+  overflow: hidden !important;
+  white-space: normal !important; /* 允许备注列换行 */
+}
+
+/* 备注列中的DetailViewLink和ReadonlyNoteField超出宽度时显示省略号 */
+.commission-form .data-table td.note-col .detail-view-link,
+.commission-form .data-table td.note-col .readonly-field-note {
+  display: block !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  overflow: hidden !important;
+  word-break: break-word !important;
+}
+
+/* 备注列中的DetailViewLink：根据内容长度和列宽度显示省略号 */
+.commission-form .data-table td.note-col .detail-view-link {
+  white-space: normal !important;
+  line-height: 1.4 !important;
+}
+
+/* 备注列中的DetailViewLink在截断模式下或内容过长时显示省略号 */
+.commission-form .data-table td.note-col .detail-view-link.detail-view-truncated,
+.commission-form .data-table td.note-col .detail-view-link:not(.detail-view-truncated) {
+  display: -webkit-box !important;
+  -webkit-line-clamp: 2 !important; /* 最多显示2行 */
+  -webkit-box-orient: vertical !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  word-break: break-word !important;
+  white-space: normal !important;
+}
+
+/* 备注列中的textarea类型在非编辑状态下只显示一行，超出部分用省略号 */
+.commission-form .data-table td.note-col .editable-cell.textarea {
+  display: block !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  max-width: 100% !important;
+  word-break: break-all !important;
+  line-height: 1.5 !important;
+}
+
+/* 备注列中的ReadonlyNoteField超出宽度时显示省略号 */
+.commission-form .data-table td.note-col .readonly-field-note {
+  display: -webkit-box !important;
+  -webkit-line-clamp: 2 !important; /* 最多显示2行 */
+  -webkit-box-orient: vertical !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: normal !important;
+  word-break: break-word !important;
 }
 
 /* 保存状态指示器 */
@@ -585,6 +657,14 @@
   gap: 2px;
 }
 
+/* 确保 pre-urgent-field 表头也能固定 */
+.commission-form .data-table thead th.pre-urgent-field:not(.fixed-left) {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 35 !important;
+  background-color: #bbdefb !important; /* 表头背景色 */
+}
+
 /* 开单员填写字段背景色 */
 .order-creator-field {
   background-color: #e8f4fd !important; /* 浅蓝色背景 */
@@ -594,19 +674,53 @@
   background-color: #d1e7f7 !important; /* 悬停时稍深的蓝色 */
 }
 
+/* 确保 order-creator-field 表头也能固定 */
+.commission-form .data-table thead th.order-creator-field {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 35 !important;
+  background-color: #bbdefb !important; /* 表头背景色 */
+}
+
 /* 实验室填写字段背景色 */
 .lab-field {
   background-color: #f0f8e8 !important; /* 浅绿色背景 */
 }
-/* 以"服务加急"为界：第2列到第17列（服务加急）为淡蓝；第18列（现场测试时间）及以后为浅绿 */
-.commission-form .data-table th:nth-child(n+2):nth-child(-n+17),
-.commission-form .data-table td:nth-child(n+2):nth-child(-n+17) {
+
+/* 确保 lab-field 表头也能固定 */
+.commission-form .data-table thead th.lab-field {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 35 !important;
+  background-color: #bbdefb !important; /* 表头背景色 */
+}
+/* 以"服务加急"为界：第2列到第17列（服务加急）为淡蓝；第18列（负责人）及以后为浅绿 */
+/* 使用类名优先级，确保lab-field类覆盖nth-child规则 */
+.commission-form .data-table th:nth-child(n+2):nth-child(-n+17):not(.lab-field),
+.commission-form .data-table td:nth-child(n+2):nth-child(-n+17):not(.lab-field) {
   background-color: #eef6ff !important;
 }
 
-.commission-form .data-table th:nth-child(n+18),
-.commission-form .data-table td:nth-child(n+18) {
+/* 确保这些表头也能固定 */
+.commission-form .data-table thead th:nth-child(n+2):nth-child(-n+17):not(.lab-field) {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 35 !important;
+  background-color: #bbdefb !important; /* 表头背景色 */
+}
+
+/* 确保lab-field类（绿色）的优先级高于nth-child规则 */
+.commission-form .data-table th.lab-field,
+.commission-form .data-table td.lab-field {
   background-color: #f0f8e8 !important;
+}
+
+/* 确保lab-field表头也能固定 */
+.commission-form .data-table thead th.lab-field {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 35 !important;
+  background-color: #bbdefb !important; /* 表头背景色 */
 }
 
 .lab-field:hover {
@@ -729,42 +843,461 @@
   border-color: #999;
 }
 
-/* 响应式设计 */
-@media (max-width: 768px) {
+/* 响应式设计 - 平板和桌面保持不变 */
+/* 移动端样式 - 手机屏幕（小于768px） */
+@media (max-width: 767px) {
   .commission-form {
-    padding: 10px;
+    padding: 5px 3px;
+    height: calc(100vh - 100px);
+  }
+  
+  /* 过滤器区域优化 - 更紧凑 */
+  .filters {
+    padding: 6px 8px;
+    margin-bottom: 6px;
   }
   
   .filter-row {
     flex-direction: column;
     align-items: stretch;
+    gap: 6px;
   }
   
   .filter-group {
     min-width: auto;
+    width: 100%;
+    gap: 3px;
+  }
+  
+  .filter-group label {
+    font-size: 11px;
+    margin-bottom: 2px;
+  }
+  
+  .filter-group input,
+  .filter-group select {
+    padding: 5px 8px;
+    font-size: 12px;
+  }
+  
+  .search-group {
+    min-width: auto;
+    width: 100%;
+    gap: 3px;
+  }
+  
+  .search-group label {
+    font-size: 11px;
+    margin-bottom: 2px;
+  }
+  
+  .search-input-container {
+    flex-direction: row;
+    gap: 4px;
+  }
+  
+  .search-input-container input {
+    flex: 1;
+    padding: 5px 8px;
+    font-size: 12px;
+  }
+  
+  .search-buttons {
+    flex-shrink: 0;
+    gap: 4px;
+  }
+  
+  .search-buttons .btn {
+    padding: 5px 10px;
+    font-size: 11px;
+    min-width: 50px;
   }
   
   .filter-actions {
     margin-left: 0;
-    justify-content: center;
+    flex-wrap: wrap;
+    gap: 4px;
+    width: 100%;
+    margin-top: 4px;
   }
   
+  .filter-actions .btn {
+    flex: 1;
+    min-width: calc(33.333% - 3px);
+    font-size: 10px;
+    padding: 4px 6px;
+    line-height: 1.3;
+  }
+  
+  .filter-actions .btn-small {
+    padding: 4px 6px !important;
+    font-size: 10px !important;
+  }
+  
+  .online-indicator {
+    position: relative;
+    top: auto;
+    right: auto;
+    margin-left: 0;
+    margin-top: 4px;
+    width: 100%;
+    justify-content: center;
+    font-size: 9px;
+    padding: 2px 4px;
+  }
+  
+  /* 表格容器优化 */
+  .table-container {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  .table-wrapper {
+    min-width: 100%;
+    overflow-x: auto;
+  }
+  
+  /* 取消所有固定列的sticky定位 - 使用更高优先级覆盖所有固定列样式 */
+  /* 必须覆盖所有可能的固定列样式，包括表头和数据单元格 */
+  .commission-form .data-table th.fixed-left,
+  .commission-form .data-table td.fixed-left,
+  .commission-form .data-table th.fixed-left-checkbox,
+  .commission-form .data-table td.fixed-left-checkbox,
+  .commission-form .data-table th.fixed-right,
+  .commission-form .data-table td.fixed-right,
+  .commission-form .data-table th.fixed-left:nth-child(2),
+  .commission-form .data-table td.fixed-left:nth-child(2),
+  .commission-form .data-table th.fixed-left:nth-child(3),
+  .commission-form .data-table td.fixed-left:nth-child(3),
+  .commission-form .data-table thead th.fixed-left,
+  .commission-form .data-table thead th.fixed-left-checkbox,
+  .commission-form .data-table thead th.fixed-left:nth-child(2),
+  .commission-form .data-table thead th.fixed-left:nth-child(3),
+  .commission-form .data-table tbody td.fixed-left,
+  .commission-form .data-table tbody td.fixed-left-checkbox,
+  .commission-form .data-table tbody td.fixed-left:nth-child(2),
+  .commission-form .data-table tbody td.fixed-left:nth-child(3),
+  .commission-form .data-table th.pre-urgent-field.fixed-left,
+  .commission-form .data-table td.pre-urgent-field.fixed-left,
+  .commission-form .data-table thead th.pre-urgent-field.fixed-left,
+  .commission-form .data-table thead th.pre-urgent-field.fixed-left:nth-child(2),
+  .commission-form .data-table thead th.pre-urgent-field.fixed-left:nth-child(3),
+  .commission-form .data-table tbody td.pre-urgent-field.fixed-left,
+  .commission-form .data-table tbody td.pre-urgent-field.fixed-left:nth-child(2),
+  .commission-form .data-table tbody td.pre-urgent-field.fixed-left:nth-child(3) {
+    position: relative !important;
+    left: auto !important;
+    right: auto !important;
+    z-index: 1 !important;
+    box-shadow: none !important;
+    outline: none !important;
+    background: inherit !important;
+  }
+  
+  /* 特别覆盖那些设置了left值的固定列 */
+  .commission-form .data-table tbody td.fixed-left:nth-child(2),
+  .commission-form .data-table tbody td.pre-urgent-field.fixed-left:nth-child(2),
+  .commission-form .data-table thead th.fixed-left:nth-child(2),
+  .commission-form .data-table thead th.pre-urgent-field.fixed-left:nth-child(2),
+  .commission-form .data-table th.fixed-left:nth-child(2),
+  .commission-form .data-table td.fixed-left:nth-child(2) {
+    left: auto !important;
+    position: relative !important;
+  }
+  
+  .commission-form .data-table tbody td.fixed-left:nth-child(3),
+  .commission-form .data-table tbody td.pre-urgent-field.fixed-left:nth-child(3),
+  .commission-form .data-table thead th.fixed-left:nth-child(3),
+  .commission-form .data-table thead th.pre-urgent-field.fixed-left:nth-child(3),
+  .commission-form .data-table th.fixed-left:nth-child(3),
+  .commission-form .data-table td.fixed-left:nth-child(3) {
+    left: auto !important;
+    position: relative !important;
+  }
+  
+  /* 覆盖固定列表头的sticky定位 */
+  .commission-form .data-table thead th.fixed-left-checkbox {
+    position: relative !important;
+    top: auto !important;
+    left: auto !important;
+  }
+  
+  /* 取消表头的sticky定位 */
+  .commission-form .data-table thead th {
+    position: relative !important;
+    top: auto !important;
+  }
+  
+  /* 手机端：缩小checkbox列 */
+  .commission-form .data-table th.fixed-left-checkbox,
+  .commission-form .data-table td.fixed-left-checkbox {
+    min-width: 25px !important;
+    width: 25px !important;
+    max-width: 25px !important;
+    padding: 3px 1px !important;
+  }
+  
+  /* 手机端：缩小委托单号列 */
+  .commission-form .data-table th.fixed-left:nth-child(2),
+  .commission-form .data-table td.fixed-left:nth-child(2),
+  .commission-form .data-table thead th.fixed-left:nth-child(2),
+  .commission-form .data-table tbody td.fixed-left:nth-child(2),
+  .commission-form .data-table thead th.pre-urgent-field.fixed-left:nth-child(2),
+  .commission-form .data-table tbody td.pre-urgent-field.fixed-left:nth-child(2) {
+    min-width: 50px !important;
+    width: 50px !important;
+    max-width: 50px !important;
+    padding-left: 2px !important;
+    padding-right: 2px !important;
+    font-size: 9px !important;
+  }
+  
+  /* 手机端：缩小检测项目列 */
+  .commission-form .data-table th.fixed-left:nth-child(3),
+  .commission-form .data-table td.fixed-left:nth-child(3),
+  .commission-form .data-table thead th.fixed-left:nth-child(3),
+  .commission-form .data-table tbody td.fixed-left:nth-child(3),
+  .commission-form .data-table thead th.pre-urgent-field.fixed-left:nth-child(3),
+  .commission-form .data-table tbody td.pre-urgent-field.fixed-left:nth-child(3) {
+    min-width: 120px !important;
+    width: 120px !important;
+    max-width: 120px !important;
+    padding-left: 3px !important;
+    padding-right: 3px !important;
+  }
+  
+  /* 手机端：检测项目列内容更紧凑 */
+  .commission-form .data-table tbody td.fixed-left:nth-child(3) > div {
+    font-size: 10px !important;
+    line-height: 1.2 !important;
+  }
+  
+  .commission-form .data-table tbody td.fixed-left:nth-child(3) > div > div {
+    font-size: 10px !important;
+    margin-bottom: 2px !important;
+  }
+  
+  .commission-form .data-table tbody td.fixed-left:nth-child(3) .detail-view-link {
+    font-size: 10px !important;
+    line-height: 1.2 !important;
+  }
+  
+  .commission-form .data-table tbody td.fixed-left:nth-child(3) strong {
+    font-size: 9px !important;
+    font-weight: 600;
+  }
+  
+  /* 表格样式优化 */
   .data-table {
     font-size: 11px;
+    min-width: 1200px; /* 确保表格可以横向滚动 */
   }
   
   .data-table th,
   .data-table td {
-    padding: 8px 4px;
+    padding: 4px 3px !important; /* 减小内边距，缩短行高 */
+    white-space: nowrap;
+    font-size: 11px;
+    line-height: 1.2 !important; /* 减小行高 */
+    vertical-align: middle !important;
   }
+  
+  /* 表格行高优化 */
+  .data-table tbody tr {
+    height: auto !important;
+    min-height: 28px !important; /* 设置最小行高 */
+  }
+  
+  .data-table thead th {
+    padding: 4px 3px !important;
+    line-height: 1.2 !important;
+  }
+  
+  /* 减小列宽以适应移动端 */
+  .commission-form .data-table th.narrow-col,
+  .commission-form .data-table td.narrow-col {
+    min-width: 70px !important;
+    width: 70px !important;
+    max-width: 70px !important;
+    padding-left: 3px !important;
+    padding-right: 3px !important;
+  }
+  
+  .commission-form .data-table th.note-col,
+  .commission-form .data-table td.note-col {
+    min-width: 100px !important;
+    width: 100px !important;
+    max-width: 100px !important;
+    padding-left: 4px !important;
+    padding-right: 4px !important;
+  }
+  
+  .commission-form .data-table th.commissioner-col,
+  .commission-form .data-table td.commissioner-col {
+    min-width: 120px !important;
+    width: 120px !important;
+    max-width: 120px !important;
+    padding-left: 4px !important;
+    padding-right: 4px !important;
+  }
+  
+  .commission-form .data-table th.price-note-col,
+  .commission-form .data-table td.price-note-col {
+    min-width: 90px !important;
+    width: 90px !important;
+    max-width: 90px !important;
+    padding-left: 4px !important;
+    padding-right: 4px !important;
+  }
+  
+  /* 操作列优化 */
+  .commission-form .data-table th:last-child,
+  .commission-form .data-table td:last-child {
+    min-width: 70px !important;
+    max-width: 90px !important;
+    width: auto !important;
+  }
+  
+  .commission-form .data-table td:last-child > div {
+    flex-direction: column;
+    gap: 2px;
+    align-items: stretch;
+  }
+  
+  .commission-form .data-table td:last-child .btn {
+    width: 100%;
+    padding: 3px 5px;
+    font-size: 10px;
+    line-height: 1.2;
+  }
+  
+  /* 分页样式优化 */
+  .pagination {
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 6px 4px;
+  }
+  
+  .pagination .btn {
+    padding: 4px 8px;
+    font-size: 11px;
+    min-width: 50px;
+  }
+  
+  .page-info {
+    width: 100%;
+    text-align: center;
+    order: -1;
+    margin-bottom: 4px;
+    font-size: 11px;
+  }
+  
+  /* 表格信息优化 */
+  .table-info {
+    padding: 6px 8px;
+    font-size: 11px;
+  }
+  
+  /* 最终确保：手机端所有固定列都必须是relative定位 - 使用属性选择器捕获所有可能的固定列 */
+  .commission-form .data-table *[class*="fixed-left"],
+  .commission-form .data-table *[class*="fixed-right"],
+  .commission-form .data-table th[class*="fixed"],
+  .commission-form .data-table td[class*="fixed"],
+  .commission-form .data-table thead th[class*="fixed"],
+  .commission-form .data-table tbody td[class*="fixed"] {
+    position: relative !important;
+    left: auto !important;
+    right: auto !important;
+    top: auto !important;
+    z-index: 1 !important;
+    box-shadow: none !important;
+    outline: none !important;
+  }
+  
+  /* 最终强制覆盖：使用最高优先级的选择器，覆盖所有可能的固定列样式 */
+  .commission-form .table-wrapper .data-table thead tr th.fixed-left-checkbox,
+  .commission-form .table-wrapper .data-table tbody tr td.fixed-left-checkbox,
+  .commission-form .table-wrapper .data-table thead tr th.fixed-left,
+  .commission-form .table-wrapper .data-table tbody tr td.fixed-left,
+  .commission-form .table-wrapper .data-table thead tr th.fixed-right,
+  .commission-form .table-wrapper .data-table tbody tr td.fixed-right,
+  .commission-form .table-wrapper .data-table thead tr th.pre-urgent-field.fixed-left,
+  .commission-form .table-wrapper .data-table tbody tr td.pre-urgent-field.fixed-left,
+  .commission-form .table-wrapper .data-table thead tr th.fixed-left:nth-child(2),
+  .commission-form .table-wrapper .data-table tbody tr td.fixed-left:nth-child(2),
+  .commission-form .table-wrapper .data-table thead tr th.fixed-left:nth-child(3),
+  .commission-form .table-wrapper .data-table tbody tr td.fixed-left:nth-child(3),
+  .commission-form .table-wrapper .data-table thead tr th.pre-urgent-field.fixed-left:nth-child(2),
+  .commission-form .table-wrapper .data-table tbody tr td.pre-urgent-field.fixed-left:nth-child(2),
+  .commission-form .table-wrapper .data-table thead tr th.pre-urgent-field.fixed-left:nth-child(3),
+  .commission-form .table-wrapper .data-table tbody tr td.pre-urgent-field.fixed-left:nth-child(3) {
+    position: relative !important;
+    left: auto !important;
+    right: auto !important;
+    top: auto !important;
+    z-index: 1 !important;
+    box-shadow: none !important;
+    outline: none !important;
+    outline-offset: 0 !important;
+    background: inherit !important;
+  }
+  
+  /* 确保所有设置了left值的列都被重置 */
+  .commission-form .data-table th[style*="left"],
+  .commission-form .data-table td[style*="left"],
+  .commission-form .data-table thead th[style*="left"],
+  .commission-form .data-table tbody td[style*="left"] {
+    left: auto !important;
+  }
+  
+  /* 最终强制覆盖：使用通配符和属性选择器，确保覆盖所有固定列 */
+  .commission-form .data-table *[class*="fixed-left"],
+  .commission-form .data-table *[class*="fixed-right"],
+  .commission-form .data-table *[class*="fixed-left-checkbox"] {
+    position: relative !important;
+    left: auto !important;
+    right: auto !important;
+    top: auto !important;
+    z-index: 1 !important;
+    box-shadow: none !important;
+    outline: none !important;
+    outline-offset: 0 !important;
+  }
+  
+  /* 特别针对委托单号和检测项目列 */
+  .commission-form .data-table th.fixed-left:nth-child(2),
+  .commission-form .data-table td.fixed-left:nth-child(2),
+  .commission-form .data-table th.fixed-left:nth-child(3),
+  .commission-form .data-table td.fixed-left:nth-child(3) {
+    position: relative !important;
+    left: auto !important;
+    right: auto !important;
+    top: auto !important;
+    z-index: 1 !important;
+    box-shadow: none !important;
+    outline: none !important;
+    outline-offset: 0 !important;
+    background: inherit !important;
+  }
+  
 }
 
-/* 操作列 - 最后一个子元素 */
+/* 操作列 - 最后一个子元素 - 自适应宽度 */
 .commission-form .data-table th:last-child,
 .commission-form .data-table td:last-child {
-  min-width: 220px !important;
-  width: 220px !important;
+  min-width: 60px !important; /* 最少1个按钮的宽度 */
+  max-width: 280px !important; /* 最多5个按钮的宽度 */
+  width: auto !important; /* 自适应内容宽度 */
   white-space: nowrap;
+}
+
+/* 操作列内部容器 - 确保内容紧凑 */
+.commission-form .data-table td:last-child > div {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  flex-wrap: nowrap;
+  width: fit-content;
 }
 
 /* 固定复选框列 */
@@ -798,25 +1331,50 @@
 
 /* 为固定列添加背景 */
 .commission-form .data-table thead th.fixed-left-checkbox {
-  z-index: 30 !important;
+  z-index: 40 !important;
   background: #bbdefb !important;
   border-bottom: 2px solid #90caf9 !important;
+  position: sticky !important;
+  top: 0 !important;
+  left: 0 !important;
+  box-shadow: 0 2px 2px -1px rgba(0, 0, 0, 0.1), 5px 0 10px -3px rgba(0,0,0,0.1);
 }
 
 .commission-form .data-table thead th.fixed-left {
-  z-index: 30 !important;
+  z-index: 40 !important;
   background: #bbdefb !important;
   border-bottom: 2px solid #90caf9 !important;
+  position: sticky !important;
+  top: 0 !important;
+  /* left 值会在下面的 nth-child 规则中设置，但这里先确保position生效 */
+  box-shadow: 0 2px 2px -1px rgba(0, 0, 0, 0.1), 5px 0 10px -3px rgba(0,0,0,0.1);
 }
 
 .commission-form .data-table tbody td.fixed-left {
   z-index: 25 !important;
   background: white !important;
+  position: sticky !important;
+  /* left 值会在下面的 nth-child 规则中设置 */
 }
 
-/* 为普通列添加轻微的模糊效果，使其看起来被虚化 */
-.commission-form .data-table th:not(.fixed-left):not(.fixed-left-checkbox),
-.commission-form .data-table td:not(.fixed-left):not(.fixed-left-checkbox) {
+/* 确保委托单号列的数据单元格也固定 */
+.commission-form .data-table tbody td.fixed-left:nth-child(2),
+.commission-form .data-table tbody td.pre-urgent-field.fixed-left:nth-child(2) {
+  left: 50px !important;
+  position: sticky !important;
+  z-index: 25 !important;
+}
+
+/* 确保普通列的表头也能固定 */
+.commission-form .data-table thead th:not(.fixed-left):not(.fixed-left-checkbox):not(.fixed-right) {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 35 !important;
+  box-shadow: 0 2px 2px -1px rgba(0, 0, 0, 0.1);
+}
+
+/* 为普通列的数据单元格设置较低的 z-index */
+.commission-form .data-table tbody td:not(.fixed-left):not(.fixed-left-checkbox):not(.fixed-right) {
   z-index: 1;
 }
 
@@ -829,37 +1387,180 @@
   width: 130px !important;
   min-width: 130px !important;
   max-width: 130px !important;
-  left: 50px; /* checkbox宽度50px */
+  left: 50px !important; /* checkbox宽度50px */
+}
+
+/* 委托单号 - 第2列 - 确保表头也固定 */
+.commission-form .data-table thead th.fixed-left:nth-child(2),
+.commission-form .data-table thead th.pre-urgent-field.fixed-left:nth-child(2) {
+  left: 50px !important;
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 40 !important;
+  background: #bbdefb !important;
 }
 
 /* 检测项目 - 第3列 */
 .commission-form .data-table th.fixed-left:nth-child(3),
 .commission-form .data-table td.fixed-left:nth-child(3) {
+  width: 280px !important; /* 增加宽度以显示更多检测项目内容 */
+  min-width: 280px !important;
+  max-width: 280px !important;
+  left: 180px !important; /* 50 + 130 */
+  padding-left: 10px !important;
+  padding-right: 10px !important;
+  box-sizing: border-box !important;
+  overflow: hidden !important;
+}
+
+/* 检测项目 - 第3列 - 确保表头也固定 */
+.commission-form .data-table thead th.fixed-left:nth-child(3),
+.commission-form .data-table thead th.pre-urgent-field.fixed-left:nth-child(3) {
+  left: 180px !important;
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 40 !important;
+  background: #bbdefb !important;
+}
+
+/* 检测项目 - 第3列 - 确保数据单元格也固定 */
+.commission-form .data-table tbody td.fixed-left:nth-child(3),
+.commission-form .data-table tbody td.pre-urgent-field.fixed-left:nth-child(3) {
+  left: 180px !important;
+  position: sticky !important;
+  z-index: 25 !important;
+  padding-left: 10px !important;
+  padding-right: 10px !important;
+  overflow: hidden !important;
   width: 280px !important;
   min-width: 280px !important;
   max-width: 280px !important;
-  left: 180px; /* 50 + 130 */
+}
+
+/* 检测项目列内容样式 - 确保文本溢出用省略号，保持padding整齐 */
+.commission-form .data-table tbody td.fixed-left:nth-child(3) > div {
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+  overflow: hidden !important;
+}
+
+.commission-form .data-table tbody td.fixed-left:nth-child(3) > div > div {
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+/* 确保DetailViewLink组件在检测项目列中正确显示 */
+.commission-form .data-table tbody td.fixed-left:nth-child(3) .detail-view-link {
+  display: block !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+/* 收样日期、开单日期、样品到达方式、样品是否已到、服务加急、负责人、测试人员、计费数量、单位、测试工时、测试机时、标准总价、测试总价、项目状态、文件管理列宽度调整为100px */
+/* 使用narrow-col类名，统一设置为100px宽度 */
+.commission-form .data-table th.narrow-col,
+.commission-form .data-table td.narrow-col {
+  min-width: 100px !important;
+  width: 100px !important;
+  max-width: 100px !important;
+  box-sizing: border-box !important;
+  padding-left: 8px !important;
+  padding-right: 8px !important;
+}
+
+/* 确保lab-field中的narrow-col列保持100px宽度，覆盖其他样式 */
+.commission-form .data-table th.lab-field.narrow-col,
+.commission-form .data-table td.lab-field.narrow-col {
+  min-width: 100px !important;
+  width: 100px !important;
+  max-width: 100px !important;
+  box-sizing: border-box !important;
+  padding-left: 8px !important;
+  padding-right: 8px !important;
+}
+
+/* 确保fixed-right列即使有narrow-col类也能正确应用宽度 */
+.commission-form .data-table th.fixed-right.narrow-col,
+.commission-form .data-table td.fixed-right.narrow-col {
+  min-width: 100px !important;
+  width: 100px !important;
+  max-width: 100px !important;
+  box-sizing: border-box !important;
+  padding-left: 8px !important;
+  padding-right: 8px !important;
 }
 
 /* class-based 精准控制收费标准和价格备注列宽度，不受nth-child影响
    提升选择器优先级以覆盖旧的 nth-child 宽度设置 */
 .commission-form .data-table th.price-original-col, .commission-form .data-table td.price-original-col {
-  min-width: 85px !important;
-  width: 85px !important;
-  max-width: 85px !important;
+  min-width: 170px !important;
+  width: 170px !important;
+  max-width: 170px !important;
   padding-left: 6px !important;
   padding-right: 6px !important;
   box-sizing: border-box !important;
   overflow: hidden !important;
   text-overflow: ellipsis !important;
-  text-align: left;
+  white-space: normal !important;
 }
+
 .commission-form .data-table th.price-note-col, .commission-form .data-table td.price-note-col {
   min-width: 120px !important;
   width: 130px !important;
   max-width: 150px !important;
   padding-left: 6px !important;
   padding-right: 6px !important;
+  overflow: hidden !important;
+}
+
+/* 业务报价列中的ReadonlyNoteField超出宽度时显示省略号 */
+.commission-form .data-table td.price-note-col {
+  overflow: hidden !important;
+  white-space: normal !important; /* 允许换行 */
+}
+
+.commission-form .data-table td.price-note-col .readonly-field-note {
+  display: -webkit-box !important;
+  -webkit-line-clamp: 2 !important; /* 最多显示2行 */
+  -webkit-box-orient: vertical !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: normal !important;
+  word-break: break-word !important;
+}
+
+/* 业务报价列中的textarea类型在非编辑状态下只显示一行，超出部分用省略号 */
+.commission-form .data-table td.price-note-col .editable-cell.textarea {
+  display: block !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  max-width: 100% !important;
+  word-break: break-all !important;
+  line-height: 1.5 !important;
+}
+
+/* 委托单位列宽度增加50% */
+.commission-form .data-table th.commissioner-col,
+.commission-form .data-table td.commissioner-col {
+  min-width: 180px !important;
+  width: 180px !important;
+  max-width: 220px !important;
+  padding-left: 8px !important;
+  padding-right: 8px !important;
+  box-sizing: border-box !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
 }
 
 /* 固定右侧列样式 - 文件管理和操作列 - 淡绿色背景 */
@@ -876,9 +1577,12 @@
 
 /* 为固定右侧列添加背景 */
 .commission-form .data-table thead th.fixed-right {
-  z-index: 30 !important;
+  z-index: 40 !important;
   background: #e8f5e9 !important;
   border-bottom: 2px solid #90caf9 !important;
+  position: sticky !important;
+  top: 0 !important;
+  box-shadow: 0 2px 2px -1px rgba(0, 0, 0, 0.1);
 }
 
 .commission-form .data-table tbody td.fixed-right {
@@ -891,14 +1595,45 @@
   background: #c8e6c9 !important;
 }
 
-/* 文件管理列 - 倒数第2列 */
+/* 文件管理列 - 倒数第2列 - 动态定位 */
 .commission-form .data-table th.fixed-right:nth-last-child(2),
 .commission-form .data-table td.fixed-right:nth-last-child(2) {
-  right: 220px; /* 操作列宽度 */
+  right: var(--operation-column-width, 280px); /* 使用CSS变量动态设置，默认280px */
 }
 
 /* 操作列 - 最后1列 */
 .commission-form .data-table th.fixed-right:last-child,
 .commission-form .data-table td.fixed-right:last-child {
   right: 0;
+}
+
+/* 手机端强制覆盖：在所有规则之后添加，确保优先级最高 */
+@media (max-width: 767px) {
+  /* 使用最高优先级选择器强制覆盖所有固定列 */
+  .commission-form .table-wrapper .data-table thead tr th.fixed-left-checkbox,
+  .commission-form .table-wrapper .data-table tbody tr td.fixed-left-checkbox,
+  .commission-form .table-wrapper .data-table thead tr th.fixed-left,
+  .commission-form .table-wrapper .data-table tbody tr td.fixed-left,
+  .commission-form .table-wrapper .data-table thead tr th.fixed-right,
+  .commission-form .table-wrapper .data-table tbody tr td.fixed-right,
+  .commission-form .table-wrapper .data-table thead tr th.pre-urgent-field.fixed-left,
+  .commission-form .table-wrapper .data-table tbody tr td.pre-urgent-field.fixed-left,
+  .commission-form .table-wrapper .data-table thead tr th.fixed-left:nth-child(2),
+  .commission-form .table-wrapper .data-table tbody tr td.fixed-left:nth-child(2),
+  .commission-form .table-wrapper .data-table thead tr th.fixed-left:nth-child(3),
+  .commission-form .table-wrapper .data-table tbody tr td.fixed-left:nth-child(3),
+  .commission-form .table-wrapper .data-table thead tr th.pre-urgent-field.fixed-left:nth-child(2),
+  .commission-form .table-wrapper .data-table tbody tr td.pre-urgent-field.fixed-left:nth-child(2),
+  .commission-form .table-wrapper .data-table thead tr th.pre-urgent-field.fixed-left:nth-child(3),
+  .commission-form .table-wrapper .data-table tbody tr td.pre-urgent-field.fixed-left:nth-child(3) {
+    position: relative !important;
+    left: auto !important;
+    right: auto !important;
+    top: auto !important;
+    z-index: 1 !important;
+    box-shadow: none !important;
+    outline: none !important;
+    outline-offset: 0 !important;
+    background: inherit !important;
+  }
 }

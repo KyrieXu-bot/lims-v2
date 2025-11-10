@@ -492,6 +492,19 @@ export default function CustomerIntegratedAdd() {
       alert('请输入税号');
       return;
     }
+    
+    // 验证折扣率
+    if (payer.discount_rate !== undefined && payer.discount_rate !== null && payer.discount_rate !== '') {
+      const discountRate = Number(payer.discount_rate);
+      if (isNaN(discountRate)) {
+        alert('折扣率必须是数字');
+        return;
+      }
+      if (discountRate < 0 || discountRate > 100) {
+        alert('折扣率必须在0-100之间');
+        return;
+      }
+    }
 
     setLoading(true);
     
@@ -699,7 +712,7 @@ export default function CustomerIntegratedAdd() {
             
             <Field label="联系电话" value={payer.contact_phone} onChange={(val) => setPayer({...payer, contact_phone: val})} placeholder="输入联系电话" />
             <Field label="付款期限(天)" type="number" value={payer.payment_term_days} onChange={(val) => setPayer({...payer, payment_term_days: val})} placeholder="输入付款期限" />
-            <Field label="折扣(%)" type="number" value={payer.discount_rate} onChange={(val) => setPayer({...payer, discount_rate: val})} placeholder="输入折扣率" />
+            <Field label="折扣(%) 0-100" type="number" value={payer.discount_rate} onChange={(val) => setPayer({...payer, discount_rate: val})} placeholder="输入0-100的折扣率" />
             
             <SelectField
               label="业务负责人"

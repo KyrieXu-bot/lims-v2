@@ -1,9 +1,29 @@
 import { Router } from 'express';
 import { getPool } from '../db.js';
-import { requireAuth, requireAnyRole } from '../middleware/auth.js';
+import { requireAuth, requireAnyRole, requireRole } from '../middleware/auth.js';
 
 const router = Router();
-router.use(requireAuth, requireAnyRole(['admin', 'leader', 'supervisor', 'employee', 'sales']));
+router.use(requireAuth, requireAnyRole(['admin', 'leader', 'supervisor', 'employee', 'sales', 'viewer']));
+
+const CREATE_ROLES = ['admin', 'leader', 'supervisor', 'sales'];
+const EDIT_ROLES = ['admin', 'leader', 'supervisor', 'employee', 'sales'];
+
+const parseNumber = (value) => {
+  if (value === undefined || value === null || value === '') return null;
+  const num = Number(value);
+  return Number.isNaN(num) ? null : num;
+};
+
+const canLeaderAccessDepartment = (user, departmentId) => {
+  if (!user || user.role !== 'leader') return false;
+  const leaderDept = parseNumber(user.department_id);
+  const targetDept = parseNumber(departmentId);
+  if (leaderDept === null || targetDept === null) return false;
+  if (leaderDept === 5) {
+    return targetDept === 5;
+  }
+  return leaderDept === targetDept;
+};
 
 // list
 router.get('/', async (req, res) => {
@@ -20,10 +40,19 @@ router.get('/', async (req, res) => {
     // 管理员：可以看到所有项目，包括样品未到的项目
     // 不添加任何过滤条件
   } else if (user.role === 'leader') {
-    // 室主任：只能看到自己部门的检测项目，且样品已到
-    filters.push('ti.department_id IN (SELECT department_id FROM lab_groups WHERE group_id = ?)');
+    const leaderDept = parseNumber(user.department_id);
+    // 室主任：样品需已到
     filters.push('(ti.sample_arrival_status IS NULL OR ti.sample_arrival_status != "not_arrived")');
-    params.push(user.group_id);
+    if (leaderDept === 5) {
+      // 委外室主任查看所有部门
+    } else if (leaderDept !== null) {
+      filters.push('ti.department_id = ?');
+      params.push(leaderDept);
+    } else {
+      // 如果没有department_id，通过group_id查找
+      filters.push('ti.department_id IN (SELECT department_id FROM lab_groups WHERE group_id = ?)');
+      params.push(user.group_id);
+    }
   } else if (user.role === 'supervisor') {
     // 组长：只能看到分配给他的检测项目，且样品已到
     filters.push('ti.supervisor_id = ?');
@@ -67,7 +96,7 @@ router.get('/', async (req, res) => {
             supervisor.name AS supervisor_name,
             technician.name AS technician_name,
             c.customer_name,
-            c.owner_user_id,
+            p.owner_user_id,
             p.contact_phone as payer_phone,
             comm.contact_phone as commissioner_phone
      FROM test_items ti
@@ -87,7 +116,7 @@ router.get('/', async (req, res) => {
   // 业务员权限处理：隐藏非自己负责项目的敏感信息
   if (user.role === 'sales') {
     rows.forEach(item => {
-      // 检查是否是业务员负责的项目（通过委托单关联的客户）
+      // 检查是否是业务员负责的项目（通过付款人的owner_user_id）
       const isOwner = item.customer_name && item.owner_user_id === user.user_id;
       if (!isOwner) {
         // 隐藏客户、付款人、委托人的电话号码
@@ -101,6 +130,11 @@ router.get('/', async (req, res) => {
     });
   }
 
+  // 移除 owner_user_id 字段，不展示给前端
+  rows.forEach(item => {
+    delete item.owner_user_id;
+  });
+
   const [cnt] = await pool.query(
     `SELECT COUNT(*) as cnt FROM test_items ti ${where}`, params
   );
@@ -108,14 +142,15 @@ router.get('/', async (req, res) => {
 });
 
 // create
-router.post('/', async (req, res) => {
+router.post('/', requireRole(CREATE_ROLES), async (req, res) => {
   const {
     order_id, price_id, category_name, detail_name, sample_name, material, sample_type, original_no,
     test_code, standard_code, department_id, group_id, quantity = 1, unit_price, discount_rate,
     final_unit_price, line_total, machine_hours = 0, work_hours = 0, is_add_on = 0, is_outsourced = 0,
     seq_no, sample_preparation, note, status = 'new', current_assignee, supervisor_id, technician_id,
     arrival_mode, sample_arrival_status, equipment_id, check_notes, test_notes,
-    actual_sample_quantity, actual_delivery_date, field_test_time, price_note
+    actual_sample_quantity, actual_delivery_date, field_test_time, price_note,
+    assignment_note, business_note, abnormal_condition
   } = req.body || {};
 
   // 处理空字符串，将其转换为null，这样数据库可以接受空值
@@ -149,6 +184,14 @@ router.post('/', async (req, res) => {
   const processedFieldTestTime = processDateTime(field_test_time);
   if (!order_id || !category_name || !detail_name) {
     return res.status(400).json({ error: 'order_id, category_name, detail_name are required' });
+  }
+
+  if (req.user.role === 'leader') {
+    const leaderDept = parseNumber(req.user.department_id);
+    const targetDept = parseNumber(department_id);
+    if (leaderDept === null || targetDept === null || !canLeaderAccessDepartment(req.user, targetDept)) {
+      return res.status(403).json({ error: '无权在该部门创建检测项目' });
+    }
   }
   
   // 如果是委外检测，自动设置状态为outsource
@@ -218,7 +261,9 @@ router.post('/', async (req, res) => {
         processedActualSampleQuantity, 
         processedActualDeliveryDate, 
         processedFieldTestTime,
-        price_note || null
+        price_note || null,
+        assignment_note || null,
+        business_note || null
       ];
       
       // 重新构建SQL语句，确保字段和占位符数量匹配
@@ -228,7 +273,8 @@ router.post('/', async (req, res) => {
         'final_unit_price', 'line_total', 'machine_hours', 'work_hours', 'is_add_on', 'is_outsourced',
         'seq_no', 'sample_preparation', 'note', 'status', 'current_assignee', 'supervisor_id', 'technician_id',
         'arrival_mode', 'sample_arrival_status', 'equipment_id', 'check_notes', 'test_notes',
-        'actual_sample_quantity', 'actual_delivery_date', 'field_test_time', 'price_note'
+        'actual_sample_quantity', 'actual_delivery_date', 'field_test_time', 'price_note',
+        'assignment_note', 'business_note'
       ];
       
       const placeholders = sqlFields.map(() => '?').join(',');
@@ -298,14 +344,15 @@ router.get('/:id', async (req, res) => {
 });
 
 // update
-router.put('/:id', async (req, res) => {
+router.put('/:id', requireRole(EDIT_ROLES), async (req, res) => {
   const {
     order_id, price_id, category_name, detail_name, sample_name, material, sample_type, original_no,
     test_code, standard_code, department_id, group_id, quantity, unit_price, discount_rate,
     final_unit_price, line_total, machine_hours, work_hours, is_add_on, is_outsourced,
     seq_no, sample_preparation, note, status, current_assignee, supervisor_id, technician_id,
     arrival_mode, sample_arrival_status, equipment_id, check_notes, test_notes, unit,
-    actual_sample_quantity, actual_delivery_date, field_test_time, price_note
+    actual_sample_quantity, actual_delivery_date, field_test_time, price_note,
+    assignment_note, business_note, abnormal_condition
   } = req.body || {};
 
   // 处理空字符串，将其转换为null，这样数据库可以接受空值
@@ -334,9 +381,6 @@ router.put('/:id', async (req, res) => {
     return value;
   };
 
-  const processedActualSampleQuantity = processValue(actual_sample_quantity);
-  const processedActualDeliveryDate = processDate(actual_delivery_date);
-  const processedFieldTestTime = processDateTime(field_test_time);
   const pool = await getPool();
   
   try {
@@ -346,7 +390,7 @@ router.put('/:id', async (req, res) => {
     try {
       // 获取更新前的数据
       const [oldRows] = await pool.query(
-        `SELECT supervisor_id, technician_id, current_assignee FROM test_items WHERE test_item_id = ?`,
+        `SELECT supervisor_id, technician_id, current_assignee, department_id FROM test_items WHERE test_item_id = ?`,
         [req.params.id]
       );
       
@@ -356,15 +400,25 @@ router.put('/:id', async (req, res) => {
       }
       
       const oldData = oldRows[0];
+
+      if (req.user.role === 'leader' && !canLeaderAccessDepartment(req.user, oldData.department_id)) {
+        await pool.query('ROLLBACK');
+        return res.status(403).json({ error: '无权编辑其他部门的检测项目' });
+      }
+      
+      // 检查请求体中包含哪些字段（只更新明确提供的字段）
+      const hasField = (fieldName) => fieldName in req.body;
       
       // 构建动态更新语句
       const updateFields = [];
       const updateValues = [];
       
-      const addUpdate = (field, value) => {
-        if (value !== undefined) {
+      const addUpdate = (field, value, processedValue = null) => {
+        // 只更新请求体中明确包含的字段
+        if (hasField(field)) {
+          const finalValue = processedValue !== null ? processedValue : value;
           updateFields.push(`${field} = ?`);
-          updateValues.push(value);
+          updateValues.push(finalValue);
         }
       };
       
@@ -402,10 +456,14 @@ router.put('/:id', async (req, res) => {
       addUpdate('check_notes', check_notes);
       addUpdate('test_notes', test_notes);
       addUpdate('unit', unit);
-      addUpdate('actual_sample_quantity', processedActualSampleQuantity);
-      addUpdate('actual_delivery_date', processedActualDeliveryDate);
-      addUpdate('field_test_time', processedFieldTestTime);
+      // 对于需要特殊处理的字段，传入处理后的值
+      addUpdate('actual_sample_quantity', actual_sample_quantity, processValue(actual_sample_quantity));
+      addUpdate('actual_delivery_date', actual_delivery_date, processDate(actual_delivery_date));
+      addUpdate('field_test_time', field_test_time, processDateTime(field_test_time));
       addUpdate('price_note', price_note);
+      addUpdate('assignment_note', assignment_note);
+      addUpdate('business_note', business_note);
+      addUpdate('abnormal_condition', abnormal_condition);
       
       // 如果没有要更新的字段，直接返回
       if (updateFields.length === 0) {
@@ -413,6 +471,14 @@ router.put('/:id', async (req, res) => {
         return res.status(400).json({ error: 'No fields to update' });
       }
       
+      if (req.user.role !== 'admin' && hasField('department_id')) {
+        const targetDept = parseNumber(department_id);
+        if (!canLeaderAccessDepartment(req.user, targetDept)) {
+          await pool.query('ROLLBACK');
+          return res.status(403).json({ error: '无权变更检测项目所属部门' });
+        }
+      }
+
       updateValues.push(req.params.id);
       
       // 更新test_items表
@@ -500,7 +566,7 @@ router.put('/:id', async (req, res) => {
 });
 
 // delete
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireRole(['admin']), async (req, res) => {
   const user = req.user;
   // 仅管理员可删除
   if (user.role !== 'admin') {
@@ -539,7 +605,7 @@ router.delete('/:id', async (req, res) => {
 });
 
 // batch assign
-router.post('/batch-assign', async (req, res) => {
+router.post('/batch-assign', requireRole(['admin', 'leader', 'supervisor']), async (req, res) => {
   const { testItemIds, supervisor_id, technician_id, status } = req.body || {};
   const user = req.user;
   
@@ -573,9 +639,17 @@ router.post('/batch-assign', async (req, res) => {
       // 获取更新前的数据
       const placeholders = testItemIds.map(() => '?').join(',');
       const [oldRows] = await pool.query(
-        `SELECT test_item_id, supervisor_id, technician_id, current_assignee FROM test_items WHERE test_item_id IN (${placeholders})`,
+        `SELECT test_item_id, supervisor_id, technician_id, current_assignee, department_id FROM test_items WHERE test_item_id IN (${placeholders})`,
         testItemIds
       );
+
+      if (user.role === 'leader') {
+        const invalidItem = oldRows.some(row => !canLeaderAccessDepartment(user, row.department_id));
+        if (invalidItem) {
+          await pool.query('ROLLBACK');
+          return res.status(403).json({ error: '无权批量分配其他部门的检测项目' });
+        }
+      }
       
       // 构建更新字段
       const updateFields = ['status = ?'];
@@ -652,7 +726,7 @@ router.post('/batch-assign', async (req, res) => {
 });
 
 // cancel test item (only admin can cancel)
-router.post('/:id/cancel', async (req, res) => {
+router.post('/:id/cancel', requireRole(['admin']), async (req, res) => {
   const user = req.user;
   
   // 只有管理员可以取消测试

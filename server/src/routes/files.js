@@ -162,9 +162,11 @@ const handleMulterError = (err, req, res, next) => {
 // 所有路由都需要认证
 router.use(requireAuth);
 
+const UPLOAD_ROLES = ['admin', 'leader', 'supervisor', 'employee', 'viewer'];
+
 // 上传文件
 router.post('/upload', 
-  requireAnyRole(['admin', 'leader', 'supervisor', 'employee']), 
+  requireAnyRole(UPLOAD_ROLES), 
   upload.single('file'),
   handleMulterError,
   async (req, res) => {
@@ -229,7 +231,7 @@ router.post('/upload',
 });
 
 // 获取文件列表
-router.get('/', requireAnyRole(['admin', 'leader', 'supervisor', 'employee', 'sales']), async (req, res) => {
+router.get('/', requireAnyRole(['admin', 'leader', 'supervisor', 'employee', 'sales', 'viewer']), async (req, res) => {
   try {
     const { 
       category, 
@@ -306,7 +308,7 @@ router.get('/', requireAnyRole(['admin', 'leader', 'supervisor', 'employee', 'sa
 });
 
 // 下载文件
-router.get('/download/:id', requireAnyRole(['admin', 'leader', 'supervisor', 'employee', 'sales']), async (req, res) => {
+router.get('/download/:id', requireAnyRole(['admin', 'leader', 'supervisor', 'employee', 'sales', 'viewer']), async (req, res) => {
   try {
     const pool = await getPool();
     const [rows] = await pool.query(

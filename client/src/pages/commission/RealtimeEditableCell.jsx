@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import './EditableCell.css';
 
 const RealtimeEditableCell = ({ 
@@ -14,7 +14,8 @@ const RealtimeEditableCell = ({
   getEditingUser,
   emitUserEditing,
   emitUserStopEditing,
-  suffix = ''
+  suffix = '',
+  loadOptions // 新增：动态加载选项的函数
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   // 对于 number 类型，0 是有效值，应该保留；对于其他类型，null/undefined 转为空字符串
@@ -26,14 +27,45 @@ const RealtimeEditableCell = ({
   };
   const [editValue, setEditValue] = useState(getInitialEditValue(value));
   const [filteredOptions, setFilteredOptions] = useState(options);
+  const [currentOptions, setCurrentOptions] = useState(options);
   const [showOptions, setShowOptions] = useState(false);
   const inputRef = useRef(null);
   const optionsRef = useRef(null);
   const editingTimeoutRef = useRef(null);
-
+  
+  // 使用 useRef 来存储上一次的 options，避免不必要的更新
+  const prevOptionsRef = useRef(options);
+  
+  // 检查 options 是否真的发生了变化
+  const optionsChanged = useMemo(() => {
+    const prev = prevOptionsRef.current;
+    if (prev.length !== options.length) {
+      prevOptionsRef.current = options;
+      return true;
+    }
+    const changed = options.some((opt, idx) => {
+      const prevOpt = prev[idx];
+      return !prevOpt || opt.value !== prevOpt.value || opt.label !== prevOpt.label || opt.name !== prevOpt.name;
+    });
+    if (changed) {
+      prevOptionsRef.current = options;
+    }
+    return changed;
+  }, [options]);
+  
   useEffect(() => {
     setEditValue(getInitialEditValue(value));
-  }, [value]);
+  }, [value, type]);
+
+  // 当options变化时更新currentOptions - 只在真正变化时更新
+  useEffect(() => {
+    if (optionsChanged) {
+      setCurrentOptions(options);
+      if (!isEditing) {
+        setFilteredOptions(options);
+      }
+    }
+  }, [optionsChanged, options, isEditing]);
 
   useEffect(() => {
     if (isEditing && inputRef.current) {
@@ -65,16 +97,21 @@ const RealtimeEditableCell = ({
     }
   }, [isEditing, showOptions, field, testItemId, emitUserStopEditing]);
 
-  // 监听外部数据更新
+  // 监听外部数据更新 - 使用 useRef 来避免依赖函数引用
+  const onDataUpdateRef = useRef(onDataUpdate);
   useEffect(() => {
-    if (onDataUpdate) {
-      onDataUpdate(field, testItemId, (newValue) => {
+    onDataUpdateRef.current = onDataUpdate;
+  }, [onDataUpdate]);
+
+  useEffect(() => {
+    if (onDataUpdateRef.current) {
+      onDataUpdateRef.current(field, testItemId, (newValue) => {
         setEditValue(newValue);
       });
     }
-  }, [onDataUpdate, field, testItemId]);
+  }, [field, testItemId]);
 
-  const handleClick = () => {
+  const handleClick = async () => {
     // 检查是否有其他用户正在编辑
     if (isFieldBeingEdited && isFieldBeingEdited(field, testItemId)) {
       const editingUser = getEditingUser && getEditingUser(field, testItemId);
@@ -86,9 +123,24 @@ const RealtimeEditableCell = ({
 
     if (!isEditing) {
       setIsEditing(true);
+      
+      // 如果提供了动态加载选项的函数，则调用它
+      if (type === 'autocomplete' && loadOptions) {
+        try {
+          const loadedOptions = await loadOptions();
+          setCurrentOptions(loadedOptions);
+          setFilteredOptions(loadedOptions);
+        } catch (error) {
+          console.error('加载选项失败:', error);
+          // 如果加载失败，使用原有的选项
+          setFilteredOptions(currentOptions);
+        }
+      } else if (type === 'autocomplete') {
+        // 如果没有动态加载函数，使用传入的选项
+        setFilteredOptions(currentOptions);
+      }
+      
       if (type === 'autocomplete') {
-        // 初始显示所有选项
-        setFilteredOptions(options);
         setShowOptions(true);
       }
       
@@ -116,10 +168,10 @@ const RealtimeEditableCell = ({
     if (type === 'autocomplete') {
       if (newValue.trim() === '') {
         // 如果输入为空，显示所有选项
-        setFilteredOptions(options);
+        setFilteredOptions(currentOptions);
       } else {
         // 支持按姓氏过滤，也支持全名匹配
-        const filtered = options.filter(option => {
+        const filtered = currentOptions.filter(option => {
           const name = option.name.toLowerCase();
           const searchValue = newValue.toLowerCase();
           

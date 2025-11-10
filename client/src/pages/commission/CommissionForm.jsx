@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api.js';
 import CustomerDetailModal from './CustomerDetailModal.jsx';
@@ -7,9 +7,17 @@ import RealtimeEditableCell from './RealtimeEditableCell.jsx';
 import SimpleFileUpload from '../../components/SimpleFileUpload.jsx';
 import BatchFileUpload from '../../components/BatchFileUpload.jsx';
 import ReadonlyNoteField from '../../components/ReadonlyNoteField.jsx';
+import DetailViewLink from '../../components/DetailViewLink.jsx';
 import { useSocket } from '../../hooks/useSocket.js';
 import * as XLSX from 'xlsx';
 import './CommissionForm.css';
+
+// 服务加急选项常量，避免每次渲染创建新数组
+const SERVICE_URGENCY_OPTIONS = [
+  { value: 'normal', label: '不加急' },
+  { value: 'urgent_1_5x', label: '加急1.5倍' },
+  { value: 'urgent_2x', label: '特急2倍' }
+];
 
 // 可折叠文本组件
 const CollapsibleText = ({ text, maxLength = 50 }) => {
@@ -52,6 +60,7 @@ const CommissionForm = () => {
   const [statusFilter, setStatusFilter] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [fieldTestDateFilter, setFieldTestDateFilter] = useState('');
+  const [myItemsFilter, setMyItemsFilter] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [technicians, setTechnicians] = useState([]);
@@ -68,6 +77,60 @@ const CommissionForm = () => {
   const [showBatchUploadModal, setShowBatchUploadModal] = useState(false);
   const [deletingItems, setDeletingItems] = useState(new Set()); // 正在删除的项目ID集合
   const [showExportModal, setShowExportModal] = useState(false); // 导出弹框状态
+  const operationColumnRef = useRef(null); // 操作列的引用
+  // 统一的字段权限控制
+  const leaderDepartmentId = user?.department_id ? Number(user.department_id) : null;
+
+  const canLeaderEditItem = (item) => {
+    if (!item) {
+      return leaderDepartmentId === 5;
+    }
+    const itemDept = Number(item.department_id);
+    if (leaderDepartmentId === 5) {
+      return itemDept === 5;
+    }
+    if (leaderDepartmentId !== null) {
+      return itemDept === leaderDepartmentId;
+    }
+    return false;
+  };
+
+  const canEditField = (field, item = null) => {
+    const role = user?.role;
+    if (!role) return false;
+    if (role === 'admin') {
+      return true;
+    }
+    if (role === 'leader') {
+      return canLeaderEditItem(item);
+    }
+    if (role === 'sales') {
+      return ['final_unit_price', 'business_note'].includes(field);
+    }
+    if (role === 'employee') {
+      return [
+        'technician_name', 'field_test_time', 'equipment_name',
+        'actual_sample_quantity', 'unit', 'work_hours', 'machine_hours',
+        'test_notes'
+      ].includes(field);
+    }
+    if (role === 'supervisor') {
+      const baseFields = [
+        'supervisor_name', 'unit_price', 'technician_name', 'assignment_note',
+        'field_test_time', 'equipment_name'
+      ];
+      // 如果组长将自己分配为实验员，则额外允许编辑计费数量、单位、机时、工时、价格
+      if (item && item.technician_name === user?.name) {
+        const extendedFields = [
+          ...baseFields,
+          'actual_sample_quantity', 'unit', 'work_hours', 'machine_hours', 'final_unit_price'
+        ];
+        return extendedFields.includes(field);
+      }
+      return baseFields.includes(field);
+    }
+    return false;
+  };
   
   // WebSocket连接
   const {
@@ -94,6 +157,7 @@ const CommissionForm = () => {
       if (statusFilter) params.append('status', statusFilter);
       if (departmentFilter) params.append('department_id', departmentFilter);
       if (fieldTestDateFilter) params.append('field_test_date', fieldTestDateFilter);
+      if (myItemsFilter) params.append('my_items', 'true');
 
       const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
       const headers = {
@@ -128,7 +192,7 @@ const CommissionForm = () => {
     // 获取当前用户信息
     const currentUser = JSON.parse(localStorage.getItem('lims_user') || 'null');
     setUser(currentUser);
-  }, [page, searchQuery, statusFilter, departmentFilter, fieldTestDateFilter]);
+  }, [page, searchQuery, statusFilter, departmentFilter, fieldTestDateFilter, myItemsFilter]);
 
   // 监听实时数据更新
   useEffect(() => {
@@ -150,6 +214,70 @@ const CommissionForm = () => {
     };
   }, []);
 
+  // 动态计算操作列宽度并更新文件管理列位置
+  useEffect(() => {
+    const updateFileColumnPosition = () => {
+      // 尝试从表头获取宽度
+      if (operationColumnRef.current) {
+        const operationWidth = operationColumnRef.current.offsetWidth;
+        if (operationWidth > 0) {
+          // 设置CSS变量，供CSS使用
+          document.documentElement.style.setProperty('--operation-column-width', `${operationWidth}px`);
+          return;
+        }
+      }
+      
+      // 如果表头还没有渲染，尝试从第一个数据行获取
+      const firstOperationCell = document.querySelector('.commission-form .data-table tbody td.fixed-right:last-child');
+      if (firstOperationCell) {
+        const operationWidth = firstOperationCell.offsetWidth;
+        if (operationWidth > 0) {
+          document.documentElement.style.setProperty('--operation-column-width', `${operationWidth}px`);
+        }
+      }
+    };
+
+    // 初始计算，延迟以确保DOM已渲染
+    const initialTimeout = setTimeout(updateFileColumnPosition, 100);
+
+    // 监听窗口大小变化
+    const handleResize = () => {
+      setTimeout(updateFileColumnPosition, 50);
+    };
+
+    window.addEventListener('resize', handleResize);
+    
+    // 使用ResizeObserver监听操作列宽度变化
+    let resizeObserver = null;
+    if (operationColumnRef.current) {
+      resizeObserver = new ResizeObserver(() => {
+        updateFileColumnPosition();
+      });
+      resizeObserver.observe(operationColumnRef.current);
+    } else {
+      // 如果表头还没渲染，监听整个表格的变化
+      const table = document.querySelector('.commission-form .data-table');
+      if (table) {
+        resizeObserver = new ResizeObserver(() => {
+          setTimeout(updateFileColumnPosition, 50);
+        });
+        resizeObserver.observe(table);
+      }
+    }
+
+    // 监听数据变化，延迟更新以等待DOM渲染
+    const dataTimeout = setTimeout(updateFileColumnPosition, 300);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
+      clearTimeout(initialTimeout);
+      clearTimeout(dataTimeout);
+    };
+  }, [data, user, loading]);
+
   const fetchTechnicians = async () => {
     try {
       const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
@@ -165,6 +293,108 @@ const CommissionForm = () => {
       }
     } catch (error) {
       console.error('获取测试人员列表失败:', error);
+    }
+  };
+
+  // 根据检测项目动态加载该部门下的组长或实验员
+  const loadUsersForItem = async (item, type) => {
+    if (!item) return [];
+
+    const mapUsers = (users = []) => users.map(u => ({
+      id: u.id ?? u.user_id ?? u.userId,
+      name: u.name,
+      account: u.account
+    }));
+
+    const storedUser = (() => {
+      try {
+        return JSON.parse(localStorage.getItem('lims_user') || 'null');
+      } catch (error) {
+        return null;
+      }
+    })();
+
+    const departmentId = item.department_id ?? storedUser?.department_id ?? null;
+    const groupId = item.group_id ?? storedUser?.group_id ?? null;
+
+    try {
+      if (type === 'supervisor') {
+        let users = [];
+
+        if (item.price_id) {
+          try {
+            const headers = api.authHeaders();
+            const response = await fetch(`/api/users/by-price-id?price_id=${item.price_id}`, { headers });
+            if (response.ok) {
+              const data = await response.json();
+              users = mapUsers(data.supervisors || []);
+            }
+          } catch (error) {
+            console.warn('根据price_id加载负责人失败，将使用兜底方案:', error);
+          }
+        }
+
+        if (!users.length) {
+          users = await api.getAllSupervisors({ department_id: departmentId ?? undefined }).then(mapUsers);
+        }
+
+        if (users.length) {
+          setAssigneeOptions(prev => {
+            const merged = [...users];
+            const ids = new Set(merged.map(u => u.id));
+            prev.forEach(u => {
+              if (!ids.has(u.id)) merged.push(u);
+            });
+            return merged;
+          });
+        }
+
+        return users;
+      }
+
+      // type === 'technician'
+      let users = [];
+
+      if (item.price_id) {
+        try {
+          const headers = api.authHeaders();
+          const response = await fetch(`/api/users/by-price-id?price_id=${item.price_id}`, { headers });
+          if (response.ok) {
+            const data = await response.json();
+            users = mapUsers(data.technicians || []);
+          }
+        } catch (error) {
+          console.warn('根据price_id加载实验员失败，将使用兜底方案:', error);
+        }
+      }
+
+      if (!users.length && groupId) {
+        try {
+          users = await api.getEmployeesByGroup(groupId).then(mapUsers);
+        } catch (error) {
+          console.warn('根据group_id加载实验员失败:', error);
+        }
+      }
+
+      if (!users.length) {
+        users = await api.getAllEmployees({ department_id: departmentId ?? undefined }).then(mapUsers);
+      }
+
+      if (users.length) {
+        setTechnicians(prev => {
+          const merged = [...users];
+          const ids = new Set(merged.map(u => u.id));
+          prev.forEach(u => {
+            if (!ids.has(u.id)) merged.push(u);
+          });
+          return merged;
+        });
+      }
+
+      return users;
+    } catch (error) {
+      console.error('加载人员列表失败:', error);
+      return [];
     }
   };
 
@@ -232,6 +462,12 @@ const CommissionForm = () => {
     setStatusFilter('');
     setDepartmentFilter('');
     setFieldTestDateFilter('');
+    setMyItemsFilter(false);
+    setPage(1);
+  };
+
+  const handleMyItems = () => {
+    setMyItemsFilter(true);
     setPage(1);
   };
 
@@ -273,7 +509,7 @@ const CommissionForm = () => {
     setSelectedFileTestItem(null);
   };
 
-  // 审批（组长）与取消（管理员）
+  // 审批（组长/室主任）
   const canApprove = (item) => {
     return Boolean(item.work_hours) && Boolean(item.machine_hours) && item.status !== 'completed' && item.status !== 'cancelled';
   };
@@ -287,7 +523,7 @@ const CommissionForm = () => {
       const dataResp = await resp.json();
       const hasRaw = (dataResp?.data || []).length > 0;
       if (!hasRaw) {
-        alert('请先在“文件管理-实验原始数据”上传原始数据');
+        alert('请先在"文件管理-实验原始数据"上传原始数据');
         return;
       }
       // 设置状态为已完成
@@ -319,8 +555,30 @@ const CommissionForm = () => {
     }
   };
 
+  // 暂停/继续
+  const handleTogglePause = async (item) => {
+    try {
+      const userLocal = JSON.parse(localStorage.getItem('lims_user') || 'null');
+      const newValue = item.abnormal_condition ? null : '暂停';
+      const r = await fetch(`/api/test-items/${item.test_item_id}`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${userLocal.token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ abnormal_condition: newValue })
+      });
+      if (!r.ok) throw new Error('操作失败');
+      setData(prev => prev.map(x => x.test_item_id === item.test_item_id ? { ...x, abnormal_condition: newValue } : x));
+    } catch (e) {
+      alert(e.message || '操作失败');
+    }
+  };
+
   // 处理单个项目选择
   const handleItemSelect = (testItemId, checked) => {
+    const targetItem = data.find(x => x.test_item_id === testItemId);
+    if (!targetItem) return;
+    if (user?.role === 'leader' && !canLeaderEditItem(targetItem)) {
+      return;
+    }
     if (checked) {
       setSelectedItems(prev => [...prev, testItemId]);
     } else {
@@ -331,7 +589,13 @@ const CommissionForm = () => {
   // 处理全选
   const handleSelectAll = (e) => {
     if (e.target.checked) {
-      setSelectedItems(data.map(item => item.test_item_id));
+      const selectable = data.filter(item => {
+        if (user?.role === 'leader') {
+          return canLeaderEditItem(item);
+        }
+        return true;
+      }).map(item => item.test_item_id);
+      setSelectedItems(selectable);
     } else {
       setSelectedItems([]);
     }
@@ -378,13 +642,13 @@ const CommissionForm = () => {
         '样品原号': item.original_no || '',
         '项目编号': item.test_code || '',
         '归属部门': item.department_name || '',
-        '收费标准': formatCurrency(item.original_unit_price),
+        '收费标准-最低报价': formatPriceRange(item.original_unit_price, item.minimum_price),
         '业务报价': item.price_note || '',
         '数量': item.quantity || '',
         '标准单价': formatCurrency(item.standard_price),
         '标准总价': formatCurrency(item.line_total),
         '折扣': formatPercentage(item.discount_rate),
-        '备注': item.note || '',
+        '客户备注': item.note || '',
         '样品到达方式': item.arrival_mode === 'on_site' ? '现场' : item.arrival_mode === 'delivery' ? '寄样' : '',
         '样品是否已到': item.sample_arrival_status === 'arrived' ? '已到' : item.sample_arrival_status === 'not_arrived' ? '未到' : '',
         '服务加急': item.service_urgency || '',
@@ -396,6 +660,8 @@ const CommissionForm = () => {
         '测试工时': item.work_hours || '',
         '测试机时': item.machine_hours || '',
         '实际交付日期': formatDate(item.actual_delivery_date),
+        '业务备注': item.business_note || '',
+        '指派备注': item.assignment_note || '',
         '开票未到款金额': formatCurrency(item.unpaid_amount),
         '项目状态': item.status === 'new' ? '新建' : 
                    item.status === 'assigned' ? '已分配' : 
@@ -421,13 +687,13 @@ const CommissionForm = () => {
         { wch: 15 },  // 样品原号
         { wch: 15 },  // 项目编号
         { wch: 12 },  // 归属部门
-        { wch: 12 },  // 收费标准
+        { wch: 20 },  // 收费标准-最低报价
         { wch: 15 },  // 业务报价
         { wch: 8 },   // 数量
         { wch: 12 },  // 标准单价
         { wch: 12 },  // 标准总价
         { wch: 8 },   // 折扣
-        { wch: 20 },  // 备注
+        { wch: 20 },  // 客户备注
         { wch: 12 },  // 样品到达方式
         { wch: 12 },  // 样品是否已到
         { wch: 10 },  // 服务加急
@@ -439,6 +705,8 @@ const CommissionForm = () => {
         { wch: 10 },  // 测试工时
         { wch: 10 },  // 测试机时
         { wch: 12 },  // 实际交付日期
+        { wch: 20 },  // 业务备注
+        { wch: 20 },  // 指派备注
         { wch: 15 },  // 开票未到款金额
         { wch: 10 }   // 项目状态
       ];
@@ -1057,15 +1325,20 @@ const CommissionForm = () => {
         }
       }
       
-      // 特殊处理discount_rate：接收的是百分比值（如 10），需要转换为小数（0.1）保存
+      // 特殊处理discount_rate：验证输入范围并保存为十位数（如90表示90%）
       if (field === 'discount_rate') {
         if (value === '' || value === undefined || value === null) {
           updateData[field] = null;
         } else {
-          // 如果输入的是百分比值（如 10），转换为小数（0.1）
-          // 数据库存储的是小数形式，如 0.1 表示 10%
           const numValue = Number(value);
-          updateData[field] = isNaN(numValue) ? null : numValue / 100;
+          if (isNaN(numValue)) {
+            throw new Error('折扣必须是数字');
+          }
+          if (numValue < 0 || numValue > 100) {
+            throw new Error('折扣必须在0-100之间');
+          }
+          // 数据库存储的是十位数形式，如 90 表示 90%
+          updateData[field] = numValue;
         }
       }
       
@@ -1262,7 +1535,19 @@ const CommissionForm = () => {
 
   const formatPercentage = (rate) => {
     if (!rate) return '';
-    return `${(Number(rate) * 100).toFixed(1)}%`;
+    // 数据库存储的是十位数（如90表示90%），直接显示即可
+    return `${Number(rate).toFixed(1)}%`;
+  };
+
+  const formatPriceRange = (unitPrice, minimumPrice) => {
+    const formattedUnit = formatCurrency(unitPrice);
+    const formattedMinimum = formatCurrency(minimumPrice);
+    if (formattedUnit && formattedMinimum) {
+      return `${formattedUnit} - ${formattedMinimum}`;
+    }
+    if (formattedUnit) return formattedUnit;
+    if (formattedMinimum) return formattedMinimum;
+    return '';
   };
 
   const handleExportWH = async () => {
@@ -1314,6 +1599,16 @@ const CommissionForm = () => {
     );
   };
 
+  const canCreateTestItem = user && ['admin', 'leader', 'supervisor', 'sales'].includes(user.role);
+
+  const canCopyItem = (item) => {
+    if (!user) return false;
+    if (user.role === 'admin') return true;
+    if (user.role === 'leader') return canLeaderEditItem(item);
+    if (['supervisor', 'sales'].includes(user.role)) return true;
+    return false;
+  };
+
   return (
     <div className="commission-form">
       {/* 搜索和筛选区域 - 首行 */}
@@ -1326,11 +1621,21 @@ const CommissionForm = () => {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="搜索委托单号、客户名称、检测项目..."
+                placeholder="搜索委托单号、客户名称、检测项目、委托方联系人..."
                 onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
               />
               <div className="search-buttons">
                 <button onClick={handleSearch} className="btn btn-primary btn-small">搜索</button>
+                {user?.department_id === 4 && (
+                  <button 
+                    onClick={handleMyItems} 
+                    className="btn btn-info btn-small"
+                    style={{ backgroundColor: myItemsFilter ? '#17a2b8' : '#6c757d', color: 'white' }}
+                    title="筛选指派给我的项目"
+                  >
+                    我的
+                  </button>
+                )}
                 <button onClick={handleReset} className="btn btn-secondary btn-small">重置</button>
               </div>
             </div>
@@ -1376,12 +1681,14 @@ const CommissionForm = () => {
             />
           </div>
           <div className="filter-actions">
-            <button 
-              onClick={() => navigate('/test-items/new')} 
-              className="btn btn-info"
-            >
-              添加检测
-            </button>
+            {canCreateTestItem && (
+              <button 
+                onClick={() => navigate('/test-items/new')} 
+                className="btn btn-info"
+              >
+                添加检测
+              </button>
+            )}
             <button 
               onClick={handleBatchUpload} 
               className="btn btn-success"
@@ -1398,19 +1705,28 @@ const CommissionForm = () => {
               导出 ({selectedItems.length})
             </button>
             {user?.role === 'admin' && (
-              <button 
-                onClick={handleBatchDelete} 
-                className="btn btn-danger"
-                disabled={selectedItems.length === 0}
-                style={{backgroundColor: '#dc3545', color: 'white'}}
-              >
-                批量删除 ({selectedItems.length})
-              </button>
+              <>
+                <button 
+                  onClick={handleBatchDelete} 
+                  className="btn btn-danger"
+                  disabled={selectedItems.length === 0}
+                  style={{backgroundColor: '#dc3545', color: 'white'}}
+                >
+                  批量删除 ({selectedItems.length})
+                </button>
+                <button 
+                  onClick={() => navigate('/orders/delete')} 
+                  className="btn btn-danger"
+                  style={{backgroundColor: '#dc3545', color: 'white'}}
+                >
+                  删除委托单
+                </button>
+              </>
             )}
           </div>
-          <div className="online-indicator">
-            {isConnected ? `🟢 在线 (${getOnlineUserCount()} 人)` : '🔴 离线'}
-          </div>
+        </div>
+        <div className="online-indicator">
+          {isConnected ? `🟢 在线 (${getOnlineUserCount()} 人)` : '🔴 离线'}
         </div>
       </div>
 
@@ -1430,46 +1746,57 @@ const CommissionForm = () => {
                     <th className="fixed-left-checkbox">
                       <input 
                         type="checkbox" 
-                        checked={data.length > 0 && data.every(item => selectedItems.includes(item.test_item_id))}
+                        checked={(() => {
+                          const selectable = data.filter(item => {
+                            if (user?.role === 'leader') {
+                              return canLeaderEditItem(item);
+                            }
+                            return true;
+                          });
+                          if (selectable.length === 0) return false;
+                          return selectable.every(item => selectedItems.includes(item.test_item_id));
+                        })()}
                         onChange={handleSelectAll}
                         title="全选"
                       />
                     </th>
                     <th className="pre-urgent-field fixed-left">委托单号</th>
                     <th className="pre-urgent-field fixed-left">检测项目</th>
-                    <th className="pre-urgent-field">项目编号</th>
-                    <th className="pre-urgent-field">委托单位</th>
+                    <th className="pre-urgent-field narrow-col">项目编号</th>
+                    <th className="pre-urgent-field commissioner-col">委托单位</th>
+                    <th className="pre-urgent-field narrow-col">联系人</th>
                     {user?.role === 'admin' && <th className="order-creator-field">归属部门</th>}
                     <th className="order-creator-field price-original-col">收费标准</th>
                     <th className="order-creator-field price-note-col">业务报价</th>
                     <th className="order-creator-field quantity-col">数量</th>
-                    <th className="order-creator-field">业务负责人</th>
+                    <th className="order-creator-field narrow-col">业务负责人</th>
                     <th className="order-creator-field discount-col">折扣</th>
-                    <th className="order-creator-field">备注</th>
-                    <th className="order-creator-field">收样日期</th>
-                    <th className="order-creator-field">开单日期</th>
-                    <th className="order-creator-field">样品到达方式</th>
-                    <th className="order-creator-field">样品是否已到</th>
-                    <th className="order-creator-field">服务加急</th>
-                    <th className="lab-field">负责人</th>
+                    <th className="order-creator-field note-col">客户备注</th>
+                    <th className="order-creator-field narrow-col">收样日期</th>
+                    <th className="order-creator-field narrow-col">开单日期</th>
+                    <th className="order-creator-field narrow-col">样品到达方式</th>
+                    <th className="order-creator-field narrow-col">样品是否已到</th>
+                    <th className="order-creator-field narrow-col">服务加急</th>
+                    <th className="lab-field narrow-col">负责人</th>
                     <th className="lab-field">标准单价</th>
-                    <th className="lab-field">测试人员</th>
+                    <th className="lab-field narrow-col">测试人员</th>
+                    <th className="lab-field note-col">指派备注</th>
                     <th className="lab-field">现场测试时间</th>
                     <th className="lab-field">检测设备</th>
-                    <th className="lab-field">计费数量</th>
-                    <th className="lab-field">单位</th>
-                    <th className="lab-field">测试工时</th>
-                    <th className="lab-field">测试机时</th>
-                    <th className="lab-field test-notes-column">实验备注</th>
-                    <th className="lab-field">标准总价</th>
-                    <th className="lab-field">测试总价</th>
+                    <th className="lab-field narrow-col">计费数量</th>
+                    <th className="lab-field narrow-col">单位</th>
+                    <th className="lab-field narrow-col">测试工时</th>
+                    <th className="lab-field narrow-col">测试机时</th>
+                    <th className="lab-field note-col">实验备注</th>
+                    <th className="lab-field narrow-col">标准总价</th>
+                    <th className="lab-field narrow-col">测试总价</th>
                     <th className="lab-field">实际交付日期</th>
+                    <th className="lab-field note-col">业务备注</th>
                     <th className="lab-field">开票未到款金额</th>
-                    <th className="lab-field">项目状态</th>
-                    <th className="lab-field fixed-right">文件管理</th>
-                    <th className="fixed-right">
-                      {user?.role === 'admin' || user?.role === 'supervisor' || user?.role === 'leader' ? '操作' : '查看'}
-                    </th>
+                    <th className="lab-field narrow-col">项目状态</th>
+                    <th className="lab-field narrow-col">异常情况</th>
+                    <th className="lab-field fixed-right narrow-col">文件管理</th>
+                    <th className="fixed-right" ref={operationColumnRef}>操作</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1480,17 +1807,31 @@ const CommissionForm = () => {
                           type="checkbox" 
                           checked={selectedItems.includes(item.test_item_id)}
                           onChange={(e) => handleItemSelect(item.test_item_id, e.target.checked)}
+                          disabled={user?.role === 'leader' && !canLeaderEditItem(item)}
                         />
                       </td>
                       <td className="pre-urgent-field fixed-left">{item.order_id}</td>
                       <td className="pre-urgent-field fixed-left">
                         <div style={{fontSize: '12px', lineHeight: '1.3'}}>
-                          <div>{item.category_name || ''} - {item.detail_name || ''}</div>
-                          <div><strong>样品原号:</strong> {item.original_no || ''}</div>
+                          <div>
+                            <DetailViewLink 
+                              text={`${item.category_name || ''} - ${item.detail_name || ''}`}
+                              maxLength={50}
+                              fieldName="检测项目"
+                            />
+                          </div>
+                          <div>
+                            <strong>样品原号:</strong>{' '}
+                            <DetailViewLink 
+                              text={item.original_no || ''}
+                              maxLength={20}
+                              fieldName="样品原号"
+                            />
+                          </div>
                         </div>
                       </td>
-                      <td className="pre-urgent-field">{item.test_code || ''}</td>
-                      <td className="pre-urgent-field">
+                      <td className="pre-urgent-field narrow-col">{item.test_code || ''}</td>
+                      <td className="pre-urgent-field commissioner-col">
                         {item.customer_commissioner_name ? (
                           <span 
                             className="clickable-customer"
@@ -1501,8 +1842,38 @@ const CommissionForm = () => {
                           </span>
                         ) : ''}
                       </td>
+                      <td className="pre-urgent-field narrow-col">
+                        {item.customer_contact_name ? (
+                          <span 
+                            className="clickable-customer"
+                            onClick={() => handleOrderPartyClick(item.order_id)}
+                            title="点击查看委托单相关信息（委托方/付款方/客户）"
+                          >
+                            {item.customer_contact_name}
+                          </span>
+                        ) : ''}
+                      </td>
                       {user?.role === 'admin' && <td className="order-creator-field">{item.department_name || ''}</td>}
-                      <td className="order-creator-field price-original-col">{formatCurrency(item.original_unit_price)}</td>
+                      <td className="order-creator-field price-original-col">
+                        <div style={{fontSize: '12px', lineHeight: '1.3'}}>
+                          <div style={{display: 'flex', gap: '4px'}}>
+                            <strong style={{color: '#6c757d'}}>收费标准:</strong>
+                            <DetailViewLink 
+                              text={formatCurrency(item.original_unit_price)}
+                              maxLength={15}
+                              fieldName="收费标准"
+                            />
+                          </div>
+                          <div style={{display: 'flex', gap: '4px'}}>
+                            <strong style={{color: '#6c757d'}}>最低报价:</strong>
+                            <DetailViewLink 
+                              text={formatCurrency(item.minimum_price)}
+                              maxLength={15}
+                              fieldName="最低报价"
+                            />
+                          </div>
+                        </div>
+                      </td>
                       <td className="order-creator-field price-note-col">
                         {user?.role === 'admin' ? (
                           <div className="editable-field-container">
@@ -1524,19 +1895,58 @@ const CommissionForm = () => {
                           <ReadonlyNoteField text={item.price_note || ''} maxLength={50} fieldName="业务报价" />
                         )}
                       </td>
-                      <td className="order-creator-field quantity-col">{item.quantity || ''}</td>
-                      <td className="order-creator-field">
-                        <span className="readonly-field">{item.assignee_name || ''}</span>
+                      <td className="order-creator-field quantity-col">
+                        {canEditField('quantity', item) ? (
+                          <div className="editable-field-container">
+                            <RealtimeEditableCell
+                              value={item.quantity}
+                              type="number"
+                              onSave={handleSaveEdit}
+                              field="quantity"
+                              testItemId={item.test_item_id}
+                              placeholder="输入数量"
+                              isFieldBeingEdited={isFieldBeingEdited}
+                              getEditingUser={getEditingUser}
+                              emitUserEditing={emitUserEditing}
+                              emitUserStopEditing={emitUserStopEditing}
+                            />
+                            <SavingIndicator testItemId={item.test_item_id} field="quantity" />
+                          </div>
+                        ) : (
+                          <span className="readonly-field">{item.quantity || ''}</span>
+                        )}
+                      </td>
+                      <td className="order-creator-field narrow-col">
+                        {canEditField('assignee_name', item) ? (
+                          <div className="editable-field-container">
+                            <RealtimeEditableCell
+                              value={item.assignee_name}
+                              type="autocomplete"
+                              options={assigneeOptions}
+                              onSave={handleSaveEdit}
+                              field="assignee_name"
+                              testItemId={item.test_item_id}
+                              placeholder="输入业务负责人姓名"
+                              isFieldBeingEdited={isFieldBeingEdited}
+                              getEditingUser={getEditingUser}
+                              emitUserEditing={emitUserEditing}
+                              emitUserStopEditing={emitUserStopEditing}
+                            />
+                            <SavingIndicator testItemId={item.test_item_id} field="assignee_name" />
+                          </div>
+                        ) : (
+                          <span className="readonly-field">{item.assignee_name || ''}</span>
+                        )}
                       </td>
                       <td className="order-creator-field discount-col">
                         <div className="editable-field-container">
                           <RealtimeEditableCell
-                            value={item.discount_rate ? (Number(item.discount_rate) * 100).toFixed(1) : ''}
+                            value={item.discount_rate !== null && item.discount_rate !== undefined ? Number(item.discount_rate).toFixed(1) : ''}
                             type="number"
                             onSave={handleSaveEdit}
                             field="discount_rate"
                             testItemId={item.test_item_id}
-                            placeholder="折扣"
+                            placeholder="折扣(0-100)"
                             isFieldBeingEdited={isFieldBeingEdited}
                             getEditingUser={getEditingUser}
                             emitUserEditing={emitUserEditing}
@@ -1546,7 +1956,7 @@ const CommissionForm = () => {
                           <SavingIndicator testItemId={item.test_item_id} field="discount_rate" />
                         </div>
                       </td>
-                      <td className="order-creator-field">
+                      <td className="order-creator-field note-col">
                         {user?.role === 'admin' ? (
                           <div className="editable-field-container">
                             <RealtimeEditableCell
@@ -1555,7 +1965,7 @@ const CommissionForm = () => {
                               onSave={handleSaveEdit}
                               field="note"
                               testItemId={item.test_item_id}
-                              placeholder="输入备注信息"
+                              placeholder="输入客户备注"
                               isFieldBeingEdited={isFieldBeingEdited}
                               getEditingUser={getEditingUser}
                               emitUserEditing={emitUserEditing}
@@ -1564,12 +1974,16 @@ const CommissionForm = () => {
                             <SavingIndicator testItemId={item.test_item_id} field="note" />
                           </div>
                         ) : (
-                          <ReadonlyNoteField text={item.note || ''} maxLength={50} fieldName="备注" />
+                          <DetailViewLink 
+                            text={item.note || ''}
+                            maxLength={30}
+                            fieldName="客户备注"
+                          />
                         )}
                       </td>
-                      <td className="order-creator-field">{formatDate(item.order_created_at)}</td>
-                      <td className="order-creator-field">{formatDate(item.test_item_created_at)}</td>
-                      <td className="order-creator-field">
+                      <td className="order-creator-field narrow-col">{formatDate(item.order_created_at)}</td>
+                      <td className="order-creator-field narrow-col">{formatDate(item.test_item_created_at)}</td>
+                      <td className="order-creator-field narrow-col">
                         {user?.role === 'admin' ? (
                           <div className="editable-field-container">
                             <RealtimeEditableCell
@@ -1596,7 +2010,7 @@ const CommissionForm = () => {
                           </span>
                         )}
                       </td>
-                      <td className="order-creator-field">
+                      <td className="order-creator-field narrow-col">
                         {user?.role === 'admin' ? (
                           <div className="editable-field-container">
                             <RealtimeEditableCell
@@ -1623,138 +2037,281 @@ const CommissionForm = () => {
                           </span>
                         )}
                       </td>
-                      <td className="order-creator-field">{item.service_urgency || ''}</td>
+                      <td className="order-creator-field narrow-col">
+                        {canEditField('service_urgency', item) ? (
+                          <div className="editable-field-container">
+                            <RealtimeEditableCell
+                              value={(() => {
+                                // 将中文显示值转换为period_type值
+                                if (item.service_urgency === '不加急') return 'normal';
+                                if (item.service_urgency === '加急1.5倍') return 'urgent_1_5x';
+                                if (item.service_urgency === '特急2倍') return 'urgent_2x';
+                                return item.service_urgency || '';
+                              })()}
+                              type="select"
+                              options={SERVICE_URGENCY_OPTIONS}
+                              onSave={async (field, value, testItemId) => {
+                                // 服务加急需要更新订单的period_type字段
+                                const currentItem = data.find(item => item.test_item_id === testItemId);
+                                if (!currentItem || !currentItem.order_id) {
+                                  alert('找不到订单信息');
+                                  return;
+                                }
+                                
+                                try {
+                                  const userLocal = JSON.parse(localStorage.getItem('lims_user') || 'null');
+                                  const response = await fetch(`/api/orders/${currentItem.order_id}`, {
+                                    method: 'PUT',
+                                    headers: {
+                                      'Authorization': `Bearer ${userLocal.token}`,
+                                      'Content-Type': 'application/json'
+                                    },
+                                    body: JSON.stringify({ period_type: value })
+                                  });
+                                  
+                                  if (!response.ok) {
+                                    const errorData = await response.json().catch(() => ({ error: '未知错误' }));
+                                    throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+                                  }
+                                  
+                                  const result = await response.json();
+                                  
+                                  // 更新本地数据中的service_urgency显示值
+                                  const urgencyMap = {
+                                    'normal': '不加急',
+                                    'urgent_1_5x': '加急1.5倍',
+                                    'urgent_2x': '特急2倍'
+                                  };
+                                  
+                                  setData(prevData => 
+                                    prevData.map(item => 
+                                      item.test_item_id === testItemId 
+                                        ? { ...item, service_urgency: urgencyMap[value] || value }
+                                        : item
+                                    )
+                                  );
+                                  
+                                  // 显示成功提示
+                                  setSavingStatus(prev => ({
+                                    ...prev,
+                                    [`${testItemId}-${field}`]: 'success'
+                                  }));
+                                } catch (error) {
+                                  console.error('更新服务加急失败:', error);
+                                  alert('更新服务加急失败: ' + (error.message || '未知错误'));
+                                  setSavingStatus(prev => ({
+                                    ...prev,
+                                    [`${testItemId}-${field}`]: 'error'
+                                  }));
+                                  throw error; // 重新抛出错误，让RealtimeEditableCell知道保存失败
+                                }
+                              }}
+                              field="service_urgency"
+                              testItemId={item.test_item_id}
+                              placeholder="选择服务加急"
+                              isFieldBeingEdited={isFieldBeingEdited}
+                              getEditingUser={getEditingUser}
+                              emitUserEditing={emitUserEditing}
+                              emitUserStopEditing={emitUserStopEditing}
+                            />
+                            <SavingIndicator testItemId={item.test_item_id} field="service_urgency" />
+                          </div>
+                        ) : (
+                          <span className="readonly-field">{item.service_urgency || ''}</span>
+                        )}
+                      </td>
+                      <td className="lab-field narrow-col">
+                        {canEditField('supervisor_name', item) ? (
+                          <div className="editable-field-container">
+                            <RealtimeEditableCell
+                              value={item.supervisor_name}
+                              type="autocomplete"
+                              options={assigneeOptions}
+                              loadOptions={() => loadUsersForItem(item, 'supervisor')}
+                              onSave={handleSaveEdit}
+                              field="supervisor_name"
+                              testItemId={item.test_item_id}
+                              placeholder="输入负责人姓名"
+                              isFieldBeingEdited={isFieldBeingEdited}
+                              getEditingUser={getEditingUser}
+                              emitUserEditing={emitUserEditing}
+                              emitUserStopEditing={emitUserStopEditing}
+                            />
+                            <SavingIndicator testItemId={item.test_item_id} field="supervisor_name" />
+                          </div>
+                        ) : (
+                          <span className="readonly-field">{item.supervisor_name || ''}</span>
+                        )}
+                      </td>
                       <td className="lab-field">
+                        {canEditField('unit_price', item) ? (
+                          <div className="editable-field-container">
+                            <RealtimeEditableCell
+                              value={item.standard_price}
+                              type="number"
+                              onSave={handleSaveEdit}
+                              field="unit_price"
+                              testItemId={item.test_item_id}
+                              placeholder="输入标准单价"
+                              isFieldBeingEdited={isFieldBeingEdited}
+                              getEditingUser={getEditingUser}
+                              emitUserEditing={emitUserEditing}
+                              emitUserStopEditing={emitUserStopEditing}
+                            />
+                            <SavingIndicator testItemId={item.test_item_id} field="unit_price" />
+                          </div>
+                        ) : (
+                          <span className="readonly-field">{formatCurrency(item.standard_price)}</span>
+                        )}
+                      </td>
+                      <td className="lab-field narrow-col">
+                        {canEditField('technician_name', item) ? (
+                          <div className="editable-field-container">
+                            <RealtimeEditableCell
+                              value={item.technician_name}
+                              type="autocomplete"
+                              options={technicians}
+                              loadOptions={() => loadUsersForItem(item, 'technician')}
+                              onSave={handleSaveEdit}
+                              field="technician_name"
+                              testItemId={item.test_item_id}
+                              placeholder="输入测试人员姓名"
+                              isFieldBeingEdited={isFieldBeingEdited}
+                              getEditingUser={getEditingUser}
+                              emitUserEditing={emitUserEditing}
+                              emitUserStopEditing={emitUserStopEditing}
+                            />
+                            <SavingIndicator testItemId={item.test_item_id} field="technician_name" />
+                          </div>
+                        ) : (
+                          <span className="readonly-field">{item.technician_name || ''}</span>
+                        )}
+                      </td>
+                      <td className="lab-field note-col">
                         <div className="editable-field-container">
-                          <RealtimeEditableCell
-                            value={item.supervisor_name}
-                            type="autocomplete"
-                            options={assigneeOptions}
-                            onSave={handleSaveEdit}
-                            field="supervisor_name"
-                            testItemId={item.test_item_id}
-                            placeholder="输入负责人姓名"
-                            isFieldBeingEdited={isFieldBeingEdited}
-                            getEditingUser={getEditingUser}
-                            emitUserEditing={emitUserEditing}
-                            emitUserStopEditing={emitUserStopEditing}
-                          />
-                          <SavingIndicator testItemId={item.test_item_id} field="supervisor_name" />
+                          {canEditField('assignment_note', item) ? (
+                            <>
+                              <RealtimeEditableCell
+                                value={item.assignment_note}
+                                type="textarea"
+                                onSave={handleSaveEdit}
+                                field="assignment_note"
+                                testItemId={item.test_item_id}
+                                placeholder="输入指派备注"
+                                isFieldBeingEdited={isFieldBeingEdited}
+                                getEditingUser={getEditingUser}
+                                emitUserEditing={emitUserEditing}
+                                emitUserStopEditing={emitUserStopEditing}
+                              />
+                              <SavingIndicator testItemId={item.test_item_id} field="assignment_note" />
+                            </>
+                          ) : (
+                            <DetailViewLink text={item.assignment_note || ''} maxLength={30} fieldName="指派备注" />
+                          )}
                         </div>
                       </td>
                       <td className="lab-field">
                         <div className="editable-field-container">
-                          <RealtimeEditableCell
-                            value={item.standard_price}
-                            type="number"
-                            onSave={handleSaveEdit}
-                            field="unit_price"
-                            testItemId={item.test_item_id}
-                            placeholder="输入标准单价"
-                            isFieldBeingEdited={isFieldBeingEdited}
-                            getEditingUser={getEditingUser}
-                            emitUserEditing={emitUserEditing}
-                            emitUserStopEditing={emitUserStopEditing}
-                          />
-                          <SavingIndicator testItemId={item.test_item_id} field="unit_price" />
+                          {canEditField('field_test_time', item) ? (
+                            <>
+                              <RealtimeEditableCell
+                                value={item.field_test_time}
+                                type="datetime-local"
+                                onSave={handleSaveEdit}
+                                field="field_test_time"
+                                testItemId={item.test_item_id}
+                                placeholder="选择现场测试时间"
+                                isFieldBeingEdited={isFieldBeingEdited}
+                                getEditingUser={getEditingUser}
+                                emitUserEditing={emitUserEditing}
+                                emitUserStopEditing={emitUserStopEditing}
+                              />
+                              <SavingIndicator testItemId={item.test_item_id} field="field_test_time" />
+                            </>
+                          ) : (
+                            <span className="readonly-field">{item.field_test_time || ''}</span>
+                          )}
                         </div>
                       </td>
                       <td className="lab-field">
                         <div className="editable-field-container">
-                          <RealtimeEditableCell
-                            value={item.technician_name}
-                            type="autocomplete"
-                            options={technicians}
-                            onSave={handleSaveEdit}
-                            field="technician_name"
-                            testItemId={item.test_item_id}
-                            placeholder="输入测试人员姓名"
-                            isFieldBeingEdited={isFieldBeingEdited}
-                            getEditingUser={getEditingUser}
-                            emitUserEditing={emitUserEditing}
-                            emitUserStopEditing={emitUserStopEditing}
-                          />
-                          <SavingIndicator testItemId={item.test_item_id} field="technician_name" />
+                          {canEditField('equipment_name', item) ? (
+                            <>
+                              <RealtimeEditableCell
+                                value={item.equipment_name}
+                                type="autocomplete"
+                                options={equipmentOptions}
+                                onSave={handleSaveEdit}
+                                field="equipment_name"
+                                testItemId={item.test_item_id}
+                                placeholder="输入设备名称"
+                                isFieldBeingEdited={isFieldBeingEdited}
+                                getEditingUser={getEditingUser}
+                                emitUserEditing={emitUserEditing}
+                                emitUserStopEditing={emitUserStopEditing}
+                              />
+                              <SavingIndicator testItemId={item.test_item_id} field="equipment_name" />
+                            </>
+                          ) : (
+                            <span className="readonly-field">{item.equipment_name || ''}</span>
+                          )}
                         </div>
                       </td>
-                      <td className="lab-field">
+                      <td className="lab-field narrow-col">
                         <div className="editable-field-container">
-                          <RealtimeEditableCell
-                            value={item.field_test_time}
-                            type="datetime-local"
-                            onSave={handleSaveEdit}
-                            field="field_test_time"
-                            testItemId={item.test_item_id}
-                            placeholder="选择现场测试时间"
-                            isFieldBeingEdited={isFieldBeingEdited}
-                            getEditingUser={getEditingUser}
-                            emitUserEditing={emitUserEditing}
-                            emitUserStopEditing={emitUserStopEditing}
-                          />
-                          <SavingIndicator testItemId={item.test_item_id} field="field_test_time" />
+                          {canEditField('actual_sample_quantity', item) ? (
+                            <>
+                              <RealtimeEditableCell
+                                value={item.actual_sample_quantity}
+                                type="number"
+                                onSave={handleSaveEdit}
+                                field="actual_sample_quantity"
+                                testItemId={item.test_item_id}
+                                placeholder="计费数量"
+                                isFieldBeingEdited={isFieldBeingEdited}
+                                getEditingUser={getEditingUser}
+                                emitUserEditing={emitUserEditing}
+                                emitUserStopEditing={emitUserStopEditing}
+                              />
+                              <SavingIndicator testItemId={item.test_item_id} field="actual_sample_quantity" />
+                            </>
+                          ) : (
+                            <span className="readonly-field">{item.actual_sample_quantity ?? ''}</span>
+                          )}
                         </div>
                       </td>
-                      <td className="lab-field">
+                      <td className="lab-field narrow-col">
                         <div className="editable-field-container">
-                          <RealtimeEditableCell
-                            value={item.equipment_name}
-                            type="autocomplete"
-                            options={equipmentOptions}
-                            onSave={handleSaveEdit}
-                            field="equipment_name"
-                            testItemId={item.test_item_id}
-                            placeholder="输入设备名称"
-                            isFieldBeingEdited={isFieldBeingEdited}
-                            getEditingUser={getEditingUser}
-                            emitUserEditing={emitUserEditing}
-                            emitUserStopEditing={emitUserStopEditing}
-                          />
-                          <SavingIndicator testItemId={item.test_item_id} field="equipment_name" />
+                          {canEditField('unit', item) ? (
+                            <>
+                              <RealtimeEditableCell
+                                value={item.unit}
+                                type="select"
+                                options={[
+                                  { value: '机时', label: '机时' },
+                                  { value: '样品数', label: '样品数' },
+                                  { value: '元素', label: '元素' },
+                                  { value: '点位', label: '点位' }
+                                ]}
+                                onSave={handleSaveEdit}
+                                field="unit"
+                                testItemId={item.test_item_id}
+                                placeholder="单位"
+                                isFieldBeingEdited={isFieldBeingEdited}
+                                getEditingUser={getEditingUser}
+                                emitUserEditing={emitUserEditing}
+                                emitUserStopEditing={emitUserStopEditing}
+                              />
+                              <SavingIndicator testItemId={item.test_item_id} field="unit" />
+                            </>
+                          ) : (
+                            <span className="readonly-field">{item.unit || ''}</span>
+                          )}
                         </div>
                       </td>
-                      <td className="lab-field">
+                      <td className="lab-field narrow-col">
                         <div className="editable-field-container">
-                          <RealtimeEditableCell
-                            value={item.actual_sample_quantity}
-                            type="number"
-                            onSave={handleSaveEdit}
-                            field="actual_sample_quantity"
-                            testItemId={item.test_item_id}
-                            placeholder="计费数量"
-                            isFieldBeingEdited={isFieldBeingEdited}
-                            getEditingUser={getEditingUser}
-                            emitUserEditing={emitUserEditing}
-                            emitUserStopEditing={emitUserStopEditing}
-                          />
-                          <SavingIndicator testItemId={item.test_item_id} field="actual_sample_quantity" />
-                        </div>
-                      </td>
-                      <td className="lab-field">
-                        <div className="editable-field-container">
-                          <RealtimeEditableCell
-                            value={item.unit}
-                            type="select"
-                            options={[
-                              { value: '机时', label: '机时' },
-                              { value: '样品数', label: '样品数' },
-                              { value: '元素', label: '元素' },
-                              { value: '点位', label: '点位' }
-                            ]}
-                            onSave={handleSaveEdit}
-                            field="unit"
-                            testItemId={item.test_item_id}
-                            placeholder="单位"
-                            isFieldBeingEdited={isFieldBeingEdited}
-                            getEditingUser={getEditingUser}
-                            emitUserEditing={emitUserEditing}
-                            emitUserStopEditing={emitUserStopEditing}
-                          />
-                          <SavingIndicator testItemId={item.test_item_id} field="unit" />
-                        </div>
-                      </td>
-                      <td className="lab-field">
-                        <div className="editable-field-container">
-                          {item.status === 'completed' && !['admin','leader'].includes(user?.role) ? (
+                          {(!canEditField('work_hours', item) || (item.status === 'completed' && !['admin','leader'].includes(user?.role))) ? (
                             <span className="readonly-field">{item.work_hours ?? ''}</span>
                           ) : (
                             <>
@@ -1775,9 +2332,9 @@ const CommissionForm = () => {
                           )}
                         </div>
                       </td>
-                      <td className="lab-field">
+                      <td className="lab-field narrow-col">
                         <div className="editable-field-container">
-                          {item.status === 'completed' && !['admin','leader'].includes(user?.role) ? (
+                          {(!canEditField('machine_hours', item) || (item.status === 'completed' && !['admin','leader'].includes(user?.role))) ? (
                             <span className="readonly-field">{item.machine_hours ?? ''}</span>
                           ) : (
                             <>
@@ -1798,48 +2355,83 @@ const CommissionForm = () => {
                           )}
                         </div>
                       </td>
-                      <td className="lab-field test-notes-column">
+                      <td className="lab-field note-col">
                         <div className="editable-field-container">
-                          <RealtimeEditableCell
-                            value={item.test_notes}
-                            type="textarea"
-                            onSave={handleSaveEdit}
-                            field="test_notes"
-                            testItemId={item.test_item_id}
-                            placeholder="实验备注"
-                            isFieldBeingEdited={isFieldBeingEdited}
-                            getEditingUser={getEditingUser}
-                            emitUserEditing={emitUserEditing}
-                            emitUserStopEditing={emitUserStopEditing}
-                          />
-                          <SavingIndicator testItemId={item.test_item_id} field="test_notes" />
+                          {canEditField('test_notes', item) ? (
+                            <>
+                              <RealtimeEditableCell
+                                value={item.test_notes}
+                                type="textarea"
+                                onSave={handleSaveEdit}
+                                field="test_notes"
+                                testItemId={item.test_item_id}
+                                placeholder="实验备注"
+                                isFieldBeingEdited={isFieldBeingEdited}
+                                getEditingUser={getEditingUser}
+                                emitUserEditing={emitUserEditing}
+                                emitUserStopEditing={emitUserStopEditing}
+                              />
+                              <SavingIndicator testItemId={item.test_item_id} field="test_notes" />
+                            </>
+                          ) : (
+                            <DetailViewLink text={item.test_notes || ''} maxLength={30} fieldName="实验备注" />
+                          )}
                         </div>
                       </td>
-                      <td className="lab-field">
+                      <td className="lab-field narrow-col">
                         <span className="readonly-field">{formatCurrency(item.line_total)}</span>
                       </td>
-                      <td className="lab-field">
+                      <td className="lab-field narrow-col">
                         <div className="editable-field-container">
-                          <RealtimeEditableCell
-                            value={item.final_unit_price}
-                            type="number"
-                            onSave={handleSaveEdit}
-                            field="final_unit_price"
-                            testItemId={item.test_item_id}
-                            placeholder="测试总价"
-                            isFieldBeingEdited={isFieldBeingEdited}
-                            getEditingUser={getEditingUser}
-                            emitUserEditing={emitUserEditing}
-                            emitUserStopEditing={emitUserStopEditing}
-                          />
-                          <SavingIndicator testItemId={item.test_item_id} field="final_unit_price" />
+                          {canEditField('final_unit_price', item) ? (
+                            <>
+                              <RealtimeEditableCell
+                                value={item.final_unit_price}
+                                type="number"
+                                onSave={handleSaveEdit}
+                                field="final_unit_price"
+                                testItemId={item.test_item_id}
+                                placeholder="测试总价"
+                                isFieldBeingEdited={isFieldBeingEdited}
+                                getEditingUser={getEditingUser}
+                                emitUserEditing={emitUserEditing}
+                                emitUserStopEditing={emitUserStopEditing}
+                              />
+                              <SavingIndicator testItemId={item.test_item_id} field="final_unit_price" />
+                            </>
+                          ) : (
+                            <span className="readonly-field">{formatCurrency(item.final_unit_price)}</span>
+                          )}
                         </div>
                       </td>
                       <td className="lab-field">
                         <span className="readonly-field">{formatDate(item.actual_delivery_date)}</span>
                       </td>
+                      <td className="lab-field note-col">
+                        <div className="editable-field-container">
+                          {canEditField('business_note', item) ? (
+                            <>
+                              <RealtimeEditableCell
+                                value={item.business_note}
+                                type="textarea"
+                                onSave={handleSaveEdit}
+                                field="business_note"
+                                testItemId={item.test_item_id}
+                                placeholder="输入业务备注"
+                                isFieldBeingEdited={isFieldBeingEdited}
+                                getEditingUser={getEditingUser}
+                                emitUserEditing={emitUserEditing}
+                                emitUserStopEditing={emitUserStopEditing}
+                              />
+                              <SavingIndicator testItemId={item.test_item_id} field="business_note" />
+                            </>
+                          ) : (
+                            <DetailViewLink text={item.business_note || ''} maxLength={30} fieldName="业务备注" />
+                          )}
+                        </div>
+                      </td>
                       <td className="lab-field">{item.unpaid_amount || ''}</td>
-                      <td className="lab-field">
+                      <td className="lab-field narrow-col">
                         <span className={`status status-${item.status}`}>
                           {item.status === 'new' && '新建'}
                           {item.status === 'assigned' && '已分配'}
@@ -1849,7 +2441,10 @@ const CommissionForm = () => {
                           {item.status === 'outsource' && '委外'}
                         </span>
                       </td>
-                      <td className="lab-field fixed-right">
+                      <td className="lab-field narrow-col">
+                        <span className="readonly-field">{item.abnormal_condition || ''}</span>
+                      </td>
+                      <td className="lab-field fixed-right narrow-col">
                         <button 
                           className="btn-file" 
                           onClick={() => toggleFileView(item)}
@@ -1858,8 +2453,8 @@ const CommissionForm = () => {
                           📁
                         </button>
                       </td>
-                      <td className="fixed-right" style={{minWidth: '240px', whiteSpace: 'nowrap'}}>
-                        <div style={{display: 'flex', gap: '4px', alignItems: 'center'}}>
+                      <td className="fixed-right" style={{whiteSpace: 'nowrap'}}>
+                        <div style={{display: 'flex', gap: '4px', alignItems: 'center', width: 'fit-content'}}>
                           <button 
                             className="btn btn-success"
                             onClick={() => navigate(`/test-items/${item.test_item_id}?view=1`)}
@@ -1876,8 +2471,8 @@ const CommissionForm = () => {
                           {/* 只有admin、supervisor、leader角色显示其他操作 */}
                           {(user?.role === 'admin' || user?.role === 'supervisor' || user?.role === 'leader') && (
                             <>
-                            {/* 只有supervisor可以审批 */}
-                            {user?.role === 'supervisor' && (
+                            {/* 组长和室主任可以审批 */}
+                            {(user?.role === 'supervisor' || user?.role === 'leader') && (
                               <button 
                                 className="btn btn-success"
                                 onClick={() => handleApprove(item)}
@@ -1915,22 +2510,39 @@ const CommissionForm = () => {
                                 编辑
                               </button>
                             )}
-                            <button 
-                              className="btn btn-info"
-                              onClick={() => handleCopyTestItem(item)}
-                              title="复制加测"
-                              style={{
-                                padding: '2px 6px',
-                                fontSize: '11px',
-                                minWidth: 'auto',
-                                backgroundColor: '#17a2b8',
-                                color: '#fff',
-                                border: '1px solid #17a2b8',
-                                lineHeight: '1.2'
-                              }}
-                            >
-                              复制
-                            </button>
+                            {canCopyItem(item) && (
+                              <button 
+                                className="btn btn-info"
+                                onClick={() => handleCopyTestItem(item)}
+                                title="复制加测"
+                                style={{
+                                  padding: '2px 6px',
+                                  fontSize: '11px',
+                                  minWidth: 'auto',
+                                  backgroundColor: '#17a2b8',
+                                  color: '#fff',
+                                  border: '1px solid #17a2b8',
+                                  lineHeight: '1.2'
+                                }}
+                              >
+                                复制
+                              </button>
+                            )}
+                            {(user?.role === 'supervisor' || user?.role === 'leader') && (
+                              <button
+                                className="btn btn-secondary"
+                                onClick={() => handleTogglePause(item)}
+                                title={item.abnormal_condition ? '继续测试' : '暂停测试'}
+                                style={{
+                                  padding: '2px 6px',
+                                  fontSize: '11px',
+                                  minWidth: 'auto',
+                                  lineHeight: '1.2'
+                                }}
+                              >
+                                {item.abnormal_condition ? '继续' : '暂停'}
+                              </button>
+                            )}
                             {/* 组长（supervisor）不可以删除，管理员和室主任可以删除 */}
                             {(user?.role === 'admin' || user?.role === 'leader') && (
                               <button 
@@ -1983,6 +2595,14 @@ const CommissionForm = () => {
             {total > pageSize && (
               <div className="pagination">
                 <button
+                  onClick={() => setPage(1)}
+                  disabled={page === 1}
+                  className="btn-secondary"
+                  title="首页"
+                >
+                  首页
+                </button>
+                <button
                   onClick={() => setPage(page - 1)}
                   disabled={page === 1}
                   className="btn-secondary"
@@ -1998,6 +2618,14 @@ const CommissionForm = () => {
                   className="btn-secondary"
                 >
                   下一页
+                </button>
+                <button
+                  onClick={() => setPage(Math.ceil(total / pageSize))}
+                  disabled={page >= Math.ceil(total / pageSize)}
+                  className="btn-secondary"
+                  title="末页"
+                >
+                  末页
                 </button>
               </div>
             )}

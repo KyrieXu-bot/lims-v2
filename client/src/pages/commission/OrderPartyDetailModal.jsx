@@ -116,7 +116,7 @@ export default function OrderPartyDetailModal({ isOpen, onClose, orderId }) {
                 <Item label="付款联系人" value={payer?.contact_name} />
                 <Item label="联系电话" value={payer?.contact_phone} />
                 <Item label="账期(天)" value={payer?.payment_term_days} />
-                <Item label="折扣率" value={payer?.discount_rate} />
+                <Item label="折扣率" value={payer?.discount_rate ? `${payer.discount_rate}%` : ''} />
                 <Item label="归属销售" value={payer?.owner_name} />
               </Section>
 

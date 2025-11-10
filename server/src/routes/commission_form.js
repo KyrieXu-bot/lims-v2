@@ -3,11 +3,11 @@ import { getPool } from '../db.js';
 import { requireAuth, requireAnyRole } from '../middleware/auth.js';
 
 const router = Router();
-router.use(requireAuth, requireAnyRole(['admin', 'leader', 'supervisor', 'employee', 'sales']));
+router.use(requireAuth, requireAnyRole(['admin', 'leader', 'supervisor', 'employee', 'sales', 'viewer']));
 
 // 获取委托单登记表数据（扁平化，以test_item_id为单位）
 router.get('/commission-form', async (req, res) => {
-  const { q = '', page = 1, pageSize = 100, status, department_id, field_test_date } = req.query;
+  const { q = '', page = 1, pageSize = 100, status, department_id, field_test_date, my_items } = req.query;
   const offset = (Number(page) - 1) * Number(pageSize);
   const pool = await getPool();
   const like = `%${q}%`;
@@ -20,8 +20,10 @@ router.get('/commission-form', async (req, res) => {
   if (user.role === 'admin') {
     // 管理员：可以看到所有项目
   } else if (user.role === 'leader') {
-    // 室主任：只能看到自己部门的检测项目
-    if (user.department_id) {
+    const leaderDept = Number(user.department_id);
+    if (leaderDept === 5) {
+      // 委外室主任查看所有部门
+    } else if (user.department_id) {
       filters.push('ti.department_id = ?');
       params.push(user.department_id);
     } else {
@@ -57,8 +59,8 @@ router.get('/commission-form', async (req, res) => {
       params.push(q);
     } else {
       // 普通文本搜索
-      filters.push('(ti.category_name LIKE ? OR ti.detail_name LIKE ? OR ti.test_code LIKE ? OR ti.order_id LIKE ? OR c.customer_name LIKE ?)');
-      params.push(like, like, like, like, like);
+      filters.push('(ti.category_name LIKE ? OR ti.detail_name LIKE ? OR ti.test_code LIKE ? OR ti.order_id LIKE ? OR c.customer_name LIKE ? OR comm.contact_name LIKE ?)');
+      params.push(like, like, like, like, like, like);
     }
   }
   if (status) {
@@ -72,6 +74,11 @@ router.get('/commission-form', async (req, res) => {
   if (field_test_date) {
     filters.push('DATE(ti.field_test_time) = ?');
     params.push(field_test_date);
+  }
+  // "我的"筛选：筛选 current_assignee 等于当前用户的项目
+  if (my_items === 'true') {
+    filters.push('ti.current_assignee = ?');
+    params.push(user.user_id);
   }
 
   const where = filters.length ? 'WHERE ' + filters.join(' AND ') : '';
@@ -104,11 +111,13 @@ router.get('/commission-form', async (req, res) => {
         ti.material,
         ti.original_no,
         ti.test_code,
+        ti.price_id,
         ti.department_id,
         d.department_name,
         ti.unit_price as standard_price,
         p.unit_price as original_unit_price,
-        COALESCE(pay.discount_rate, 0) / 100 as discount_rate,
+        p.minimum_price,
+        ti.discount_rate as discount_rate,
         CASE 
           WHEN o.period_type = 'normal' THEN '不加急'
           WHEN o.period_type = 'urgent_1_5x' THEN '加急1.5倍'
@@ -119,6 +128,7 @@ router.get('/commission-form', async (req, res) => {
         ti.note,
         e.equipment_name,
         tech.name as technician_name,
+        ti.assignment_note,
         ti.actual_sample_quantity,
         ti.work_hours,
         ti.machine_hours,
@@ -127,6 +137,8 @@ router.get('/commission-form', async (req, res) => {
         ti.line_total,
         ti.final_unit_price,
         ti.actual_delivery_date,
+        ti.business_note,
+        ti.abnormal_condition,
         ti.status,
         ti.quantity,
         ti.arrival_mode,
@@ -176,6 +188,7 @@ router.get('/commission-form', async (req, res) => {
        FROM test_items ti
        LEFT JOIN orders o ON o.order_id = ti.order_id
        LEFT JOIN customers c ON c.customer_id = o.customer_id
+       LEFT JOIN commissioners comm ON comm.commissioner_id = o.commissioner_id
        ${where}`, 
       params
     );
@@ -244,7 +257,37 @@ router.get('/equipment-list', async (req, res) => {
 // 获取所有设备列表（用于下拉选择）
 router.get('/equipment-options', async (req, res) => {
   const pool = await getPool();
+  const user = req.user;
+  
   try {
+    let whereClause = '';
+    let params = [];
+    
+    // 对于室主任、组长、实验员，只显示自己部门的设备
+    if (user.role === 'leader' || user.role === 'supervisor' || user.role === 'employee') {
+      let departmentId = user.department_id;
+      
+      // 如果没有department_id，通过group_id查找
+      if (!departmentId && user.group_id) {
+        const [deptRows] = await pool.query(
+          'SELECT department_id FROM lab_groups WHERE group_id = ?',
+          [user.group_id]
+        );
+        if (deptRows.length > 0) {
+          departmentId = deptRows[0].department_id;
+        }
+      }
+      
+      if (departmentId) {
+        whereClause = 'WHERE department_id = ?';
+        params.push(departmentId);
+      } else {
+        // 如果没有部门信息，返回空列表
+        return res.json([]);
+      }
+    }
+    // admin 和 sales 角色显示所有设备，不需要过滤
+    
     const [rows] = await pool.query(
       `SELECT 
         equipment_id as id,
@@ -253,7 +296,9 @@ router.get('/equipment-options', async (req, res) => {
         model,
         department_id
       FROM equipment 
-      ORDER BY equipment_name`
+      ${whereClause}
+      ORDER BY equipment_name`,
+      params
     );
     res.json(rows);
   } catch (e) {

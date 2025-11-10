@@ -1,9 +1,11 @@
 import express from 'express';
 import path from 'path';
 import fs from 'fs/promises';
+import fsSync from 'fs';
 import { fileURLToPath } from 'url';
 import PizZip from 'pizzip';
 import Docxtemplater from 'docxtemplater';
+import ImageModule from 'docxtemplater-image-module-free';
 import { requireAuth, requireAnyRole } from '../middleware/auth.js';
 
 // 获取__dirname的ES6模块等价物
@@ -50,10 +52,14 @@ router.post('/generate-order-template', requireAnyRole(['admin']), async (req, r
     console.log('PizZip创建成功');
     
     console.log('开始创建Docxtemplater...');
-    const doc = new Docxtemplater(zip);
+    // 新版本 API：在构造函数中传入数据
+    const doc = new Docxtemplater(zip, {
+      paragraphLoop: true,
+      linebreaks: true
+    });
     console.log('Docxtemplater创建成功');
     
-    // 设置数据
+    // 设置数据（新版本仍支持，但推荐使用构造函数）
     console.log('开始设置数据...');
     doc.setData(templateData);
     console.log('数据设置成功');
@@ -126,7 +132,11 @@ router.post('/generate-process-template', requireAnyRole(['admin']), async (req,
     console.log('流转单PizZip创建成功');
     
     console.log('开始创建流转单Docxtemplater...');
-    const doc = new Docxtemplater(zip);
+    // 新版本 API：在构造函数中传入配置
+    const doc = new Docxtemplater(zip, {
+      paragraphLoop: true,
+      linebreaks: true
+    });
     console.log('流转单Docxtemplater创建成功');
     
     // 设置数据
@@ -229,9 +239,36 @@ router.post('/generate-wh-report', async (req, res) => {
     const nonWH = tiRows.find(r=>String(r.department_id) !== '2');
     if (nonWH) return res.status(403).json({ error: '仅支持物化部门项目导出' });
 
-    const first = tiRows[0] || {};
-    const managerFirst = (first.supervisor_account || '') || '';
-    const testerFirst = (first.technician_account || '') || '';
+    // 从所有检测项目中查找第一个有效的supervisor_account和technician_account
+    let managerFirst = '';
+    let testerFirst = '';
+    
+    // 调试：检查第一个项目的字段
+    if (tiRows.length > 0) {
+      console.log('第一个检测项目的字段:', {
+        supervisor_account: tiRows[0].supervisor_account,
+        technician_account: tiRows[0].technician_account,
+        allKeys: Object.keys(tiRows[0])
+      });
+    }
+    
+    for (const item of tiRows) {
+      if (!managerFirst && item.supervisor_account) {
+        managerFirst = String(item.supervisor_account).trim();
+      }
+      if (!testerFirst && item.technician_account) {
+        testerFirst = String(item.technician_account).trim();
+      }
+      // 如果两个都找到了，可以提前退出
+      if (managerFirst && testerFirst) break;
+    }
+    
+    console.log('提取的签名字段:', {
+      managerFirst,
+      testerFirst,
+      signature_manager: managerFirst ? `${managerFirst}.png` : '',
+      signature_tester: testerFirst ? `${testerFirst}.png` : ''
+    });
 
     const sanitizedItems = tiRows.map((item, idx) => ({
       sample_no: `${order.order_id}-${idx + 1}`,
@@ -282,6 +319,68 @@ router.post('/generate-wh-report', async (req, res) => {
       leaderAccount = leaders[0]?.account || '';
     } catch {}
 
+    // 签名图片文件夹路径
+    const signaturesDir = path.join(__dirname, '..', 'signatures');
+    
+    // 辅助函数：加载签名图片路径（docxtemplater-image-module-free 期望文件路径字符串）
+    const loadSignatureImagePath = async (account) => {
+      if (!account) return null;
+      
+      // 尝试多种可能的文件扩展名（优先 PNG）
+      const extensions = ['.png', '.PNG', '.jpg', '.jpeg', '.JPG', '.JPEG'];
+      
+      for (const ext of extensions) {
+        const imagePath = path.join(signaturesDir, `${account}${ext}`);
+        try {
+          await fs.access(imagePath);
+          // 返回文件路径字符串，让图片模块自己读取
+          return imagePath;
+        } catch (error) {
+          // 文件不存在，继续尝试下一个扩展名
+          continue;
+        }
+      }
+      
+      console.warn(`签名图片未找到: ${account} (已尝试: ${extensions.join(', ')})`);
+      return null;
+    };
+    
+    // 保存图片尺寸信息，用于 getSize 函数
+    const imageSizeMap = new Map();
+    
+    // 加载所有签名图片路径
+    const signatureManagerPath = await loadSignatureImagePath(managerFirst);
+    const signatureTesterPath = await loadSignatureImagePath(testerFirst);
+    const signatureLeaderPath = await loadSignatureImagePath(leaderAccount);
+    
+    // 预先读取图片尺寸（用于 getSize）
+    const loadImageSize = async (imagePath) => {
+      if (!imagePath) return [100, 50];
+      try {
+        const imageBuffer = await fs.readFile(imagePath);
+        // 简单的尺寸检测（可以根据实际需要调整）
+        // 这里使用固定尺寸，如果需要动态检测，可以使用 image-size 库
+        return [100, 50];
+      } catch (error) {
+        return [100, 50];
+      }
+    };
+    
+    if (signatureManagerPath) {
+      const size = await loadImageSize(signatureManagerPath);
+      imageSizeMap.set(signatureManagerPath, size);
+    }
+    if (signatureTesterPath) {
+      const size = await loadImageSize(signatureTesterPath);
+      imageSizeMap.set(signatureTesterPath, size);
+    }
+    if (signatureLeaderPath) {
+      const size = await loadImageSize(signatureLeaderPath);
+      imageSizeMap.set(signatureLeaderPath, size);
+    }
+    
+    // 构建模板数据
+    // 注意：传递图片文件路径字符串，而不是对象
     const templateData = {
       report_title: '物化实验报告',
       order_num: order.order_id,
@@ -291,18 +390,101 @@ router.post('/generate-wh-report', async (req, res) => {
       test_items: sanitizedItems,
       total_count: totalCount,
       equipments,
-      signature_manager: managerFirst ? `${managerFirst}.png` : '',
-      signature_tester: testerFirst ? `${testerFirst}.png` : '',
-      signature_leader: leaderAccount ? `${leaderAccount}.png` : ''
+      // 签名字段（作为图片文件路径，用于模板中的 {@signature_manager} 语法）
+      // 如果图片不存在，值为 null，getImage 会返回 null，图片模块会跳过该图片
+      signature_manager: signatureManagerPath,
+      signature_tester: signatureTesterPath,
+      signature_leader: signatureLeaderPath
     };
 
-    const templatePath = path.join(__dirname, '..', 'templates', 'WH_template.docx');
+    // 调试：输出最终的 templateData 中的签名字段
+    console.log('最终 templateData 中的签名字段:', {
+      signature_manager: templateData.signature_manager,
+      signature_tester: templateData.signature_tester,
+      signature_leader: templateData.signature_leader,
+      'signature_manager.png': templateData['signature_manager.png'],
+      'signature_tester.png': templateData['signature_tester.png'],
+      'signature_leader.png': templateData['signature_leader.png'],
+      signature_manager_type: typeof templateData.signature_manager,
+      signature_tester_type: typeof templateData.signature_tester,
+      signature_leader_type: typeof templateData.signature_leader
+    });
+
+    const templatePath = path.join(__dirname, '..', 'templates', 'WH_template_old.docx');
     await fs.access(templatePath);
     const templateBuffer = await fs.readFile(templatePath);
     const zip = new PizZip(templateBuffer);
-    const doc = new Docxtemplater(zip);
+    
+    // 配置图片模块
+    const imageModule = new ImageModule({
+      centered: false,  // 图片是否居中
+      getImage: function(tagValue, tagName) {
+        // tagValue 现在是图片文件路径字符串
+        // tagName 是模板中的变量名（如 'signature_manager'）
+        console.log(`getImage 调用: tagName=${tagName}, tagValue=${tagValue}`);
+        
+        // 如果 tagValue 是 null、undefined 或空字符串，返回 null（不插入图片）
+        if (!tagValue || typeof tagValue !== 'string') {
+          console.log(`图片路径为空或无效: ${tagName}`);
+          return null;
+        }
+        
+        try {
+          // 同步读取图片文件（因为 getImage 需要同步返回）
+          const imageBuffer = fsSync.readFileSync(tagValue);
+          console.log(`getImage 返回 Buffer，大小: ${imageBuffer.length} bytes, 路径: ${tagValue}`);
+          return imageBuffer;
+        } catch (error) {
+          console.error(`读取图片文件失败: ${tagValue}`, error);
+          return null;
+        }
+      },
+      getSize: function(img, tagValue, tagName) {
+        // getSize 必须始终返回一个数组 [width, height]（像素）
+        // img 是 getImage 返回的图片数据（Buffer 或 null）
+        // tagValue 现在是图片文件路径字符串
+        // tagName 是模板中的变量名
+        
+        // 从缓存中获取尺寸，如果没有则使用默认值
+        let size = [100, 50];
+        if (tagValue && imageSizeMap.has(tagValue)) {
+          size = imageSizeMap.get(tagValue);
+        }
+        
+        console.log(`getSize 调用: tagName=${tagName}, tagValue=${tagValue}, img=${img ? 'exists' : 'null'}, size=${size}`);
+        return size;
+      }
+    });
+    
+    // 调试：在设置数据前输出 templateData 的键和签名字段值
+    console.log('templateData 的所有键:', Object.keys(templateData));
+    console.log('签名字段值:', {
+      signature_manager: templateData.signature_manager ? '已加载' : '未找到',
+      signature_tester: templateData.signature_tester ? '已加载' : '未找到',
+      signature_leader: templateData.signature_leader ? '已加载' : '未找到'
+    });
+    
+    // 新版本 API：在构造函数中传入配置，并注册图片模块
+    const doc = new Docxtemplater(zip, {
+      paragraphLoop: true,
+      linebreaks: true,
+      modules: [imageModule]  // 注册图片模块
+    });
+    
     doc.setData(templateData);
-    doc.render();
+    
+    // 尝试渲染并捕获可能的错误
+    try {
+      doc.render();
+      console.log('文档渲染成功');
+    } catch (renderError) {
+      console.error('文档渲染错误:', renderError);
+      if (renderError.properties) {
+        console.error('错误详情:', renderError.properties);
+        console.error('未定义的变量:', renderError.properties.errors);
+      }
+      throw renderError;
+    }
     const report = doc.getZip().generate({ type: 'nodebuffer' });
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');

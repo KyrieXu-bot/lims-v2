@@ -16,6 +16,7 @@ import SampleManagement from './pages/sample_management/SampleManagement.jsx';
 import SampleDetail from './pages/sample_management/SampleDetail.jsx';
 import OutsourceManagement from './pages/outsource/OutsourceManagement.jsx';
 import OrderManagement from './pages/orders/OrderManagement.jsx';
+import OrderDelete from './pages/orders/OrderDelete.jsx';
 import CommissionForm from './pages/commission/CommissionForm.jsx';
 import EquipmentList from './pages/commission/EquipmentList.jsx';
 import './app.css';
@@ -97,6 +98,7 @@ export default function App() {
       <Route path="/sample-tracking/:id" element={<Layout><SampleDetail/></Layout>} />
       <Route path="/outsource" element={<Layout><OutsourceManagement/></Layout>} />
       <Route path="/orders" element={<Layout><OrderManagement/></Layout>} />
+      <Route path="/orders/delete" element={<Layout><OrderDelete/></Layout>} />
       <Route path="/commission-form" element={<Layout><CommissionForm/></Layout>} />
       <Route path="/equipment-list" element={<Layout><EquipmentList/></Layout>} />
       <Route path="/" element={<Layout><CommissionForm/></Layout>} />

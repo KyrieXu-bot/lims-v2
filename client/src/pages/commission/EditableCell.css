@@ -35,6 +35,16 @@
   text-align: right;
 }
 
+/* textarea类型在非编辑状态下只显示一行，超出部分用省略号 */
+.editable-cell.textarea {
+  display: block !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  max-width: 100% !important;
+  word-break: break-all !important;
+}
+
 .editable-input {
   border: 1px solid #007bff; /* 减小边框避免行高变化 */
   border-radius: 4px;
@@ -71,7 +81,10 @@
 }
 
 .autocomplete-input {
-  min-width: 150px;
+  min-width: 110px; /* 更紧凑，与单元格更协调 */
+  height: 28px; /* 与其它输入统一高度 */
+  padding: 3px 6px;
+  font-size: 12px;
 }
 
 .options-dropdown {

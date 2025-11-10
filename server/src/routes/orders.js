@@ -54,6 +54,7 @@ router.get('/:id', requireAuth, async (req, res) => {
         o.settlement_status,
         o.period_type,
         o.created_at,
+        o.created_by,
         c.customer_name,
         comm.contact_name as commissioner_name,
         p.contact_name as payer_name,
@@ -158,6 +159,53 @@ router.get('/outsource/:id', requireAuth, async (req, res) => {
   }
 });
 
+// 更新委托单信息
+router.put('/:id', requireAuth, async (req, res) => {
+  const user = req.user;
+  
+  // 只有管理员和室主任可以更新订单信息
+  if (user.role !== 'admin' && user.role !== 'leader') {
+    return res.status(403).json({ error: '只有管理员和室主任可以更新订单信息' });
+  }
+  
+  const { period_type, settlement_status } = req.body;
+  const pool = await getPool();
+  
+  try {
+    const updateFields = [];
+    const updateValues = [];
+    
+    if (period_type !== undefined) {
+      updateFields.push('period_type = ?');
+      updateValues.push(period_type);
+    }
+    
+    if (settlement_status !== undefined) {
+      // 只有管理员可以更新结算状态
+      if (user.role === 'admin') {
+        updateFields.push('settlement_status = ?');
+        updateValues.push(settlement_status);
+      }
+    }
+    
+    if (updateFields.length === 0) {
+      return res.status(400).json({ error: '没有提供要更新的字段' });
+    }
+    
+    updateFields.push('updated_at = NOW()');
+    updateValues.push(req.params.id);
+    
+    await pool.query(
+      `UPDATE orders SET ${updateFields.join(', ')} WHERE order_id = ?`,
+      updateValues
+    );
+    
+    res.json({ ok: true, message: '订单更新成功' });
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
 // 更新委托单结算状态
 router.put('/:id/settlement', requireAuth, async (req, res) => {
   const user = req.user;
@@ -201,6 +249,93 @@ router.get('/stats', requireAuth, async (req, res) => {
     res.json(stats[0]);
   } catch (e) {
     return res.status(500).json({ error: e.message });
+  }
+});
+
+// 删除委托单（包含所有关联数据）
+router.delete('/:id', requireAuth, async (req, res) => {
+  const user = req.user;
+  
+  // 只有管理员可以删除委托单
+  if (user.role !== 'admin') {
+    return res.status(403).json({ error: '只有管理员可以删除委托单' });
+  }
+  
+  const orderId = req.params.id;
+  const pool = await getPool();
+  const connection = await pool.getConnection();
+  
+  try {
+    await connection.beginTransaction();
+    
+    // 1. 获取该委托单下的所有 test_item_id
+    const [testItems] = await connection.query(
+      'SELECT test_item_id FROM test_items WHERE order_id = ?',
+      [orderId]
+    );
+    const testItemIds = testItems.map(ti => ti.test_item_id);
+    
+    // 2. 删除 assignments（通过 test_item_id）
+    if (testItemIds.length > 0) {
+      const placeholders = testItemIds.map(() => '?').join(',');
+      await connection.query(
+        `DELETE FROM assignments WHERE test_item_id IN (${placeholders})`,
+        testItemIds
+      );
+    }
+    
+    // 3. 删除 sample_return_info（通过 test_item_id）
+    if (testItemIds.length > 0) {
+      const placeholders = testItemIds.map(() => '?').join(',');
+      await connection.query(
+        `DELETE FROM sample_return_info WHERE test_item_id IN (${placeholders})`,
+        testItemIds
+      );
+    }
+    
+    // 4. 删除 sample_tracking（通过 test_item_id 和 order_id）
+    if (testItemIds.length > 0) {
+      const placeholders = testItemIds.map(() => '?').join(',');
+      await connection.query(
+        `DELETE FROM sample_tracking WHERE test_item_id IN (${placeholders}) OR order_id = ?`,
+        [...testItemIds, orderId]
+      );
+    } else {
+      // 如果没有test_item_id，只按order_id删除
+      await connection.query(
+        'DELETE FROM sample_tracking WHERE order_id = ?',
+        [orderId]
+      );
+    }
+    
+    // 5. 删除 test_items（通过 order_id，CASCADE会自动删除 outsource_info）
+    // 注意：test_items 删除后，CASCADE 会自动删除：
+    //   - outsource_info (通过 test_item_id CASCADE)
+    //   - samples 中的关联会被 SET NULL (通过 test_item_id SET NULL)
+    //   - project_files 中的关联会被 SET NULL (通过 test_item_id SET NULL)
+    await connection.query(
+      'DELETE FROM test_items WHERE order_id = ?',
+      [orderId]
+    );
+    
+    // 6. 删除 orders（CASCADE会自动删除以下表的数据）：
+    //   - project_files (通过 order_id CASCADE)
+    //   - reports (通过 order_id CASCADE)
+    //   - sample_handling (通过 order_id CASCADE)
+    //   - sample_requirements (通过 order_id CASCADE)
+    //   - samples (通过 order_id CASCADE)
+    await connection.query(
+      'DELETE FROM orders WHERE order_id = ?',
+      [orderId]
+    );
+    
+    await connection.commit();
+    res.json({ ok: true, message: '委托单及其关联数据已成功删除' });
+  } catch (e) {
+    await connection.rollback();
+    return res.status(500).json({ error: e.message });
+  } finally {
+    connection.release();
   }
 });
 

@@ -60,7 +60,7 @@ export default function Payers() {
               <td>{it.customer_name}</td>
               <td>{it.contact_phone}</td>
               <td>{it.payment_term_days}</td>
-              <td>{it.discount_rate}</td>
+              <td>{it.discount_rate !== null && it.discount_rate !== undefined ? `${it.discount_rate}%` : ''}</td>
               <td>{it.owner_user_id ? `${it.owner_name||''}（${it.owner_user_id}）` : ''}</td>
               <td>{it.is_active ? <span className="badge">启用</span> : <span className="badge">禁用</span>}</td>
               <td className="actions">
