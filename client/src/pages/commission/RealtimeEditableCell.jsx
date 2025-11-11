@@ -1,6 +1,40 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import './EditableCell.css';
 
+const formatDateForInput = (val) => {
+  if (!val) return '';
+  const parsed = new Date(val);
+  if (!Number.isNaN(parsed.getTime())) {
+    const offset = parsed.getTimezoneOffset();
+    const local = new Date(parsed.getTime() - offset * 60000);
+    return local.toISOString().slice(0, 10);
+  }
+  if (typeof val === 'string') {
+    const normalized = val.replace(/\s+/g, 'T');
+    if (/^\d{4}-\d{2}-\d{2}/.test(normalized)) {
+      return normalized.slice(0, 10);
+    }
+  }
+  return '';
+};
+
+const formatDateTimeForInput = (val) => {
+  if (!val) return '';
+  const parsed = new Date(val);
+  if (!Number.isNaN(parsed.getTime())) {
+    const offset = parsed.getTimezoneOffset();
+    const local = new Date(parsed.getTime() - offset * 60000);
+    return local.toISOString().slice(0, 16);
+  }
+  if (typeof val === 'string') {
+    const normalized = val.replace(/\s+/g, 'T');
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(normalized)) {
+      return normalized.slice(0, 16);
+    }
+  }
+  return '';
+};
+
 const RealtimeEditableCell = ({ 
   value, 
   type = 'text', 
@@ -22,6 +56,12 @@ const RealtimeEditableCell = ({
   const getInitialEditValue = (val) => {
     if (type === 'number') {
       return val === null || val === undefined || val === '' ? '' : val;
+    }
+    if (type === 'date') {
+      return formatDateForInput(val);
+    }
+    if (type === 'datetime-local') {
+      return formatDateTimeForInput(val);
     }
     return val || '';
   };
@@ -70,8 +110,12 @@ const RealtimeEditableCell = ({
   useEffect(() => {
     if (isEditing && inputRef.current) {
       inputRef.current.focus();
-      if (type === 'text') {
-        inputRef.current.select();
+      if (['text', 'number', 'date', 'datetime-local'].includes(type)) {
+        try {
+          inputRef.current.select();
+        } catch (e) {
+          // 某些输入类型不支持 select，忽略即可
+        }
       }
     }
   }, [isEditing, type]);
@@ -271,7 +315,20 @@ const RealtimeEditableCell = ({
       return new Date(val).toLocaleDateString('zh-CN');
     }
     if (type === 'datetime-local') {
-      return new Date(val).toLocaleString('zh-CN');
+      if (!val) return '';
+      const parsed = new Date(val);
+      if (!Number.isNaN(parsed.getTime())) {
+        return parsed.toLocaleString('zh-CN');
+      }
+      if (typeof val === 'string') {
+        const normalized = val.replace(/\s+/g, 'T');
+        const fallback = new Date(normalized);
+        if (!Number.isNaN(fallback.getTime())) {
+          return fallback.toLocaleString('zh-CN');
+        }
+        return normalized.replace('T', ' ');
+      }
+      return '';
     }
     if (type === 'select') {
       // 对于select类型，显示对应的中文标签

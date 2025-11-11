@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api.js';
 import CustomerDetailModal from './CustomerDetailModal.jsx';
@@ -18,6 +18,49 @@ const SERVICE_URGENCY_OPTIONS = [
   { value: 'urgent_1_5x', label: '加急1.5倍' },
   { value: 'urgent_2x', label: '特急2倍' }
 ];
+
+const COLUMN_VISIBILITY_STORAGE_KEY = 'commission_form_column_visibility';
+
+const TOGGLEABLE_COLUMNS = [
+  { key: 'test_code', label: '项目编号' },
+  { key: 'commissioner', label: '委托单位' },
+  { key: 'contact', label: '联系人' },
+  { key: 'department', label: '归属部门' },
+  { key: 'price_original', label: '收费标准' },
+  { key: 'price_note', label: '业务报价' },
+  { key: 'quantity', label: '数量' },
+  { key: 'assignee_name', label: '业务负责人' },
+  { key: 'discount_rate', label: '折扣' },
+  { key: 'customer_note', label: '客户备注' },
+  { key: 'order_created_at', label: '收样日期' },
+  { key: 'test_item_created_at', label: '开单日期' },
+  { key: 'arrival_mode', label: '样品到达方式' },
+  { key: 'sample_arrival_status', label: '样品是否已到' },
+  { key: 'service_urgency', label: '服务加急' },
+  { key: 'supervisor_name', label: '负责人' },
+  { key: 'standard_price', label: '标准单价' },
+  { key: 'technician_name', label: '测试人员' },
+  { key: 'assignment_note', label: '指派备注' },
+  { key: 'field_test_time', label: '现场测试时间' },
+  { key: 'equipment_name', label: '检测设备' },
+  { key: 'actual_sample_quantity', label: '计费数量' },
+  { key: 'unit', label: '单位' },
+  { key: 'work_hours', label: '测试工时' },
+  { key: 'machine_hours', label: '测试机时' },
+  { key: 'test_notes', label: '实验备注' },
+  { key: 'line_total', label: '标准总价' },
+  { key: 'final_unit_price', label: '测试总价' },
+  { key: 'actual_delivery_date', label: '实际交付日期' },
+  { key: 'business_note', label: '业务备注' },
+  { key: 'unpaid_amount', label: '开票未到款金额' },
+  { key: 'status', label: '项目状态' },
+  { key: 'abnormal_condition', label: '异常情况' }
+];
+
+const DEFAULT_COLUMN_VISIBILITY = TOGGLEABLE_COLUMNS.reduce((acc, col) => {
+  acc[col.key] = true;
+  return acc;
+}, {});
 
 // 可折叠文本组件
 const CollapsibleText = ({ text, maxLength = 50 }) => {
@@ -73,11 +116,127 @@ const CommissionForm = () => {
   const [selectedOrderId, setSelectedOrderId] = useState(null);
   const [user, setUser] = useState(null);
   const [savingStatus, setSavingStatus] = useState({}); // 保存状态：{testItemId-field: 'saving'|'success'|'error'}
-  const [selectedItems, setSelectedItems] = useState([]); // 选中的检测项目ID列表
+  const [selectedItems, setSelectedItems] = useState([]);
   const [showBatchUploadModal, setShowBatchUploadModal] = useState(false);
   const [deletingItems, setDeletingItems] = useState(new Set()); // 正在删除的项目ID集合
   const [showExportModal, setShowExportModal] = useState(false); // 导出弹框状态
   const operationColumnRef = useRef(null); // 操作列的引用
+  const [selectAllLoading, setSelectAllLoading] = useState(false);
+  const [columnVisibility, setColumnVisibility] = useState(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = localStorage.getItem(COLUMN_VISIBILITY_STORAGE_KEY);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          return { ...DEFAULT_COLUMN_VISIBILITY, ...parsed };
+        }
+      } catch (error) {
+        console.warn('恢复列可见性失败:', error);
+      }
+    }
+    return { ...DEFAULT_COLUMN_VISIBILITY };
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      localStorage.setItem(COLUMN_VISIBILITY_STORAGE_KEY, JSON.stringify(columnVisibility));
+    } catch (error) {
+      console.warn('保存列可见性失败:', error);
+    }
+  }, [columnVisibility]);
+
+  const isColumnVisible = (key) => columnVisibility[key] !== false;
+
+  const isColumnApplicable = (key) => {
+    if (key === 'department') {
+      return user?.role === 'admin';
+    }
+    return true;
+  };
+
+  const applicableColumns = TOGGLEABLE_COLUMNS.filter(col => isColumnApplicable(col.key));
+
+  const hiddenColumns = applicableColumns.filter(col => !isColumnVisible(col.key));
+
+  const toggleColumnVisibility = (key) => {
+    setColumnVisibility(prev => {
+      const next = { ...prev, [key]: prev[key] === false ? true : false };
+      return next;
+    });
+  };
+
+  const getColumnCellClass = (key, baseClass = '') => {
+    const classes = [baseClass];
+    if (!isColumnVisible(key)) {
+      classes.push('column-hidden-cell');
+    }
+    return classes.filter(Boolean).join(' ').trim();
+  };
+
+  const fetchAllMatchingItemIds = async () => {
+    const totalCount = Math.max(total || 0, pageSize, 1000);
+    const params = new URLSearchParams({
+      q: searchQuery,
+      page: '1',
+      pageSize: totalCount.toString(),
+    });
+    if (statusFilter) params.append('status', statusFilter);
+    if (departmentFilter) params.append('department_id', departmentFilter);
+    if (fieldTestDateFilter) params.append('field_test_date', fieldTestDateFilter);
+    if (myItemsFilter) params.append('my_items', 'true');
+
+    const storedUser = JSON.parse(localStorage.getItem('lims_user') || 'null');
+    const headers = {
+      'Authorization': `Bearer ${storedUser?.token}`,
+      'Content-Type': 'application/json'
+    };
+
+    const response = await fetch(`/api/commission-form/commission-form?${params.toString()}`, { headers });
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    const result = await response.json();
+    const items = Array.isArray(result.data) ? result.data : [];
+    const eligibleItems = user?.role === 'leader'
+      ? items.filter(it => canLeaderEditItem(it))
+      : items;
+    const ids = eligibleItems.map(it => it.test_item_id).filter(Boolean);
+    return Array.from(new Set(ids));
+  };
+
+  const formatTestItemName = (item) => {
+    const parts = [item?.category_name, item?.detail_name].filter(Boolean);
+    return parts.join(' - ');
+  };
+
+  const renderColumnHeader = (key, label, baseClass) => {
+    if (!isColumnApplicable(key)) return null;
+    const isVisible = isColumnVisible(key);
+    if (!isVisible) {
+      return null;
+    }
+    const thClasses = [baseClass, 'toggleable-column-header'];
+    return (
+      <th className={thClasses.filter(Boolean).join(' ').trim()} data-column-key={key}>
+        <div
+          className="column-header"
+          title={`隐藏${label}`}
+        >
+          <span className="column-label">{label}</span>
+          <button
+            type="button"
+            className="column-toggle-btn"
+            onClick={() => toggleColumnVisibility(key)}
+            aria-label={`隐藏${label}`}
+          >
+            ▾
+          </button>
+        </div>
+      </th>
+    );
+  };
+
   // 统一的字段权限控制
   const leaderDepartmentId = user?.department_id ? Number(user.department_id) : null;
 
@@ -587,15 +746,20 @@ const CommissionForm = () => {
   };
 
   // 处理全选
-  const handleSelectAll = (e) => {
-    if (e.target.checked) {
-      const selectable = data.filter(item => {
-        if (user?.role === 'leader') {
-          return canLeaderEditItem(item);
-        }
-        return true;
-      }).map(item => item.test_item_id);
-      setSelectedItems(selectable);
+  const handleSelectAll = async (e) => {
+    const checked = e.target.checked;
+    if (checked) {
+      setSelectAllLoading(true);
+      try {
+        const allIds = await fetchAllMatchingItemIds();
+        setSelectedItems(allIds);
+      } catch (error) {
+        console.error('全选失败:', error);
+        alert('全选失败，请稍后再试');
+        setSelectedItems([]);
+      } finally {
+        setSelectAllLoading(false);
+      }
     } else {
       setSelectedItems([]);
     }
@@ -636,7 +800,8 @@ const CommissionForm = () => {
         '委托单号': item.order_id || '',
         '收样日期': formatDate(item.order_created_at),
         '开单日期': formatDate(item.test_item_created_at),
-        '委托单位': item.customer_name || '',
+        '委托单位': item.customer_commissioner_name || '',
+        '委托方联系人': item.customer_contact_name || '',
         '业务负责人': item.assignee_name || '',
         '检测项目': `${item.category_name || ''} - ${item.detail_name || ''}`,
         '样品原号': item.original_no || '',
@@ -682,6 +847,7 @@ const CommissionForm = () => {
         { wch: 12 },  // 收样日期
         { wch: 12 },  // 开单日期
         { wch: 20 },  // 委托单位
+        { wch: 12 },  // 委托方联系人
         { wch: 12 },  // 业务负责人
         { wch: 30 },  // 检测项目
         { wch: 15 },  // 样品原号
@@ -754,7 +920,8 @@ const CommissionForm = () => {
       const templateData = {
         // 基本信息
         order_num: firstItem.order_id,
-        customer_name: firstItem.customer_name || '',
+        customer_name: firstItem.commissioner_name || firstItem.customer_commissioner_name || '',
+        commissioner_name: firstItem.commissioner_name || firstItem.customer_commissioner_name || '',
         customer_contactName: firstItem.customer_contact_name || '',
         customer_address: firstItem.customer_address || '',
         customer_contactEmail: firstItem.customer_contact_email || '',
@@ -859,7 +1026,7 @@ const CommissionForm = () => {
           sample_type: item.sample_type || '',
           sampleTypeLabel: getSampleTypeLabel(item.sample_type),
           original_no: item.original_no || '',
-          test_item: item.detail_name || '',
+          test_item: formatTestItemName(item) || '',
           test_method: item.test_method || '',
           sample_preparation: item.sample_preparation,
           samplePrepYesSymbol: item.sample_preparation === 1 ? '☑' : '☐',
@@ -870,9 +1037,9 @@ const CommissionForm = () => {
         })),
         
         // 付款方信息
-        payer_name: firstItem.payer_name || '',
+        payer_name: firstItem.payer_name || firstItem.customer_name || '',
         payer_address: firstItem.payer_address || '',
-        payer_contactName: firstItem.payer_contact_name || '',
+        payer_contactName: firstItem.payer_contact_name || firstItem.customer_contact_name || '',
         payer_contactEmail: firstItem.payer_contact_email || '',
         payer_contactPhone: firstItem.payer_contact_phone || '',
         payer_bankName: firstItem.payer_bank_name || '',
@@ -948,7 +1115,7 @@ const CommissionForm = () => {
         const row = {
           idx: index + 1,
           sample_code: `${firstItem.order_id}-${String(index + 1).padStart(3, '0')}`,
-          test_item: item.detail_name || '',
+          test_item: formatTestItemName(item) || '',
           project_code: item.test_code || '',
           method: item.test_method || '',
           quantity: item.quantity || '',
@@ -1550,6 +1717,21 @@ const CommissionForm = () => {
     return '';
   };
 
+  const getRowClassNames = (item) => {
+    const classes = [];
+    const abnormal = item?.abnormal_condition ? String(item.abnormal_condition) : '';
+    if (abnormal.includes('暂停')) {
+      classes.push('row-paused');
+    }
+    if (item?.status === 'cancelled') {
+      classes.push('row-cancelled');
+    }
+    if (item?.status === 'completed') {
+      classes.push('row-completed');
+    }
+    return classes.join(' ');
+  };
+
   const handleExportWH = async () => {
     try {
       if (selectedItems.length === 0) {
@@ -1655,7 +1837,7 @@ const CommissionForm = () => {
               <option value="outsource">委外</option>
             </select>
           </div>
-          {user?.role === 'admin' && (
+          {(user?.role === 'admin' || user?.role === 'viewer' || (user?.role === 'leader' && Number(user?.department_id) === 5)) && (
             <div className="filter-group">
               <label>部门:</label>
               <select
@@ -1739,6 +1921,22 @@ const CommissionForm = () => {
             <div className="table-info">
               共 {total} 条记录，当前第 {page} 页
             </div>
+            {hiddenColumns.length > 0 && (
+              <div className="hidden-columns-bar">
+                <span className="hidden-columns-label">已隐藏列:</span>
+                {hiddenColumns.map(col => (
+                  <button
+                    key={col.key}
+                    type="button"
+                    className="hidden-column-chip"
+                    onClick={() => toggleColumnVisibility(col.key)}
+                    title={`显示${col.label}`}
+                  >
+                    {col.label} ▸
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="table-wrapper">
               <table className="data-table">
                 <thead>
@@ -1758,50 +1956,51 @@ const CommissionForm = () => {
                         })()}
                         onChange={handleSelectAll}
                         title="全选"
+                        disabled={selectAllLoading}
                       />
                     </th>
                     <th className="pre-urgent-field fixed-left">委托单号</th>
                     <th className="pre-urgent-field fixed-left">检测项目</th>
-                    <th className="pre-urgent-field narrow-col">项目编号</th>
-                    <th className="pre-urgent-field commissioner-col">委托单位</th>
-                    <th className="pre-urgent-field narrow-col">联系人</th>
-                    {user?.role === 'admin' && <th className="order-creator-field">归属部门</th>}
-                    <th className="order-creator-field price-original-col">收费标准</th>
-                    <th className="order-creator-field price-note-col">业务报价</th>
-                    <th className="order-creator-field quantity-col">数量</th>
-                    <th className="order-creator-field narrow-col">业务负责人</th>
-                    <th className="order-creator-field discount-col">折扣</th>
-                    <th className="order-creator-field note-col">客户备注</th>
-                    <th className="order-creator-field narrow-col">收样日期</th>
-                    <th className="order-creator-field narrow-col">开单日期</th>
-                    <th className="order-creator-field narrow-col">样品到达方式</th>
-                    <th className="order-creator-field narrow-col">样品是否已到</th>
-                    <th className="order-creator-field narrow-col">服务加急</th>
-                    <th className="lab-field narrow-col">负责人</th>
-                    <th className="lab-field">标准单价</th>
-                    <th className="lab-field narrow-col">测试人员</th>
-                    <th className="lab-field note-col">指派备注</th>
-                    <th className="lab-field">现场测试时间</th>
-                    <th className="lab-field">检测设备</th>
-                    <th className="lab-field narrow-col">计费数量</th>
-                    <th className="lab-field narrow-col">单位</th>
-                    <th className="lab-field narrow-col">测试工时</th>
-                    <th className="lab-field narrow-col">测试机时</th>
-                    <th className="lab-field note-col">实验备注</th>
-                    <th className="lab-field narrow-col">标准总价</th>
-                    <th className="lab-field narrow-col">测试总价</th>
-                    <th className="lab-field">实际交付日期</th>
-                    <th className="lab-field note-col">业务备注</th>
-                    <th className="lab-field">开票未到款金额</th>
-                    <th className="lab-field narrow-col">项目状态</th>
-                    <th className="lab-field narrow-col">异常情况</th>
+                    {renderColumnHeader('test_code', '项目编号', 'pre-urgent-field narrow-col')}
+                    {renderColumnHeader('commissioner', '委托单位', 'pre-urgent-field commissioner-col')}
+                    {renderColumnHeader('contact', '联系人', 'pre-urgent-field narrow-col')}
+                    {user?.role === 'admin' && renderColumnHeader('department', '归属部门', 'order-creator-field')}
+                    {renderColumnHeader('price_original', '收费标准', 'order-creator-field price-original-col')}
+                    {renderColumnHeader('price_note', '业务报价', 'order-creator-field price-note-col')}
+                    {renderColumnHeader('quantity', '数量', 'order-creator-field quantity-col')}
+                    {renderColumnHeader('assignee_name', '业务负责人', 'order-creator-field narrow-col')}
+                    {renderColumnHeader('discount_rate', '折扣', 'order-creator-field discount-col')}
+                    {renderColumnHeader('customer_note', '客户备注', 'order-creator-field note-col')}
+                    {renderColumnHeader('order_created_at', '收样日期', 'order-creator-field narrow-col')}
+                    {renderColumnHeader('test_item_created_at', '开单日期', 'order-creator-field narrow-col')}
+                    {renderColumnHeader('arrival_mode', '样品到达方式', 'order-creator-field narrow-col')}
+                    {renderColumnHeader('sample_arrival_status', '样品是否已到', 'order-creator-field narrow-col')}
+                    {renderColumnHeader('service_urgency', '服务加急', 'order-creator-field narrow-col')}
+                    {renderColumnHeader('supervisor_name', '负责人', 'lab-field narrow-col')}
+                    {renderColumnHeader('standard_price', '标准单价', 'lab-field')}
+                    {renderColumnHeader('technician_name', '测试人员', 'lab-field narrow-col')}
+                    {renderColumnHeader('assignment_note', '指派备注', 'lab-field note-col')}
+                    {renderColumnHeader('field_test_time', '现场测试时间', 'lab-field')}
+                    {renderColumnHeader('equipment_name', '检测设备', 'lab-field')}
+                    {renderColumnHeader('actual_sample_quantity', '计费数量', 'lab-field narrow-col')}
+                    {renderColumnHeader('unit', '单位', 'lab-field narrow-col')}
+                    {renderColumnHeader('work_hours', '测试工时', 'lab-field narrow-col')}
+                    {renderColumnHeader('machine_hours', '测试机时', 'lab-field narrow-col')}
+                    {renderColumnHeader('test_notes', '实验备注', 'lab-field note-col')}
+                    {renderColumnHeader('line_total', '标准总价', 'lab-field narrow-col')}
+                    {renderColumnHeader('final_unit_price', '测试总价', 'lab-field narrow-col')}
+                    {renderColumnHeader('actual_delivery_date', '实际交付日期', 'lab-field')}
+                    {renderColumnHeader('business_note', '业务备注', 'lab-field note-col')}
+                    {renderColumnHeader('unpaid_amount', '开票未到款金额', 'lab-field')}
+                    {renderColumnHeader('status', '项目状态', 'lab-field narrow-col')}
+                    {renderColumnHeader('abnormal_condition', '异常情况', 'lab-field narrow-col')}
                     <th className="lab-field fixed-right narrow-col">文件管理</th>
                     <th className="fixed-right" ref={operationColumnRef}>操作</th>
                   </tr>
                 </thead>
                 <tbody>
                   {data.map((item) => (
-                    <tr key={item.test_item_id}>
+                    <tr key={item.test_item_id} className={getRowClassNames(item)}>
                       <td className="fixed-left-checkbox">
                         <input 
                           type="checkbox" 
@@ -1810,7 +2009,14 @@ const CommissionForm = () => {
                           disabled={user?.role === 'leader' && !canLeaderEditItem(item)}
                         />
                       </td>
-                      <td className="pre-urgent-field fixed-left">{item.order_id}</td>
+                      <td className="pre-urgent-field fixed-left">
+                        <div className="order-id-wrapper">
+                          <span className="order-id-text">{item.order_id}</span>
+                          {item.status === 'completed' && (
+                            <span className="status-icon status-icon-completed" title="已完成">&#10003;</span>
+                          )}
+                        </div>
+                      </td>
                       <td className="pre-urgent-field fixed-left">
                         <div style={{fontSize: '12px', lineHeight: '1.3'}}>
                           <div>
@@ -1830,8 +2036,8 @@ const CommissionForm = () => {
                           </div>
                         </div>
                       </td>
-                      <td className="pre-urgent-field narrow-col">{item.test_code || ''}</td>
-                      <td className="pre-urgent-field commissioner-col">
+                      <td className={getColumnCellClass('test_code', 'pre-urgent-field narrow-col')} data-column-key="test_code">{item.test_code || ''}</td>
+                      <td className={getColumnCellClass('commissioner', 'pre-urgent-field commissioner-col')} data-column-key="commissioner">
                         {item.customer_commissioner_name ? (
                           <span 
                             className="clickable-customer"
@@ -1842,7 +2048,7 @@ const CommissionForm = () => {
                           </span>
                         ) : ''}
                       </td>
-                      <td className="pre-urgent-field narrow-col">
+                      <td className={getColumnCellClass('contact', 'pre-urgent-field narrow-col')} data-column-key="contact">
                         {item.customer_contact_name ? (
                           <span 
                             className="clickable-customer"
@@ -1853,8 +2059,10 @@ const CommissionForm = () => {
                           </span>
                         ) : ''}
                       </td>
-                      {user?.role === 'admin' && <td className="order-creator-field">{item.department_name || ''}</td>}
-                      <td className="order-creator-field price-original-col">
+                      {user?.role === 'admin' && <td className={getColumnCellClass('department', 'order-creator-field')} data-column-key="department">
+                        {item.department_name || ''}
+                      </td>}
+                      <td className={getColumnCellClass('price_original', 'order-creator-field price-original-col')} data-column-key="price_original">
                         <div style={{fontSize: '12px', lineHeight: '1.3'}}>
                           <div style={{display: 'flex', gap: '4px'}}>
                             <strong style={{color: '#6c757d'}}>收费标准:</strong>
@@ -1874,7 +2082,7 @@ const CommissionForm = () => {
                           </div>
                         </div>
                       </td>
-                      <td className="order-creator-field price-note-col">
+                      <td className={getColumnCellClass('price_note', 'order-creator-field price-note-col')} data-column-key="price_note">
                         {user?.role === 'admin' ? (
                           <div className="editable-field-container">
                             <RealtimeEditableCell
@@ -1895,7 +2103,7 @@ const CommissionForm = () => {
                           <ReadonlyNoteField text={item.price_note || ''} maxLength={50} fieldName="业务报价" />
                         )}
                       </td>
-                      <td className="order-creator-field quantity-col">
+                      <td className={getColumnCellClass('quantity', 'order-creator-field quantity-col')} data-column-key="quantity">
                         {canEditField('quantity', item) ? (
                           <div className="editable-field-container">
                             <RealtimeEditableCell
@@ -1916,7 +2124,7 @@ const CommissionForm = () => {
                           <span className="readonly-field">{item.quantity || ''}</span>
                         )}
                       </td>
-                      <td className="order-creator-field narrow-col">
+                      <td className={getColumnCellClass('assignee_name', 'order-creator-field narrow-col')} data-column-key="assignee_name">
                         {canEditField('assignee_name', item) ? (
                           <div className="editable-field-container">
                             <RealtimeEditableCell
@@ -1938,7 +2146,7 @@ const CommissionForm = () => {
                           <span className="readonly-field">{item.assignee_name || ''}</span>
                         )}
                       </td>
-                      <td className="order-creator-field discount-col">
+                      <td className={getColumnCellClass('discount_rate', 'order-creator-field discount-col')} data-column-key="discount_rate">
                         <div className="editable-field-container">
                           <RealtimeEditableCell
                             value={item.discount_rate !== null && item.discount_rate !== undefined ? Number(item.discount_rate).toFixed(1) : ''}
@@ -1956,7 +2164,7 @@ const CommissionForm = () => {
                           <SavingIndicator testItemId={item.test_item_id} field="discount_rate" />
                         </div>
                       </td>
-                      <td className="order-creator-field note-col">
+                      <td className={getColumnCellClass('customer_note', 'order-creator-field note-col')} data-column-key="customer_note">
                         {user?.role === 'admin' ? (
                           <div className="editable-field-container">
                             <RealtimeEditableCell
@@ -1981,9 +2189,9 @@ const CommissionForm = () => {
                           />
                         )}
                       </td>
-                      <td className="order-creator-field narrow-col">{formatDate(item.order_created_at)}</td>
-                      <td className="order-creator-field narrow-col">{formatDate(item.test_item_created_at)}</td>
-                      <td className="order-creator-field narrow-col">
+                      <td className={getColumnCellClass('order_created_at', 'order-creator-field narrow-col')} data-column-key="order_created_at">{formatDate(item.order_created_at)}</td>
+                      <td className={getColumnCellClass('test_item_created_at', 'order-creator-field narrow-col')} data-column-key="test_item_created_at">{formatDate(item.test_item_created_at)}</td>
+                      <td className={getColumnCellClass('arrival_mode', 'order-creator-field narrow-col')} data-column-key="arrival_mode">
                         {user?.role === 'admin' ? (
                           <div className="editable-field-container">
                             <RealtimeEditableCell
@@ -2010,7 +2218,7 @@ const CommissionForm = () => {
                           </span>
                         )}
                       </td>
-                      <td className="order-creator-field narrow-col">
+                      <td className={getColumnCellClass('sample_arrival_status', 'order-creator-field narrow-col')} data-column-key="sample_arrival_status">
                         {user?.role === 'admin' ? (
                           <div className="editable-field-container">
                             <RealtimeEditableCell
@@ -2037,12 +2245,11 @@ const CommissionForm = () => {
                           </span>
                         )}
                       </td>
-                      <td className="order-creator-field narrow-col">
+                      <td className={getColumnCellClass('service_urgency', 'order-creator-field narrow-col')} data-column-key="service_urgency">
                         {canEditField('service_urgency', item) ? (
                           <div className="editable-field-container">
                             <RealtimeEditableCell
                               value={(() => {
-                                // 将中文显示值转换为period_type值
                                 if (item.service_urgency === '不加急') return 'normal';
                                 if (item.service_urgency === '加急1.5倍') return 'urgent_1_5x';
                                 if (item.service_urgency === '特急2倍') return 'urgent_2x';
@@ -2057,7 +2264,6 @@ const CommissionForm = () => {
                                   alert('找不到订单信息');
                                   return;
                                 }
-                                
                                 try {
                                   const userLocal = JSON.parse(localStorage.getItem('lims_user') || 'null');
                                   const response = await fetch(`/api/orders/${currentItem.order_id}`, {
@@ -2068,21 +2274,16 @@ const CommissionForm = () => {
                                     },
                                     body: JSON.stringify({ period_type: value })
                                   });
-                                  
                                   if (!response.ok) {
                                     const errorData = await response.json().catch(() => ({ error: '未知错误' }));
                                     throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
                                   }
-                                  
-                                  const result = await response.json();
-                                  
-                                  // 更新本地数据中的service_urgency显示值
+                                  await response.json();
                                   const urgencyMap = {
                                     'normal': '不加急',
                                     'urgent_1_5x': '加急1.5倍',
                                     'urgent_2x': '特急2倍'
                                   };
-                                  
                                   setData(prevData => 
                                     prevData.map(item => 
                                       item.test_item_id === testItemId 
@@ -2090,8 +2291,6 @@ const CommissionForm = () => {
                                         : item
                                     )
                                   );
-                                  
-                                  // 显示成功提示
                                   setSavingStatus(prev => ({
                                     ...prev,
                                     [`${testItemId}-${field}`]: 'success'
@@ -2103,7 +2302,7 @@ const CommissionForm = () => {
                                     ...prev,
                                     [`${testItemId}-${field}`]: 'error'
                                   }));
-                                  throw error; // 重新抛出错误，让RealtimeEditableCell知道保存失败
+                                  throw error;
                                 }
                               }}
                               field="service_urgency"
@@ -2120,7 +2319,7 @@ const CommissionForm = () => {
                           <span className="readonly-field">{item.service_urgency || ''}</span>
                         )}
                       </td>
-                      <td className="lab-field narrow-col">
+                      <td className={getColumnCellClass('supervisor_name', 'lab-field narrow-col')} data-column-key="supervisor_name">
                         {canEditField('supervisor_name', item) ? (
                           <div className="editable-field-container">
                             <RealtimeEditableCell
@@ -2143,7 +2342,7 @@ const CommissionForm = () => {
                           <span className="readonly-field">{item.supervisor_name || ''}</span>
                         )}
                       </td>
-                      <td className="lab-field">
+                      <td className={getColumnCellClass('standard_price', 'lab-field')} data-column-key="standard_price">
                         {canEditField('unit_price', item) ? (
                           <div className="editable-field-container">
                             <RealtimeEditableCell
@@ -2164,7 +2363,7 @@ const CommissionForm = () => {
                           <span className="readonly-field">{formatCurrency(item.standard_price)}</span>
                         )}
                       </td>
-                      <td className="lab-field narrow-col">
+                      <td className={getColumnCellClass('technician_name', 'lab-field narrow-col')} data-column-key="technician_name">
                         {canEditField('technician_name', item) ? (
                           <div className="editable-field-container">
                             <RealtimeEditableCell
@@ -2187,7 +2386,7 @@ const CommissionForm = () => {
                           <span className="readonly-field">{item.technician_name || ''}</span>
                         )}
                       </td>
-                      <td className="lab-field note-col">
+                      <td className={getColumnCellClass('assignment_note', 'lab-field note-col')} data-column-key="assignment_note">
                         <div className="editable-field-container">
                           {canEditField('assignment_note', item) ? (
                             <>
@@ -2210,7 +2409,7 @@ const CommissionForm = () => {
                           )}
                         </div>
                       </td>
-                      <td className="lab-field">
+                      <td className={getColumnCellClass('field_test_time', 'lab-field')} data-column-key="field_test_time">
                         <div className="editable-field-container">
                           {canEditField('field_test_time', item) ? (
                             <>
@@ -2233,7 +2432,7 @@ const CommissionForm = () => {
                           )}
                         </div>
                       </td>
-                      <td className="lab-field">
+                      <td className={getColumnCellClass('equipment_name', 'lab-field')} data-column-key="equipment_name">
                         <div className="editable-field-container">
                           {canEditField('equipment_name', item) ? (
                             <>
@@ -2257,7 +2456,7 @@ const CommissionForm = () => {
                           )}
                         </div>
                       </td>
-                      <td className="lab-field narrow-col">
+                      <td className={getColumnCellClass('actual_sample_quantity', 'lab-field narrow-col')} data-column-key="actual_sample_quantity">
                         <div className="editable-field-container">
                           {canEditField('actual_sample_quantity', item) ? (
                             <>
@@ -2280,7 +2479,7 @@ const CommissionForm = () => {
                           )}
                         </div>
                       </td>
-                      <td className="lab-field narrow-col">
+                      <td className={getColumnCellClass('unit', 'lab-field narrow-col')} data-column-key="unit">
                         <div className="editable-field-container">
                           {canEditField('unit', item) ? (
                             <>
@@ -2309,7 +2508,7 @@ const CommissionForm = () => {
                           )}
                         </div>
                       </td>
-                      <td className="lab-field narrow-col">
+                      <td className={getColumnCellClass('work_hours', 'lab-field narrow-col')} data-column-key="work_hours">
                         <div className="editable-field-container">
                           {(!canEditField('work_hours', item) || (item.status === 'completed' && !['admin','leader'].includes(user?.role))) ? (
                             <span className="readonly-field">{item.work_hours ?? ''}</span>
@@ -2332,7 +2531,7 @@ const CommissionForm = () => {
                           )}
                         </div>
                       </td>
-                      <td className="lab-field narrow-col">
+                      <td className={getColumnCellClass('machine_hours', 'lab-field narrow-col')} data-column-key="machine_hours">
                         <div className="editable-field-container">
                           {(!canEditField('machine_hours', item) || (item.status === 'completed' && !['admin','leader'].includes(user?.role))) ? (
                             <span className="readonly-field">{item.machine_hours ?? ''}</span>
@@ -2355,7 +2554,7 @@ const CommissionForm = () => {
                           )}
                         </div>
                       </td>
-                      <td className="lab-field note-col">
+                      <td className={getColumnCellClass('test_notes', 'lab-field note-col')} data-column-key="test_notes">
                         <div className="editable-field-container">
                           {canEditField('test_notes', item) ? (
                             <>
@@ -2378,10 +2577,10 @@ const CommissionForm = () => {
                           )}
                         </div>
                       </td>
-                      <td className="lab-field narrow-col">
+                      <td className={getColumnCellClass('line_total', 'lab-field narrow-col')} data-column-key="line_total">
                         <span className="readonly-field">{formatCurrency(item.line_total)}</span>
                       </td>
-                      <td className="lab-field narrow-col">
+                      <td className={getColumnCellClass('final_unit_price', 'lab-field narrow-col')} data-column-key="final_unit_price">
                         <div className="editable-field-container">
                           {canEditField('final_unit_price', item) ? (
                             <>
@@ -2404,10 +2603,10 @@ const CommissionForm = () => {
                           )}
                         </div>
                       </td>
-                      <td className="lab-field">
+                      <td className={getColumnCellClass('actual_delivery_date', 'lab-field')} data-column-key="actual_delivery_date">
                         <span className="readonly-field">{formatDate(item.actual_delivery_date)}</span>
                       </td>
-                      <td className="lab-field note-col">
+                      <td className={getColumnCellClass('business_note', 'lab-field note-col')} data-column-key="business_note">
                         <div className="editable-field-container">
                           {canEditField('business_note', item) ? (
                             <>
@@ -2430,8 +2629,8 @@ const CommissionForm = () => {
                           )}
                         </div>
                       </td>
-                      <td className="lab-field">{item.unpaid_amount || ''}</td>
-                      <td className="lab-field narrow-col">
+                      <td className={getColumnCellClass('unpaid_amount', 'lab-field')} data-column-key="unpaid_amount">{item.unpaid_amount || ''}</td>
+                      <td className={getColumnCellClass('status', 'lab-field narrow-col')} data-column-key="status">
                         <span className={`status status-${item.status}`}>
                           {item.status === 'new' && '新建'}
                           {item.status === 'assigned' && '已分配'}
@@ -2441,7 +2640,7 @@ const CommissionForm = () => {
                           {item.status === 'outsource' && '委外'}
                         </span>
                       </td>
-                      <td className="lab-field narrow-col">
+                      <td className={getColumnCellClass('abnormal_condition', 'lab-field narrow-col')} data-column-key="abnormal_condition">
                         <span className="readonly-field">{item.abnormal_condition || ''}</span>
                       </td>
                       <td className="lab-field fixed-right narrow-col">

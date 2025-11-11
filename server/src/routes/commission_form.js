@@ -97,6 +97,7 @@ router.get('/commission-form', async (req, res) => {
         comm.contact_name as customer_contact_name,
         comm.contact_phone as customer_contact_phone,
         comm.email as customer_contact_email,
+        comm.commissioner_name as commissioner_name,
         COALESCE(comm.commissioner_name, c.customer_name) as customer_commissioner_name,
         comm.address as customer_commissioner_address,
         o.commissioner_id,
@@ -151,7 +152,8 @@ router.get('/commission-form', async (req, res) => {
         sales.email as sales_email,
         sales.phone as sales_phone,
         -- 付款方信息
-        pay.contact_name as payer_name,
+        c.customer_name as payer_name,
+        pay.contact_name as payer_contact_name,
         pay.contact_phone as payer_contact_phone,
         NULL as payer_contact_email, -- payers表没有email字段
         c.bank_name as payer_bank_name, -- 从customers表获取
