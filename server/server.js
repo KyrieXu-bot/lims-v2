@@ -18,6 +18,7 @@ import commissionFormRouter from './src/routes/commission_form.js';
 import departmentsRouter from './src/routes/departments.js';
 import labGroupsRouter from './src/routes/lab_groups.js';
 import templatesRouter from './src/routes/templates.js';
+import statisticsRouter from './src/routes/statistics.js';
 import { setupSocket } from './src/socket.js';
 import { getPool } from './src/db.js';
 
@@ -55,6 +56,7 @@ app.use('/api/commission-form', commissionFormRouter);
 app.use('/api/departments', departmentsRouter);
 app.use('/api/lab-groups', labGroupsRouter);
 app.use('/api/templates', templatesRouter);
+app.use('/api/statistics', statisticsRouter);
 
 // 设置WebSocket
 const io = setupSocket(server);

@@ -35,15 +35,6 @@ export default function OrderPartyDetailModal({ isOpen, onClose, orderId }) {
     return statusMap[status] || status;
   };
 
-  // 周期类型映射
-  const getPeriodTypeText = (periodType) => {
-    const periodMap = {
-      'normal': '不加急',
-      'urgent_1_5x': '加急1.5倍',
-      'urgent_2x': '特急2倍'
-    };
-    return periodMap[periodType] || periodType || '不加急';
-  };
 
   useEffect(() => {
     if (!isOpen || !orderId) return;
@@ -94,7 +85,6 @@ export default function OrderPartyDetailModal({ isOpen, onClose, orderId }) {
                 <Item label="结算状态" value={getSettlementStatusText(order?.settlement_status)} />
                 <Item label="创建时间" value={order?.created_at ? new Date(order.created_at).toLocaleString('zh-CN') : '-'} />
                 <Item label="总金额" value={order?.total_price} />
-                <Item label="周期类型" value={getPeriodTypeText(order?.period_type)} />
               </Section>
 
               <Section title="客户信息">

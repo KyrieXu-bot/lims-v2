@@ -122,6 +122,7 @@ const CommissionForm = () => {
   const [showExportModal, setShowExportModal] = useState(false); // 导出弹框状态
   const operationColumnRef = useRef(null); // 操作列的引用
   const [selectAllLoading, setSelectAllLoading] = useState(false);
+  const [copiedFieldTestTime, setCopiedFieldTestTime] = useState('');
   const [columnVisibility, setColumnVisibility] = useState(() => {
     if (typeof window !== 'undefined') {
       try {
@@ -145,6 +146,10 @@ const CommissionForm = () => {
       console.warn('保存列可见性失败:', error);
     }
   }, [columnVisibility]);
+
+  useEffect(() => {
+    fullSelectionCacheRef.current = null;
+  }, [page, pageSize, searchQuery, statusFilter, departmentFilter, fieldTestDateFilter, myItemsFilter]);
 
   const isColumnVisible = (key) => columnVisibility[key] !== false;
 
@@ -174,7 +179,12 @@ const CommissionForm = () => {
     return classes.filter(Boolean).join(' ').trim();
   };
 
-  const fetchAllMatchingItemIds = async () => {
+  const fullSelectionCacheRef = useRef(null);
+
+  const fetchAllMatchingItems = async () => {
+    if (fullSelectionCacheRef.current) {
+      return fullSelectionCacheRef.current;
+    }
     const totalCount = Math.max(total || 0, pageSize, 1000);
     const params = new URLSearchParams({
       q: searchQuery,
@@ -201,8 +211,26 @@ const CommissionForm = () => {
     const eligibleItems = user?.role === 'leader'
       ? items.filter(it => canLeaderEditItem(it))
       : items;
-    const ids = eligibleItems.map(it => it.test_item_id).filter(Boolean);
+    fullSelectionCacheRef.current = eligibleItems;
+    return eligibleItems;
+  };
+
+  const fetchAllMatchingItemIds = async () => {
+    const items = await fetchAllMatchingItems();
+    const ids = items.map(it => it.test_item_id).filter(Boolean);
     return Array.from(new Set(ids));
+  };
+
+  const getSelectedItemsData = async () => {
+    if (selectedItems.length === 0) {
+      return [];
+    }
+    const currentPageSelected = data.filter(item => selectedItems.includes(item.test_item_id));
+    if (currentPageSelected.length === selectedItems.length) {
+      return currentPageSelected;
+    }
+    const allItems = await fetchAllMatchingItems();
+    return allItems.filter(item => selectedItems.includes(item.test_item_id));
   };
 
   const formatTestItemName = (item) => {
@@ -527,16 +555,47 @@ const CommissionForm = () => {
         }
       }
 
-      if (!users.length && groupId) {
+      // 直接根据部门加载实验员，不再使用group_id
+      if (!users.length && departmentId) {
         try {
-          users = await api.getEmployeesByGroup(groupId).then(mapUsers);
+          users = await api.getAllEmployees({ department_id: departmentId }).then(mapUsers);
         } catch (error) {
-          console.warn('根据group_id加载实验员失败:', error);
+          console.warn('根据department_id加载实验员失败:', error);
         }
       }
 
-      if (!users.length) {
-        users = await api.getAllEmployees({ department_id: departmentId ?? undefined }).then(mapUsers);
+      // 如果还是没有，尝试使用当前用户的部门
+      if (!users.length && storedUser?.department_id) {
+        try {
+          users = await api.getAllEmployees({ department_id: storedUser.department_id }).then(mapUsers);
+        } catch (error) {
+          console.warn('根据当前用户部门加载实验员失败:', error);
+        }
+      }
+
+      const supervisorMatchesCurrentUser = (() => {
+        if (!storedUser) return false;
+        const supervisorId = item.supervisor_id ?? null;
+        const supervisorName = item.supervisor_name ?? '';
+        const currentUserId = storedUser.user_id ?? storedUser.id ?? storedUser.userId ?? null;
+        if (supervisorId && currentUserId) {
+          return String(supervisorId) === String(currentUserId);
+        }
+        if (supervisorName && storedUser.name) {
+          return supervisorName === storedUser.name;
+        }
+        return false;
+      })();
+
+      if (storedUser && (storedUser.role === 'supervisor' || storedUser.role === 'leader') && supervisorMatchesCurrentUser) {
+        const currentUserOption = {
+          id: storedUser.user_id ?? storedUser.id ?? storedUser.userId,
+          name: storedUser.name || storedUser.account || '',
+          account: storedUser.account || ''
+        };
+        if (currentUserOption.id && currentUserOption.name && !users.some(u => String(u.id) === String(currentUserOption.id))) {
+          users.unshift(currentUserOption);
+        }
       }
 
       if (users.length) {
@@ -668,13 +727,99 @@ const CommissionForm = () => {
     setSelectedFileTestItem(null);
   };
 
+  const hasValue = (value) => {
+    if (value === null || value === undefined) return false;
+    if (typeof value === 'string') return value.trim() !== '';
+    return true;
+  };
+
+  const toNumberOrNull = (value) => {
+    if (value === null || value === undefined || value === '') return null;
+    const num = Number(value);
+    return Number.isNaN(num) ? null : num;
+  };
+
+  const hasPositiveNumber = (value) => {
+    const num = toNumberOrNull(value);
+    return num !== null && num > 0;
+  };
+
+  const formatNumberValue = (value) => {
+    if (value === null || value === undefined || value === '') return '';
+    const num = Number(value);
+    if (Number.isFinite(num)) {
+      return num % 1 === 0 ? `${num}` : num.toFixed(2);
+    }
+    return String(value);
+  };
+
+  const meetsApprovalFieldRequirements = (item) => {
+    if (!item) return false;
+
+    const responsibleFilled = hasValue(item.supervisor_id) || hasValue(item.supervisor_name);
+    const standardPriceFilled = hasPositiveNumber(item.standard_price ?? item.unit_price);
+    const testerFilled = hasValue(item.technician_id) || hasValue(item.technician_name);
+    const fieldTestTimeFilled = hasValue(item.field_test_time);
+    const equipmentFilled = hasValue(item.equipment_id) || hasValue(item.equipment_name);
+    const quantityFilled = hasPositiveNumber(item.actual_sample_quantity);
+    const unitFilled = hasValue(item.unit);
+    const workHoursFilled = hasPositiveNumber(item.work_hours);
+    const machineHoursFilled = hasPositiveNumber(item.machine_hours);
+    const standardTotalFilled = hasPositiveNumber(item.line_total);
+
+    return responsibleFilled &&
+      standardPriceFilled &&
+      testerFilled &&
+      fieldTestTimeFilled &&
+      equipmentFilled &&
+      quantityFilled &&
+      unitFilled &&
+      workHoursFilled &&
+      machineHoursFilled &&
+      standardTotalFilled;
+  };
+
+  const getApprovalButtonAppearance = (item) => {
+    const isCompleted = item.status === 'completed';
+    const meetsRequirements = meetsApprovalFieldRequirements(item);
+    if (isCompleted) {
+      return {
+        disabled: true,
+        backgroundColor: '#d4edda',
+        color: '#155724',
+        borderColor: '#c3e6cb',
+        cursor: 'not-allowed'
+      };
+    }
+    if (!meetsRequirements || item.status === 'cancelled') {
+      return {
+        disabled: true,
+        backgroundColor: '#fff3cd',
+        color: '#856404',
+        borderColor: '#ffeeba',
+        cursor: 'not-allowed'
+      };
+    }
+    return {
+      disabled: false,
+      backgroundColor: '#ffc107',
+      color: '#000',
+      borderColor: '#ffc107',
+      cursor: 'pointer'
+    };
+  };
+
   // 审批（组长/室主任）
   const canApprove = (item) => {
-    return Boolean(item.work_hours) && Boolean(item.machine_hours) && item.status !== 'completed' && item.status !== 'cancelled';
+    return meetsApprovalFieldRequirements(item) && item.status !== 'completed' && item.status !== 'cancelled';
   };
 
   const handleApprove = async (item) => {
     try {
+      if (!meetsApprovalFieldRequirements(item)) {
+        alert('请先完善负责人、标准单价、测试人员等审批所需信息');
+        return;
+      }
       // 校验原始数据是否存在
       const userLocal = JSON.parse(localStorage.getItem('lims_user') || 'null');
       const params = new URLSearchParams({ category: 'raw_data', test_item_id: item.test_item_id, pageSize: '1' });
@@ -683,6 +828,30 @@ const CommissionForm = () => {
       const hasRaw = (dataResp?.data || []).length > 0;
       if (!hasRaw) {
         alert('请先在"文件管理-实验原始数据"上传原始数据');
+        return;
+      }
+      const rawFiles = (dataResp?.data || []).map(file => file.filename || file.original_name || file.filepath || '').filter(Boolean);
+
+      const standardPriceValue = hasPositiveNumber(item.standard_price) ? item.standard_price : item.unit_price;
+      const lines = [
+        '是否进行审批操作？',
+        '',
+        `委托单号: ${item.order_id || ''}`,
+        `检测项目: ${(item.category_name || '') && (item.detail_name || '') ? `${item.category_name} - ${item.detail_name}` : (item.category_name || item.detail_name || '')}`,
+        `负责人: ${item.supervisor_name || ''}`,
+        `测试人员: ${item.technician_name || ''}`,
+        `标准单价: ${formatCurrency(standardPriceValue)}`,
+        `计费数量: ${formatNumberValue(item.actual_sample_quantity)}`,
+        `单位: ${item.unit || ''}`,
+        `标准总价: ${formatCurrency(item.line_total)}`,
+        `测试机时: ${formatNumberValue(item.machine_hours)}`,
+        `测试工时: ${formatNumberValue(item.work_hours)}`,
+        `现场测试时间: ${formatDateTime(item.field_test_time)}`,
+        `交付的原始数据文件名字:\n${rawFiles.map(name => `  - ${name}`).join('\n')}`
+      ];
+
+      const confirmMessage = lines.join('\n');
+      if (!window.confirm(confirmMessage)) {
         return;
       }
       // 设置状态为已完成
@@ -751,8 +920,10 @@ const CommissionForm = () => {
     if (checked) {
       setSelectAllLoading(true);
       try {
-        const allIds = await fetchAllMatchingItemIds();
-        setSelectedItems(allIds);
+        fullSelectionCacheRef.current = null;
+        const allItems = await fetchAllMatchingItems();
+        const allIds = allItems.map(item => item.test_item_id).filter(Boolean);
+        setSelectedItems(Array.from(new Set(allIds)));
       } catch (error) {
         console.error('全选失败:', error);
         alert('全选失败，请稍后再试');
@@ -762,6 +933,7 @@ const CommissionForm = () => {
       }
     } else {
       setSelectedItems([]);
+      fullSelectionCacheRef.current = null;
     }
   };
 
@@ -784,7 +956,7 @@ const CommissionForm = () => {
   };
 
   // 导出Excel功能
-  const handleExportExcel = () => {
+  const handleExportExcel = async () => {
     if (selectedItems.length === 0) {
       alert('请先选择要导出的检测项目');
       return;
@@ -792,7 +964,7 @@ const CommissionForm = () => {
 
     try {
       // 获取选中的数据
-      const selectedData = data.filter(item => selectedItems.includes(item.test_item_id));
+      const selectedData = await getSelectedItemsData();
       
       // 准备Excel数据
       const excelData = selectedData.map((item, index) => ({
@@ -900,7 +1072,7 @@ const CommissionForm = () => {
   // 导出委托单模板
   const handleExportOrderTemplate = async () => {
     try {
-      const selectedData = data.filter(item => selectedItems.includes(item.test_item_id));
+      const selectedData = await getSelectedItemsData();
       if (selectedData.length === 0) {
         alert('没有选中的检测项目数据');
         return;
@@ -1090,7 +1262,7 @@ const CommissionForm = () => {
   // 导出流转单模板
   const handleExportProcessTemplate = async () => {
     try {
-      const selectedData = data.filter(item => selectedItems.includes(item.test_item_id));
+      const selectedData = await getSelectedItemsData();
       if (selectedData.length === 0) {
         alert('没有选中的检测项目数据');
         return;
@@ -2258,21 +2430,16 @@ const CommissionForm = () => {
                               type="select"
                               options={SERVICE_URGENCY_OPTIONS}
                               onSave={async (field, value, testItemId) => {
-                                // 服务加急需要更新订单的period_type字段
-                                const currentItem = data.find(item => item.test_item_id === testItemId);
-                                if (!currentItem || !currentItem.order_id) {
-                                  alert('找不到订单信息');
-                                  return;
-                                }
+                                // 服务加急需要更新test_items的service_urgency字段
                                 try {
                                   const userLocal = JSON.parse(localStorage.getItem('lims_user') || 'null');
-                                  const response = await fetch(`/api/orders/${currentItem.order_id}`, {
+                                  const response = await fetch(`/api/test-items/${testItemId}`, {
                                     method: 'PUT',
                                     headers: {
                                       'Authorization': `Bearer ${userLocal.token}`,
                                       'Content-Type': 'application/json'
                                     },
-                                    body: JSON.stringify({ period_type: value })
+                                    body: JSON.stringify({ service_urgency: value })
                                   });
                                   if (!response.ok) {
                                     const errorData = await response.json().catch(() => ({ error: '未知错误' }));
@@ -2424,6 +2591,8 @@ const CommissionForm = () => {
                                 getEditingUser={getEditingUser}
                                 emitUserEditing={emitUserEditing}
                                 emitUserStopEditing={emitUserStopEditing}
+                                copiedValue={copiedFieldTestTime}
+                                onCopyValue={setCopiedFieldTestTime}
                               />
                               <SavingIndicator testItemId={item.test_item_id} field="field_test_time" />
                             </>
@@ -2671,25 +2840,30 @@ const CommissionForm = () => {
                           {(user?.role === 'admin' || user?.role === 'supervisor' || user?.role === 'leader') && (
                             <>
                             {/* 组长和室主任可以审批 */}
-                            {(user?.role === 'supervisor' || user?.role === 'leader') && (
-                              <button 
-                                className="btn btn-success"
-                                onClick={() => handleApprove(item)}
-                                title="审批为已完成"
-                                disabled={!canApprove(item)}
-                                style={{
-                                  padding: '2px 6px',
-                                  fontSize: '11px',
-                                  minWidth: 'auto',
-                                  backgroundColor: '#28a745',
-                                  color: '#fff',
-                                  border: '1px solid #28a745',
-                                  lineHeight: '1.2'
-                                }}
-                              >
-                                审批
-                              </button>
-                            )}
+                            {(user?.role === 'supervisor' || user?.role === 'leader') && (() => {
+                              const approvalAppearance = getApprovalButtonAppearance(item);
+                              return (
+                                <button 
+                                  className="btn"
+                                  onClick={() => handleApprove(item)}
+                                  title="审批为已完成"
+                                  disabled={approvalAppearance.disabled}
+                                  style={{
+                                    padding: '2px 6px',
+                                    fontSize: '11px',
+                                    minWidth: 'auto',
+                                    backgroundColor: approvalAppearance.backgroundColor,
+                                    color: approvalAppearance.color,
+                                    border: `1px solid ${approvalAppearance.borderColor}`,
+                                    lineHeight: '1.2',
+                                    cursor: approvalAppearance.cursor,
+                                    boxShadow: 'none'
+                                  }}
+                                >
+                                  审批
+                                </button>
+                              );
+                            })()}
                             {/* 组长（supervisor）不可以编辑，管理员和室主任可以编辑 */}
                             {(user?.role === 'admin' || user?.role === 'leader') && (
                               <button 

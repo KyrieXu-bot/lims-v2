@@ -52,7 +52,6 @@ router.get('/:id', requireAuth, async (req, res) => {
         o.payer_id,
         o.total_price,
         o.settlement_status,
-        o.period_type,
         o.created_at,
         o.created_by,
         c.customer_name,
@@ -168,17 +167,12 @@ router.put('/:id', requireAuth, async (req, res) => {
     return res.status(403).json({ error: '只有管理员和室主任可以更新订单信息' });
   }
   
-  const { period_type, settlement_status } = req.body;
+  const { settlement_status } = req.body;
   const pool = await getPool();
   
   try {
     const updateFields = [];
     const updateValues = [];
-    
-    if (period_type !== undefined) {
-      updateFields.push('period_type = ?');
-      updateValues.push(period_type);
-    }
     
     if (settlement_status !== undefined) {
       // 只有管理员可以更新结算状态

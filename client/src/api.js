@@ -445,5 +445,23 @@ export const api = {
     const r = await fetch(`/api/lab-groups?${params.toString()}`, { headers: this.authHeaders() });
     if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
     return r.json();
+  },
+
+  // statistics
+  async getStatisticsSummary({ from, to }) {
+    const params = new URLSearchParams();
+    if (from) params.set('from', from);
+    if (to) params.set('to', to);
+    const r = await fetch(`/api/statistics/summary?${params.toString()}`, { headers: this.authHeaders() });
+    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
+    return r.json();
+  },
+  async exportStatistics({ from, to }) {
+    const params = new URLSearchParams();
+    if (from) params.set('from', from);
+    if (to) params.set('to', to);
+    const r = await fetch(`/api/statistics/export?${params.toString()}`, { headers: this.authHeaders() });
+    if (!r.ok) throw new Error((await r.json()).error || 'Export failed');
+    return r.blob();
   }
 }

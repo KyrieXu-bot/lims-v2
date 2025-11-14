@@ -49,7 +49,9 @@ const RealtimeEditableCell = ({
   emitUserEditing,
   emitUserStopEditing,
   suffix = '',
-  loadOptions // 新增：动态加载选项的函数
+  loadOptions, // 新增：动态加载选项的函数
+  copiedValue,
+  onCopyValue
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   // 对于 number 类型，0 是有效值，应该保留；对于其他类型，null/undefined 转为空字符串
@@ -302,6 +304,81 @@ const RealtimeEditableCell = ({
     emitUserStopEditing && emitUserStopEditing(field, testItemId);
   };
 
+  const fallbackCopyTextToClipboard = (text) => {
+    if (typeof document === 'undefined') return false;
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    textarea.style.top = '0';
+    textarea.setAttribute('readonly', '');
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    let success = false;
+    try {
+      success = document.execCommand('copy');
+    } catch (err) {
+      console.error('复制失败:', err);
+    }
+    document.body.removeChild(textarea);
+    return success;
+  };
+
+  const copyToClipboard = async (text) => {
+    if (!text) return;
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch (error) {
+        console.warn('写入剪贴板失败，尝试回退方法:', error);
+      }
+    }
+    return fallbackCopyTextToClipboard(text);
+  };
+
+  const handleCopyClick = async () => {
+    const valueToCopy = type === 'datetime-local' ? (editValue || formatDateTimeForInput(value)) : editValue;
+    if (!valueToCopy) return;
+    onCopyValue && onCopyValue(valueToCopy);
+    const clipboardText = type === 'datetime-local' ? valueToCopy.replace('T', ' ') : valueToCopy;
+    await copyToClipboard(clipboardText);
+    if (inputRef.current) {
+      inputRef.current.focus();
+      try {
+        const length = inputRef.current.value?.length ?? 0;
+        inputRef.current.setSelectionRange(length, length);
+      } catch (e) {
+        // 某些输入类型不支持 setSelectionRange
+      }
+    }
+  };
+
+  const handlePasteClick = async () => {
+    let sourceValue = copiedValue;
+    if (!sourceValue && typeof navigator !== 'undefined' && navigator.clipboard?.readText) {
+      try {
+        sourceValue = await navigator.clipboard.readText();
+      } catch (error) {
+        console.warn('读取剪贴板失败:', error);
+      }
+    }
+    if (!sourceValue) return;
+    const normalized = type === 'datetime-local' ? formatDateTimeForInput(sourceValue) : sourceValue;
+    if (!normalized) return;
+    setEditValue(normalized);
+    if (inputRef.current) {
+      inputRef.current.focus();
+      try {
+        const length = normalized.length;
+        inputRef.current.setSelectionRange(length, length);
+      } catch (e) {
+        // 某些输入类型不支持 setSelectionRange
+      }
+    }
+  };
+
   const formatValue = (val) => {
     // 对于 number 类型，0 是有效值，不应该返回空字符串
     if (type === 'number') {
@@ -377,16 +454,43 @@ const RealtimeEditableCell = ({
   }
 
   if (type === 'datetime-local') {
+    const hasValue = Boolean(editValue || formatDateTimeForInput(value));
+    const clipboardReaderAvailable = typeof navigator !== 'undefined' && navigator.clipboard?.readText;
+    const canPaste = Boolean(copiedValue) || Boolean(clipboardReaderAvailable);
     return (
-      <input
-        ref={inputRef}
-        type="datetime-local"
-        value={editValue}
-        onChange={handleChange}
-        onKeyDown={handleKeyDown}
-        onBlur={handleSave}
-        className="editable-input datetime-input"
-      />
+      <div className="datetime-edit-wrapper">
+        <input
+          ref={inputRef}
+          type="datetime-local"
+          value={editValue}
+          onChange={handleChange}
+          onKeyDown={handleKeyDown}
+          onBlur={handleSave}
+          className="editable-input datetime-input"
+        />
+        <div className="datetime-action-buttons">
+          <button
+            type="button"
+            className="datetime-action-button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={handleCopyClick}
+            disabled={!hasValue}
+            title="复制当前时间"
+          >
+            复制
+          </button>
+          <button
+            type="button"
+            className="datetime-action-button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={handlePasteClick}
+            disabled={!canPaste}
+            title="粘贴复制的时间"
+          >
+            粘贴
+          </button>
+        </div>
+      </div>
     );
   }
 

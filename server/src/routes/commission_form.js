@@ -44,8 +44,9 @@ router.get('/commission-form', async (req, res) => {
     // 不再在这里过滤数据
   }
 
-  // 默认排除已取消的项目（除非明确查询已取消状态）
-  if (status !== 'cancelled') {
+  // 只有当明确指定了非cancelled状态时，才排除已取消的项目
+  // 如果status为空（全部状态），则包含所有状态包括已取消的
+  if (status && status !== 'cancelled') {
     filters.push('ti.status != ?');
     params.push('cancelled');
   }
@@ -120,9 +121,9 @@ router.get('/commission-form', async (req, res) => {
         p.minimum_price,
         ti.discount_rate as discount_rate,
         CASE 
-          WHEN o.period_type = 'normal' THEN '不加急'
-          WHEN o.period_type = 'urgent_1_5x' THEN '加急1.5倍'
-          WHEN o.period_type = 'urgent_2x' THEN '特急2倍'
+          WHEN ti.service_urgency = 'normal' THEN '不加急'
+          WHEN ti.service_urgency = 'urgent_1_5x' THEN '加急1.5倍'
+          WHEN ti.service_urgency = 'urgent_2x' THEN '特急2倍'
           ELSE '不加急'
         END as service_urgency,
         ti.field_test_time,

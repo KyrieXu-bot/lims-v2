@@ -109,6 +109,32 @@ router.get('/group-supervisor', requireAuth, async (req, res) => {
   }
 });
 
+// 获取指定小组的实验员
+router.get('/employees', requireAuth, requireAnyRole(['admin', 'leader', 'supervisor', 'employee']), async (req, res) => {
+  const { group_id } = req.query;
+  if (!group_id) {
+    return res.status(400).json({ error: 'group_id is required' });
+  }
+  
+  const pool = await getPool();
+  try {
+    const [rows] = await pool.query(
+      `SELECT u.user_id, u.name, u.account
+       FROM users u
+       JOIN user_roles ur ON ur.user_id = u.user_id
+       JOIN roles r ON r.role_id = ur.role_id
+       WHERE r.role_code = 'employee' 
+       AND u.is_active = 1
+       AND u.group_id = ?
+       ORDER BY u.name ASC`,
+      [group_id]
+    );
+    res.json(rows);
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
 // 其他接口需要特定权限
 router.use(requireAuth, requireAnyRole(['admin', 'leader', 'supervisor']));
 
@@ -131,32 +157,6 @@ router.get('/supervisors', async (req, res) => {
        AND u.department_id = ?
        ORDER BY u.name ASC`,
       [department_id]
-    );
-    res.json(rows);
-  } catch (e) {
-    return res.status(500).json({ error: e.message });
-  }
-});
-
-// 获取指定小组的实验员
-router.get('/employees', async (req, res) => {
-  const { group_id } = req.query;
-  if (!group_id) {
-    return res.status(400).json({ error: 'group_id is required' });
-  }
-  
-  const pool = await getPool();
-  try {
-    const [rows] = await pool.query(
-      `SELECT u.user_id, u.name, u.account
-       FROM users u
-       JOIN user_roles ur ON ur.user_id = u.user_id
-       JOIN roles r ON r.role_id = ur.role_id
-       WHERE r.role_code = 'employee' 
-       AND u.is_active = 1
-       AND u.group_id = ?
-       ORDER BY u.name ASC`,
-      [group_id]
     );
     res.json(rows);
   } catch (e) {

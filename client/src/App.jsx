@@ -19,6 +19,7 @@ import OrderManagement from './pages/orders/OrderManagement.jsx';
 import OrderDelete from './pages/orders/OrderDelete.jsx';
 import CommissionForm from './pages/commission/CommissionForm.jsx';
 import EquipmentList from './pages/commission/EquipmentList.jsx';
+import Statistics from './pages/statistics/Statistics.jsx';
 import './app.css';
 
 function Layout({ children }) {
@@ -57,6 +58,9 @@ function Layout({ children }) {
               {/* <NavLink to="/orders" className={({isActive})=>isActive?'active':''}>委托单管理</NavLink> */}
               {/* 委托单登记表 - 所有角色都可以看到 */}
               <NavLink to="/commission-form" className={({isActive})=>isActive?'active':''}>委托单登记表</NavLink>
+              {(user.role === 'leader' || user.role === 'supervisor' || user.role === 'employee') && (
+                <NavLink to="/statistics" className={({isActive})=>isActive?'active':''}>数据统计</NavLink>
+              )}
               {/* 平台设备清单 - 所有角色都可以看到 */}
               <NavLink to="/equipment-list" className={({isActive})=>isActive?'active':''}>平台设备清单</NavLink>
               {/* 管理员可以看到价目表 */}
@@ -100,6 +104,7 @@ export default function App() {
       <Route path="/orders" element={<Layout><OrderManagement/></Layout>} />
       <Route path="/orders/delete" element={<Layout><OrderDelete/></Layout>} />
       <Route path="/commission-form" element={<Layout><CommissionForm/></Layout>} />
+      <Route path="/statistics" element={<Layout><Statistics/></Layout>} />
       <Route path="/equipment-list" element={<Layout><EquipmentList/></Layout>} />
       <Route path="/" element={<Layout><CommissionForm/></Layout>} />
       <Route path="*" element={<Layout><Login/></Layout>} />

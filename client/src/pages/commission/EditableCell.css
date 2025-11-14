@@ -153,6 +153,50 @@ input[type="date"] {
   position: relative;
 }
 
+.datetime-edit-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+
+.datetime-edit-wrapper .datetime-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.datetime-action-buttons {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.datetime-action-button {
+  border: 1px solid #007bff;
+  background: #f1f9ff;
+  color: #007bff;
+  padding: 2px 6px;
+  font-size: 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  height: 26px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.datetime-action-button:hover:not(:disabled) {
+  background: #e3f2ff;
+}
+
+.datetime-action-button:disabled {
+  border-color: #ced4da;
+  color: #6c757d;
+  background: #f8f9fa;
+  cursor: not-allowed;
+}
+
 .editable-cell.being-edited {
   background-color: #fff3cd;
   border-color: #ffeaa7;

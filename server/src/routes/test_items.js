@@ -352,7 +352,7 @@ router.put('/:id', requireRole(EDIT_ROLES), async (req, res) => {
     seq_no, sample_preparation, note, status, current_assignee, supervisor_id, technician_id,
     arrival_mode, sample_arrival_status, equipment_id, check_notes, test_notes, unit,
     actual_sample_quantity, actual_delivery_date, field_test_time, price_note,
-    assignment_note, business_note, abnormal_condition
+    assignment_note, business_note, abnormal_condition, service_urgency
   } = req.body || {};
 
   // 处理空字符串，将其转换为null，这样数据库可以接受空值
@@ -464,6 +464,7 @@ router.put('/:id', requireRole(EDIT_ROLES), async (req, res) => {
       addUpdate('assignment_note', assignment_note);
       addUpdate('business_note', business_note);
       addUpdate('abnormal_condition', abnormal_condition);
+      addUpdate('service_urgency', service_urgency);
       
       // 如果没有要更新的字段，直接返回
       if (updateFields.length === 0) {
