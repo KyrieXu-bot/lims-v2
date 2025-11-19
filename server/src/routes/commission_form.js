@@ -44,9 +44,13 @@ router.get('/commission-form', async (req, res) => {
     // 不再在这里过滤数据
   }
 
+  // 处理状态筛选（支持多选）
+  // Express会将多个同名参数转换为数组，单个参数保持为字符串
+  const statusArray = Array.isArray(status) ? status : (status ? [status] : []);
+  
   // 只有当明确指定了非cancelled状态时，才排除已取消的项目
   // 如果status为空（全部状态），则包含所有状态包括已取消的
-  if (status && status !== 'cancelled') {
+  if (statusArray.length > 0 && !statusArray.includes('cancelled')) {
     filters.push('ti.status != ?');
     params.push('cancelled');
   }
@@ -64,9 +68,12 @@ router.get('/commission-form', async (req, res) => {
       params.push(like, like, like, like, like, like);
     }
   }
-  if (status) {
-    filters.push('ti.status = ?');
-    params.push(status);
+  
+  // 多状态筛选：使用IN查询
+  if (statusArray.length > 0) {
+    const placeholders = statusArray.map(() => '?').join(',');
+    filters.push(`ti.status IN (${placeholders})`);
+    params.push(...statusArray);
   }
   if (department_id) {
     filters.push('ti.department_id = ?');

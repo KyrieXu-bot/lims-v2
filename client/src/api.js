@@ -9,6 +9,37 @@ export const api = {
     if (!r.ok) throw new Error((await r.json()).error || 'Login failed');
     return r.json();
   },
+  async changePassword({ oldPassword, newPassword }) {
+    const r = await fetch('/api/users/change-password', {
+      method: 'POST',
+      headers: this.authHeaders(),
+      body: JSON.stringify({ oldPassword, newPassword })
+    });
+    if (!r.ok) throw new Error((await r.json()).error || '修改密码失败');
+    return r.json();
+  },
+  async getCurrentUser() {
+    const r = await fetch('/api/users/me', { headers: this.authHeaders() });
+    if (!r.ok) throw new Error((await r.json()).error || '获取用户信息失败');
+    return r.json();
+  },
+  async listAllUsers({ q = '', is_active = '' } = {}) {
+    const params = new URLSearchParams();
+    if (q) params.set('q', q);
+    if (is_active !== '') params.set('is_active', is_active);
+    const r = await fetch(`/api/users/all?${params.toString()}`, { headers: this.authHeaders() });
+    if (!r.ok) throw new Error((await r.json()).error || '获取员工列表失败');
+    return r.json();
+  },
+  async updateUserStatus(userId, isActive) {
+    const r = await fetch(`/api/users/${userId}/status`, {
+      method: 'PUT',
+      headers: this.authHeaders(),
+      body: JSON.stringify({ is_active: isActive })
+    });
+    if (!r.ok) throw new Error((await r.json()).error || '更新状态失败');
+    return r.json();
+  },
   async generateWHReport({ order_id, test_item_ids }) {
     const r = await fetch('/api/templates/generate-wh-report', {
       method: 'POST',

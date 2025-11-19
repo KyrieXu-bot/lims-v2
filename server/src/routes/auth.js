@@ -24,29 +24,37 @@ router.post('/login', async (req, res) => {
       if (ok) {
         const token = jwt.sign({ sub: 'admin', username: ADMIN_USER, role: 'admin' }, SECRET, { expiresIn: '7d' });
         return res.json({ token, role: 'admin', username: ADMIN_USER, user_id: 'admin' });
+      } else {
+        return res.status(401).json({ error: '账号或密码错误' });
       }
     }
 
     // 检查普通用户
     const pool = await getPool();
+    // 先查询用户，不限制 is_active，以便检查账户状态
     const [users] = await pool.query(
       `SELECT u.*, r.role_code, r.role_name
        FROM users u
        LEFT JOIN user_roles ur ON ur.user_id = u.user_id
        LEFT JOIN roles r ON r.role_id = ur.role_id
-       WHERE u.account = ? AND u.is_active = 1`,
+       WHERE u.account = ?`,
       [username]
     );
 
     if (users.length === 0) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+      return res.status(401).json({ error: '账号或密码错误' });
     }
 
     // 验证密码
     const user = users[0];
     const passwordMatch = await bcrypt.compare(password, user.password_hash);
     if (!passwordMatch) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+      return res.status(401).json({ error: '账号或密码错误' });
+    }
+
+    // 检查账户是否被禁用
+    if (!user.is_active) {
+      return res.status(403).json({ error: '您的账户被禁用，请联系管理员' });
     }
 
     // 获取用户的所有角色

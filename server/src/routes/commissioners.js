@@ -14,8 +14,8 @@ router.get('/', async (req, res) => {
   const filters = [];
   const params = [];
 
-  filters.push('(m.contact_name LIKE ? OR m.contact_phone LIKE ? OR p.contact_name LIKE ? OR c.customer_name LIKE ?)');
-  params.push(like, like, like, like);
+  filters.push('(m.contact_name LIKE ? OR m.contact_phone LIKE ? OR m.commissioner_name LIKE ? OR p.contact_name LIKE ? OR c.customer_name LIKE ?)');
+  params.push(like, like, like, like, like);
   if (is_active === '0' || is_active === '1') {
     filters.push('m.is_active = ?');
     params.push(Number(is_active));

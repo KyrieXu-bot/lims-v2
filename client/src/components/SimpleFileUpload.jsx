@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import './SimpleFileUpload.css';
 
 const SimpleFileUpload = ({ 
@@ -12,6 +12,8 @@ const SimpleFileUpload = ({
   const [selectedCategory, setSelectedCategory] = useState('order_attachment');
   const [showUpload, setShowUpload] = useState(false);
   const [uploadProgress, setUploadProgress] = useState({}); // { fileName: { progress: 0, speed: 0, remaining: 0 } }
+  const [downloadProgress, setDownloadProgress] = useState({}); // { fileId: { progress: 0, downloaded: 0, total: 0, speed: 0, remaining: 0 } }
+  const downloadXhrRef = useRef({}); // { fileId: XMLHttpRequest } 存储每个文件的下载请求
 
   const categories = [
     { value: 'order_attachment', label: '委托单附件', icon: '📄' },
@@ -219,34 +221,195 @@ const SimpleFileUpload = ({
     });
   };
 
-  const handleDownload = async (file) => {
-    try {
-      const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
-      if (!user || !user.token) {
-        throw new Error('用户未登录');
-      }
+  // 使用 XMLHttpRequest 下载文件，支持进度追踪
+  const handleDownload = (file) => {
+    const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
+    if (!user || !user.token) {
+      alert('用户未登录');
+      return;
+    }
 
-      const response = await fetch(`/api/files/download/${file.file_id}`, {
-        headers: {
-          'Authorization': `Bearer ${user.token}`
-        }
-      });
-      
-      if (!response.ok) {
-        throw new Error('下载失败');
+    const xhr = new XMLHttpRequest();
+    let lastLoaded = 0;
+    let lastTime = Date.now();
+
+    // 初始化下载进度
+    setDownloadProgress(prev => ({
+      ...prev,
+      [file.file_id]: {
+        progress: 0,
+        downloaded: 0,
+        total: 0,
+        speed: 0,
+        remaining: 0
       }
-      
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = file.filename;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-    } catch (error) {
-      alert('下载失败: ' + error.message);
+    }));
+
+    // 保存 xhr 引用以便取消下载
+    downloadXhrRef.current[file.file_id] = xhr;
+
+    // 下载进度事件
+    xhr.addEventListener('progress', (e) => {
+      if (e.lengthComputable) {
+        const progress = (e.loaded / e.total) * 100;
+        const now = Date.now();
+        const timeDiff = (now - lastTime) / 1000; // 秒
+        const loadedDiff = e.loaded - lastLoaded; // 字节
+        
+        let speed = 0; // 字节/秒
+        let remaining = 0; // 剩余时间（秒）
+        
+        if (timeDiff > 0) {
+          speed = loadedDiff / timeDiff;
+          const remainingBytes = e.total - e.loaded;
+          remaining = remainingBytes / speed;
+        }
+        
+        setDownloadProgress(prev => ({
+          ...prev,
+          [file.file_id]: {
+            progress: Math.round(progress),
+            downloaded: e.loaded,
+            total: e.total,
+            speed: speed,
+            remaining: remaining
+          }
+        }));
+        
+        lastLoaded = e.loaded;
+        lastTime = now;
+      }
+    });
+
+    // 下载完成
+    xhr.addEventListener('load', () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          // 更新进度为100%
+          setDownloadProgress(prev => ({
+            ...prev,
+            [file.file_id]: {
+              progress: 100,
+              downloaded: prev[file.file_id]?.total || 0,
+              total: prev[file.file_id]?.total || 0,
+              speed: 0,
+              remaining: 0
+            }
+          }));
+
+          // 创建 blob 并触发下载
+          const blob = new Blob([xhr.response], { type: xhr.getResponseHeader('content-type') || 'application/octet-stream' });
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          
+          // 从响应头获取文件名，如果没有则使用原始文件名
+          const contentDisposition = xhr.getResponseHeader('content-disposition');
+          let downloadFilename = file.filename;
+          if (contentDisposition) {
+            const filenameMatch = contentDisposition.match(/filename\*=UTF-8''(.+)/);
+            if (filenameMatch) {
+              downloadFilename = decodeURIComponent(filenameMatch[1]);
+            } else {
+              const filenameMatch2 = contentDisposition.match(/filename="(.+)"/);
+              if (filenameMatch2) {
+                downloadFilename = filenameMatch2[1];
+              }
+            }
+          }
+          
+          a.download = downloadFilename;
+          document.body.appendChild(a);
+          a.click();
+          window.URL.revokeObjectURL(url);
+          document.body.removeChild(a);
+
+          // 延迟清除进度，让用户看到100%
+          setTimeout(() => {
+            setDownloadProgress(prev => {
+              const newProgress = { ...prev };
+              delete newProgress[file.file_id];
+              return newProgress;
+            });
+            // 清除 xhr 引用
+            delete downloadXhrRef.current[file.file_id];
+          }, 500);
+        } catch (error) {
+          alert('下载失败: ' + error.message);
+          setDownloadProgress(prev => {
+            const newProgress = { ...prev };
+            delete newProgress[file.file_id];
+            return newProgress;
+          });
+          // 清除 xhr 引用
+          delete downloadXhrRef.current[file.file_id];
+        }
+      } else {
+        // 处理错误响应
+        const contentType = xhr.getResponseHeader('content-type') || '';
+        let errorMessage = '下载失败';
+        
+        try {
+          if (contentType.includes('application/json')) {
+            const errorData = JSON.parse(xhr.responseText);
+            errorMessage = errorData.error || errorMessage;
+          } else {
+            errorMessage = `服务器错误 (${xhr.status})`;
+          }
+        } catch (parseError) {
+          errorMessage = `下载失败 (${xhr.status} ${xhr.statusText})`;
+        }
+        
+        alert(errorMessage);
+        setDownloadProgress(prev => {
+          const newProgress = { ...prev };
+          delete newProgress[file.file_id];
+          return newProgress;
+        });
+        // 清除 xhr 引用
+        delete downloadXhrRef.current[file.file_id];
+      }
+    });
+
+    // 下载错误
+    xhr.addEventListener('error', () => {
+      alert('网络错误，下载失败');
+      setDownloadProgress(prev => {
+        const newProgress = { ...prev };
+        delete newProgress[file.file_id];
+        return newProgress;
+      });
+      // 清除 xhr 引用
+      delete downloadXhrRef.current[file.file_id];
+    });
+
+    // 下载中断
+    xhr.addEventListener('abort', () => {
+      // 不显示 alert，因为这是用户主动取消的
+      setDownloadProgress(prev => {
+        const newProgress = { ...prev };
+        delete newProgress[file.file_id];
+        return newProgress;
+      });
+      // 清除 xhr 引用
+      delete downloadXhrRef.current[file.file_id];
+    });
+
+    // 设置响应类型为 blob
+    xhr.responseType = 'blob';
+
+    // 发送请求
+    xhr.open('GET', `/api/files/download/${file.file_id}`);
+    xhr.setRequestHeader('Authorization', `Bearer ${user.token}`);
+    xhr.send();
+  };
+
+  // 取消下载
+  const handleCancelDownload = (fileId) => {
+    const xhr = downloadXhrRef.current[fileId];
+    if (xhr) {
+      xhr.abort();
+      // xhr 的 abort 事件处理器会清理状态
     }
   };
 
@@ -420,6 +583,56 @@ const SimpleFileUpload = ({
         </div>
       )}
 
+      {/* 下载进度条 */}
+      {Object.keys(downloadProgress).length > 0 && (
+        <div className="download-progress-container">
+          {Object.entries(downloadProgress).map(([fileId, progress]) => {
+            const file = files.find(f => f.file_id.toString() === fileId);
+            const fileName = file ? file.filename : '文件';
+            return (
+              <div key={fileId} className="download-progress-item">
+                <div className="download-progress-header">
+                  <span className="download-file-name">正在下载: {fileName}</span>
+                  <div className="download-progress-actions">
+                    <span className="download-progress-percent">{progress.progress}%</span>
+                    <button
+                      className="btn-cancel-download"
+                      onClick={() => handleCancelDownload(fileId)}
+                      title="取消下载"
+                    >
+                      取消
+                    </button>
+                  </div>
+                </div>
+                <div className="download-progress-bar-container">
+                  <div 
+                    className="download-progress-bar" 
+                    style={{ width: `${progress.progress}%` }}
+                  />
+                </div>
+                <div className="download-progress-info">
+                  <span>
+                    {formatFileSize(progress.downloaded)} / {progress.total > 0 ? formatFileSize(progress.total) : '计算中...'}
+                  </span>
+                  {progress.speed > 0 && (
+                    <>
+                      <span>•</span>
+                      <span>{formatFileSize(progress.speed)}/秒</span>
+                      {progress.remaining > 0 && (
+                        <>
+                          <span>•</span>
+                          <span>剩余 {formatRemainingTime(progress.remaining)}</span>
+                        </>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       <div className="file-list">
         {files.length === 0 ? (
           <div className="no-files">
@@ -446,8 +659,9 @@ const SimpleFileUpload = ({
                   onClick={() => handleDownload(file)}
                   className="btn-download"
                   title="下载"
+                  disabled={downloadProgress[file.file_id] !== undefined}
                 >
-                  下载
+                  {downloadProgress[file.file_id] ? '下载中...' : '下载'}
                 </button>
                 {canDeleteFile(file) && (
                   <button 

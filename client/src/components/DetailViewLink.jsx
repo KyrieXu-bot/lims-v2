@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
+import Toast from './Toast';
 import './DetailViewLink.css';
 
 /**
@@ -12,6 +13,7 @@ import './DetailViewLink.css';
  */
 const DetailViewLink = ({ text = '', maxLength = 30, fieldName = '详情', className = '' }) => {
   const [showModal, setShowModal] = useState(false);
+  const [showToast, setShowToast] = useState(false);
 
   // 将text转换为字符串，处理null、undefined等值
   const textStr = text != null ? String(text) : '';
@@ -24,23 +26,55 @@ const DetailViewLink = ({ text = '', maxLength = 30, fieldName = '详情', class
   const shouldTruncate = textStr.length > maxLength;
   const displayText = shouldTruncate ? textStr.substring(0, maxLength) : textStr;
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(textStr).then(() => {
-      alert('已复制到剪贴板');
-    }).catch(() => {
-      // 降级方案：使用临时textarea
+  const handleCopy = async () => {
+    try {
+      // 优先使用现代 Clipboard API
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(textStr);
+        setShowToast(true);
+        return;
+      }
+    } catch (err) {
+      console.warn('Clipboard API failed, trying fallback:', err);
+    }
+
+    // 降级方案：使用临时textarea
+    try {
       const textarea = document.createElement('textarea');
       textarea.value = textStr;
+      textarea.style.position = 'fixed';
+      textarea.style.left = '-9999px';
+      textarea.style.top = '-9999px';
+      textarea.setAttribute('readonly', '');
       document.body.appendChild(textarea);
-      textarea.select();
-      try {
-        document.execCommand('copy');
-        alert('已复制到剪贴板');
-      } catch (err) {
+      
+      // 对于iOS Safari，需要设置可编辑
+      if (navigator.userAgent.match(/ipad|iphone/i)) {
+        textarea.contentEditable = true;
+        textarea.readOnly = false;
+        const range = document.createRange();
+        range.selectNodeContents(textarea);
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        textarea.setSelectionRange(0, 999999);
+      } else {
+        textarea.select();
+        textarea.setSelectionRange(0, 999999);
+      }
+      
+      const successful = document.execCommand('copy');
+      document.body.removeChild(textarea);
+      
+      if (successful) {
+        setShowToast(true);
+      } else {
         alert('复制失败，请手动复制');
       }
-      document.body.removeChild(textarea);
-    });
+    } catch (err) {
+      console.error('Fallback copy failed:', err);
+      alert('复制失败，请手动复制');
+    }
   };
 
   const handleClick = (e) => {
@@ -83,6 +117,15 @@ const DetailViewLink = ({ text = '', maxLength = 30, fieldName = '详情', class
           </div>
         </div>,
         document.body
+      )}
+
+      {/* Toast提示 */}
+      {showToast && (
+        <Toast 
+          message="复制成功" 
+          duration={2000} 
+          onClose={() => setShowToast(false)} 
+        />
       )}
     </>
   );

@@ -100,7 +100,7 @@ const CommissionForm = () => {
   const [page, setPage] = useState(1);
   const [pageSize] = useState(100);
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState([]); // 改为数组，支持多选
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [fieldTestDateFilter, setFieldTestDateFilter] = useState('');
   const [myItemsFilter, setMyItemsFilter] = useState(false);
@@ -191,7 +191,10 @@ const CommissionForm = () => {
       page: '1',
       pageSize: totalCount.toString(),
     });
-    if (statusFilter) params.append('status', statusFilter);
+    // 支持多状态筛选
+    if (statusFilter && statusFilter.length > 0) {
+      statusFilter.forEach(status => params.append('status', status));
+    }
     if (departmentFilter) params.append('department_id', departmentFilter);
     if (fieldTestDateFilter) params.append('field_test_date', fieldTestDateFilter);
     if (myItemsFilter) params.append('my_items', 'true');
@@ -208,9 +211,17 @@ const CommissionForm = () => {
     }
     const result = await response.json();
     const items = Array.isArray(result.data) ? result.data : [];
+    // 对每个项目计算测试总价
+    const processedItems = items.map(item => {
+      const calculatedFinalUnitPrice = calculateFinalUnitPrice(item);
+      return {
+        ...item,
+        final_unit_price: calculatedFinalUnitPrice !== null ? calculatedFinalUnitPrice : item.final_unit_price
+      };
+    });
     const eligibleItems = user?.role === 'leader'
-      ? items.filter(it => canLeaderEditItem(it))
-      : items;
+      ? processedItems.filter(it => canLeaderEditItem(it))
+      : processedItems;
     fullSelectionCacheRef.current = eligibleItems;
     return eligibleItems;
   };
@@ -236,6 +247,35 @@ const CommissionForm = () => {
   const formatTestItemName = (item) => {
     const parts = [item?.category_name, item?.detail_name].filter(Boolean);
     return parts.join(' - ');
+  };
+
+  // 计算测试总价：final_unit_price = price_note * (discount_rate / 100) * actual_sample_quantity * 加急系数
+  const calculateFinalUnitPrice = (item) => {
+    const priceNote = item.price_note !== null && item.price_note !== undefined ? Number(item.price_note) : null;
+    const discountRate = item.discount_rate !== null && item.discount_rate !== undefined ? Number(item.discount_rate) : null;
+    const actualSampleQuantity = item.actual_sample_quantity !== null && item.actual_sample_quantity !== undefined ? Number(item.actual_sample_quantity) : null;
+    
+    // 获取加急系数
+    let urgencyMultiplier = 1;
+    const serviceUrgency = item.service_urgency;
+    if (serviceUrgency === 'urgent_1_5x' || serviceUrgency === '加急1.5倍') {
+      urgencyMultiplier = 1.5;
+    } else if (serviceUrgency === 'urgent_2x' || serviceUrgency === '特急2倍') {
+      urgencyMultiplier = 2;
+    } else if (serviceUrgency === 'normal' || serviceUrgency === '不加急' || !serviceUrgency) {
+      urgencyMultiplier = 1;
+    }
+    
+    // 如果任一值为空或无效，返回null
+    if (priceNote === null || isNaN(priceNote) || priceNote < 0 ||
+        discountRate === null || isNaN(discountRate) || discountRate < 0 || discountRate > 100 ||
+        actualSampleQuantity === null || isNaN(actualSampleQuantity) || actualSampleQuantity < 0) {
+      return null;
+    }
+    
+    // 计算：price_note * (discount_rate / 100) * actual_sample_quantity * 加急系数
+    const result = priceNote * (discountRate / 100) * actualSampleQuantity * urgencyMultiplier;
+    return Math.round(result * 100) / 100; // 保留两位小数
   };
 
   const renderColumnHeader = (key, label, baseClass) => {
@@ -341,7 +381,10 @@ const CommissionForm = () => {
         pageSize: pageSize.toString(),
       });
       
-      if (statusFilter) params.append('status', statusFilter);
+      // 支持多状态筛选
+      if (statusFilter && statusFilter.length > 0) {
+        statusFilter.forEach(status => params.append('status', status));
+      }
       if (departmentFilter) params.append('department_id', departmentFilter);
       if (fieldTestDateFilter) params.append('field_test_date', fieldTestDateFilter);
       if (myItemsFilter) params.append('my_items', 'true');
@@ -359,7 +402,15 @@ const CommissionForm = () => {
       }
       
       const data = await response.json();
-      setData(data.data);
+      // 对每个项目计算测试总价
+      const processedData = data.data.map(item => {
+        const calculatedFinalUnitPrice = calculateFinalUnitPrice(item);
+        return {
+          ...item,
+          final_unit_price: calculatedFinalUnitPrice !== null ? calculatedFinalUnitPrice : item.final_unit_price
+        };
+      });
+      setData(processedData);
       setTotal(data.total);
     } catch (error) {
       console.error('获取委托单登记表数据失败:', error);
@@ -677,7 +728,7 @@ const CommissionForm = () => {
 
   const handleReset = () => {
     setSearchQuery('');
-    setStatusFilter('');
+    setStatusFilter([]);
     setDepartmentFilter('');
     setFieldTestDateFilter('');
     setMyItemsFilter(false);
@@ -744,6 +795,12 @@ const CommissionForm = () => {
     return num !== null && num > 0;
   };
 
+  // 检查数字是否为非负数（>=0），用于机时和工时，允许为0
+  const hasNonNegativeNumber = (value) => {
+    const num = toNumberOrNull(value);
+    return num !== null && num >= 0;
+  };
+
   const formatNumberValue = (value) => {
     if (value === null || value === undefined || value === '') return '';
     const num = Number(value);
@@ -763,8 +820,9 @@ const CommissionForm = () => {
     const equipmentFilled = hasValue(item.equipment_id) || hasValue(item.equipment_name);
     const quantityFilled = hasPositiveNumber(item.actual_sample_quantity);
     const unitFilled = hasValue(item.unit);
-    const workHoursFilled = hasPositiveNumber(item.work_hours);
-    const machineHoursFilled = hasPositiveNumber(item.machine_hours);
+    // 机时和工时允许为0（按样品数收费的项目可能为0）
+    const workHoursFilled = hasNonNegativeNumber(item.work_hours);
+    const machineHoursFilled = hasNonNegativeNumber(item.machine_hours);
     const standardTotalFilled = hasPositiveNumber(item.line_total);
 
     return responsibleFilled &&
@@ -1681,6 +1739,22 @@ const CommissionForm = () => {
         }
       }
       
+      // 特殊处理price_note：从varchar改为int类型
+      if (field === 'price_note') {
+        if (value === '' || value === undefined || value === null) {
+          updateData[field] = null;
+        } else {
+          const numValue = Number(value);
+          if (isNaN(numValue)) {
+            throw new Error('业务报价必须是数字');
+          }
+          if (numValue < 0) {
+            throw new Error('业务报价不能为负数');
+          }
+          updateData[field] = numValue;
+        }
+      }
+      
       // 特殊处理number类型字段：将空字符串转换为null，避免数据库错误
       // 注意：actual_sample_quantity 需要保留数字值，不能因为空字符串就设为null
       if (['line_total', 'machine_hours', 'work_hours', 'unit_price', 'quantity', 'final_unit_price'].includes(field)) {
@@ -1733,6 +1807,37 @@ const CommissionForm = () => {
         } else {
           // 如果任一值为空或无效，则标准总价也为空
           updateData.line_total = null;
+        }
+      }
+      
+      // 实时计算测试总价：当修改业务报价、折扣、计费数量或服务加急时，自动计算 final_unit_price
+      if (field === 'price_note' || field === 'discount_rate' || field === 'actual_sample_quantity' || field === 'service_urgency') {
+        // 构建用于计算的临时对象，使用最新的值
+        const calcItem = { ...currentItem };
+        
+        // 更新当前修改的字段值
+        if (field === 'price_note') {
+          calcItem.price_note = value === '' || value === undefined || value === null ? null : Number(value);
+        } else if (field === 'discount_rate') {
+          calcItem.discount_rate = value === '' || value === undefined || value === null ? null : Number(value);
+        } else if (field === 'actual_sample_quantity') {
+          calcItem.actual_sample_quantity = value === '' || value === undefined || value === null ? null : Number(value);
+        } else if (field === 'service_urgency') {
+          // service_urgency 的值转换：将数据库值转换为显示值
+          const urgencyMap = {
+            'normal': '不加急',
+            'urgent_1_5x': '加急1.5倍',
+            'urgent_2x': '特急2倍'
+          };
+          calcItem.service_urgency = urgencyMap[value] || value;
+        }
+        
+        // 计算测试总价
+        const calculatedFinalUnitPrice = calculateFinalUnitPrice(calcItem);
+        if (calculatedFinalUnitPrice !== null) {
+          updateData.final_unit_price = calculatedFinalUnitPrice;
+        } else {
+          updateData.final_unit_price = null;
         }
       }
       
@@ -1811,6 +1916,16 @@ const CommissionForm = () => {
                 if (!isNaN(unitPriceNum) && !isNaN(quantityNum)) {
                   merged.line_total = unitPriceNum * quantityNum;
                 }
+              }
+            }
+            
+            // 如果更新了业务报价、折扣、计费数量或服务加急，重新计算测试总价（使用最新的值）
+            if (field === 'price_note' || field === 'discount_rate' || field === 'actual_sample_quantity' || field === 'service_urgency') {
+              const calculatedFinalUnitPrice = calculateFinalUnitPrice(merged);
+              if (calculatedFinalUnitPrice !== null) {
+                merged.final_unit_price = calculatedFinalUnitPrice;
+              } else {
+                merged.final_unit_price = null;
               }
             }
             return merged;
@@ -1996,18 +2111,52 @@ const CommissionForm = () => {
           </div>
           <div className="filter-group">
             <label>状态:</label>
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-            >
-              <option value="">全部状态</option>
-              <option value="new">新建</option>
-              <option value="assigned">已分配</option>
-              <option value="running">进行中</option>
-              <option value="completed">已完成</option>
-              <option value="cancelled">已取消</option>
-              <option value="outsource">委外</option>
-            </select>
+            <div className="status-button-group" style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '4px' }}>
+              {[
+                { value: 'new', label: '新建' },
+                { value: 'assigned', label: '已分配' },
+                { value: 'running', label: '进行中' },
+                { value: 'completed', label: '已完成' },
+                { value: 'cancelled', label: '已取消' }
+              ].map(status => {
+                const isSelected = statusFilter.includes(status.value);
+                return (
+                  <button
+                    key={status.value}
+                    type="button"
+                    onClick={() => {
+                      if (isSelected) {
+                        setStatusFilter(prev => prev.filter(s => s !== status.value));
+                      } else {
+                        setStatusFilter(prev => [...prev, status.value]);
+                      }
+                    }}
+                    style={{
+                      padding: '2px 8px',
+                      fontSize: '11px',
+                      borderRadius: '3px',
+                      border: '1px solid #ccc',
+                      backgroundColor: isSelected ? '#007bff' : '#fff',
+                      color: isSelected ? '#fff' : '#333',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s'
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!isSelected) {
+                        e.target.style.backgroundColor = '#f0f0f0';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!isSelected) {
+                        e.target.style.backgroundColor = '#fff';
+                      }
+                    }}
+                  >
+                    {status.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
           {(user?.role === 'admin' || user?.role === 'viewer' || (user?.role === 'leader' && Number(user?.department_id) === 5)) && (
             <div className="filter-group">
@@ -2259,7 +2408,7 @@ const CommissionForm = () => {
                           <div className="editable-field-container">
                             <RealtimeEditableCell
                               value={item.price_note}
-                              type="textarea"
+                              type="number"
                               onSave={handleSaveEdit}
                               field="price_note"
                               testItemId={item.test_item_id}
@@ -2272,7 +2421,7 @@ const CommissionForm = () => {
                             <SavingIndicator testItemId={item.test_item_id} field="price_note" />
                           </div>
                         ) : (
-                          <ReadonlyNoteField text={item.price_note || ''} maxLength={50} fieldName="业务报价" />
+                          <span className="readonly-field">{item.price_note !== null && item.price_note !== undefined ? Number(item.price_note).toLocaleString() : ''}</span>
                         )}
                       </td>
                       <td className={getColumnCellClass('quantity', 'order-creator-field quantity-col')} data-column-key="quantity">
@@ -2452,11 +2601,29 @@ const CommissionForm = () => {
                                     'urgent_2x': '特急2倍'
                                   };
                                   setData(prevData => 
-                                    prevData.map(item => 
-                                      item.test_item_id === testItemId 
-                                        ? { ...item, service_urgency: urgencyMap[value] || value }
-                                        : item
-                                    )
+                                    prevData.map(item => {
+                                      if (item.test_item_id === testItemId) {
+                                        const updatedItem = { ...item, service_urgency: urgencyMap[value] || value };
+                                        // 重新计算测试总价
+                                        const calculatedFinalUnitPrice = calculateFinalUnitPrice(updatedItem);
+                                        if (calculatedFinalUnitPrice !== null) {
+                                          updatedItem.final_unit_price = calculatedFinalUnitPrice;
+                                        }
+                                        // 同时更新数据库中的 final_unit_price
+                                        if (calculatedFinalUnitPrice !== null) {
+                                          fetch(`/api/test-items/${testItemId}`, {
+                                            method: 'PUT',
+                                            headers: {
+                                              'Authorization': `Bearer ${userLocal.token}`,
+                                              'Content-Type': 'application/json'
+                                            },
+                                            body: JSON.stringify({ final_unit_price: calculatedFinalUnitPrice })
+                                          }).catch(err => console.error('更新测试总价失败:', err));
+                                        }
+                                        return updatedItem;
+                                      }
+                                      return item;
+                                    })
                                   );
                                   setSavingStatus(prev => ({
                                     ...prev,
@@ -2597,7 +2764,7 @@ const CommissionForm = () => {
                               <SavingIndicator testItemId={item.test_item_id} field="field_test_time" />
                             </>
                           ) : (
-                            <span className="readonly-field">{item.field_test_time || ''}</span>
+                            <span className="readonly-field">{formatDateTime(item.field_test_time)}</span>
                           )}
                         </div>
                       </td>
@@ -2751,25 +2918,8 @@ const CommissionForm = () => {
                       </td>
                       <td className={getColumnCellClass('final_unit_price', 'lab-field narrow-col')} data-column-key="final_unit_price">
                         <div className="editable-field-container">
-                          {canEditField('final_unit_price', item) ? (
-                            <>
-                              <RealtimeEditableCell
-                                value={item.final_unit_price}
-                                type="number"
-                                onSave={handleSaveEdit}
-                                field="final_unit_price"
-                                testItemId={item.test_item_id}
-                                placeholder="测试总价"
-                                isFieldBeingEdited={isFieldBeingEdited}
-                                getEditingUser={getEditingUser}
-                                emitUserEditing={emitUserEditing}
-                                emitUserStopEditing={emitUserStopEditing}
-                              />
-                              <SavingIndicator testItemId={item.test_item_id} field="final_unit_price" />
-                            </>
-                          ) : (
-                            <span className="readonly-field">{formatCurrency(item.final_unit_price)}</span>
-                          )}
+                          {/* 测试总价改为自动计算，只读显示 */}
+                          <span className="readonly-field">{formatCurrency(item.final_unit_price)}</span>
                         </div>
                       </td>
                       <td className={getColumnCellClass('actual_delivery_date', 'lab-field')} data-column-key="actual_delivery_date">
@@ -3018,7 +3168,10 @@ const CommissionForm = () => {
         <div className="file-modal-overlay" onClick={closeFileModal}>
           <div className="file-modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="file-modal-header">
-              <h3>文件管理 - 检测项目 #{selectedFileTestItem.test_item_id}</h3>
+              <h3>
+                文件管理 - {formatTestItemName(selectedFileTestItem) || `检测项目 #${selectedFileTestItem.test_item_id}`}
+                {selectedFileTestItem.order_id ? `（委托单号：${selectedFileTestItem.order_id}）` : ''}
+              </h3>
               <button className="close-button" onClick={closeFileModal}>×</button>
             </div>
             <div className="file-modal-body">

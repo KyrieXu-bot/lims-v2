@@ -38,7 +38,7 @@ export default function Commissioners() {
     <div>
       <h2>委托人</h2>
       <div className="toolbar">
-        <input className="input" placeholder="搜索（委托人、付款人、客户、电话号码）..." value={q} onChange={e=>{setPage(1);setQ(e.target.value)}}/>
+        <input className="input" placeholder="搜索（委托方名称、委托人、付款人、客户、电话号码）..." value={q} onChange={e=>{setPage(1);setQ(e.target.value)}}/>
         <select className="input" style={{maxWidth:160}} value={isActiveFilter} onChange={e=>{setPage(1);setIsActiveFilter(e.target.value)}}>
           <option value="">所有</option>
           <option value="1">启用</option>

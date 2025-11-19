@@ -679,14 +679,19 @@ export default function TestItemEdit() {
           <Field label="数量" value={it.quantity} onChange={v=>setIt({...it, quantity:v})} disabled={isView} />
           <Field label="单价" value={it.unit_price} onChange={v=>setIt({...it, unit_price:v})} disabled={isView} />
           <div>
-            <label>价格备注</label>
-            <textarea 
+            <label>业务报价</label>
+            <input 
+              type="number"
               className="input" 
-              rows="2" 
-              value={it.price_note || ''} 
-              onChange={e => setIt({...it, price_note: e.target.value})} 
+              value={it.price_note !== null && it.price_note !== undefined ? it.price_note : ''} 
+              onChange={e => {
+                const val = e.target.value;
+                setIt({...it, price_note: val === '' ? null : Number(val)});
+              }} 
               disabled={isView}
-              placeholder="输入价格相关备注信息"
+              placeholder="输入业务报价"
+              min="0"
+              step="0.01"
             />
           </div>
           <div>

@@ -126,6 +126,100 @@
   white-space: nowrap;
 }
 
+/* 下载进度条样式 */
+.download-progress-container {
+  padding: 12px 16px;
+  background-color: #f0f9ff;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.download-progress-item {
+  margin-bottom: 12px;
+}
+
+.download-progress-item:last-child {
+  margin-bottom: 0;
+}
+
+.download-progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  gap: 12px;
+}
+
+.download-progress-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.download-file-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: #374151;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-right: 12px;
+}
+
+.download-progress-percent {
+  font-size: 14px;
+  font-weight: 600;
+  color: #10b981;
+  flex-shrink: 0;
+}
+
+.btn-cancel-download {
+  padding: 4px 12px;
+  border: 1px solid #ef4444;
+  border-radius: 4px;
+  background: white;
+  color: #ef4444;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-weight: 500;
+}
+
+.btn-cancel-download:hover {
+  background-color: #ef4444;
+  color: white;
+}
+
+.download-progress-bar-container {
+  width: 100%;
+  height: 8px;
+  background-color: #e5e7eb;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+
+.download-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #10b981, #34d399);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.4);
+}
+
+.download-progress-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.download-progress-info span {
+  white-space: nowrap;
+}
+
 .btn-upload {
   padding: 8px 16px;
   background-color: #10b981;
@@ -228,10 +322,17 @@
   transition: all 0.2s;
 }
 
-.btn-download:hover {
+.btn-download:hover:not(:disabled) {
   background-color: #3b82f6;
   color: white;
   border-color: #3b82f6;
+}
+
+.btn-download:disabled {
+  background-color: #d1d5db;
+  color: #9ca3af;
+  cursor: not-allowed;
+  border-color: #d1d5db;
 }
 
 .btn-delete:hover {
