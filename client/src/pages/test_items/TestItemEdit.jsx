@@ -127,7 +127,13 @@ export default function TestItemEdit() {
             if (['quantity', 'unit_price', 'discount_rate', 'final_unit_price', 'line_total', 
                  'machine_hours', 'work_hours', 'is_add_on', 'is_outsourced', 'department_id', 
                  'group_id', 'supervisor_id', 'technician_id', 'equipment_id', 'actual_sample_quantity'].includes(key)) {
-              copyObj[key] = value === '' ? '' : (key.includes('is_') ? parseInt(value) : parseFloat(value));
+              if (value === '' || value === null || value === undefined) {
+                copyObj[key] = '';
+              } else {
+                const numValue = key.includes('is_') ? parseInt(value, 10) : parseFloat(value);
+                // 确保解析后的值不是NaN
+                copyObj[key] = isNaN(numValue) ? '' : numValue;
+              }
             } else {
               copyObj[key] = value;
             }
@@ -533,6 +539,13 @@ export default function TestItemEdit() {
     if (payload.machine_hours !== undefined && payload.machine_hours !== null && payload.machine_hours !== '') payload.machine_hours = Number(payload.machine_hours);
     if (payload.work_hours !== undefined && payload.work_hours !== null && payload.work_hours !== '') payload.work_hours = Number(payload.work_hours);
     if (payload.quantity !== undefined && payload.quantity !== null && payload.quantity !== '') payload.quantity = Number(payload.quantity);
+    // 确保 is_add_on 和 is_outsourced 是数字类型（0 或 1）
+    if (payload.is_add_on !== undefined && payload.is_add_on !== null) {
+      payload.is_add_on = Number(payload.is_add_on) === 1 ? 1 : 0;
+    }
+    if (payload.is_outsourced !== undefined && payload.is_outsourced !== null) {
+      payload.is_outsourced = Number(payload.is_outsourced) === 1 ? 1 : 0;
+    }
     
     if (isNew) await api.createTestItem(payload);
     else await api.updateTestItem(id, payload);
@@ -729,8 +742,13 @@ export default function TestItemEdit() {
           <Field label="工时" value={it.work_hours} onChange={v=>setIt({...it, work_hours:v})} disabled={isView} />
           <div>
             <label>是否加测</label>
-            <input className="input" value="是" disabled style={{background: '#f5f5f5'}} />
-            <input type="hidden" value={1} />
+            <input 
+              className="input" 
+              value={it.is_add_on === 1 || it.is_add_on === '1' ? '是' : '否'} 
+              disabled 
+              style={{background: '#f5f5f5'}} 
+            />
+            <input type="hidden" name="is_add_on" value={it.is_add_on !== undefined && it.is_add_on !== null ? it.is_add_on : 1} />
           </div>
           <div>
             <label>是否委外</label>

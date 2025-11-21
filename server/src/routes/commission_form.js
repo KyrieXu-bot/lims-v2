@@ -123,6 +123,7 @@ router.get('/commission-form', async (req, res) => {
         ti.price_id,
         ti.department_id,
         d.department_name,
+        ti.group_id,
         ti.unit_price as standard_price,
         p.unit_price as original_unit_price,
         p.minimum_price,
@@ -145,6 +146,9 @@ router.get('/commission-form', async (req, res) => {
         ti.unit,
         ti.line_total,
         ti.final_unit_price,
+        COALESCE(pf.has_order_attachment, 0) as has_order_attachment,
+        COALESCE(pf.has_raw_data, 0) as has_raw_data,
+        COALESCE(pf.has_experiment_report, 0) as has_experiment_report,
         ti.actual_delivery_date,
         ti.business_note,
         ti.abnormal_condition,
@@ -184,6 +188,15 @@ router.get('/commission-form', async (req, res) => {
       LEFT JOIN departments d ON d.department_id = ti.department_id
       LEFT JOIN price p ON p.price_id = ti.price_id
       LEFT JOIN equipment e ON e.equipment_id = ti.equipment_id
+      LEFT JOIN (
+        SELECT 
+          test_item_id,
+          MAX(CASE WHEN category = 'order_attachment' THEN 1 ELSE 0 END) AS has_order_attachment,
+          MAX(CASE WHEN category = 'raw_data' THEN 1 ELSE 0 END) AS has_raw_data,
+          MAX(CASE WHEN category = 'experiment_report' THEN 1 ELSE 0 END) AS has_experiment_report
+        FROM project_files
+        GROUP BY test_item_id
+      ) pf ON pf.test_item_id = ti.test_item_id
       ${where}
       ORDER BY ti.order_id ASC, ti.test_item_id ASC
       LIMIT ? OFFSET ?`,

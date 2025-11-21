@@ -94,9 +94,10 @@ const BatchFileUpload = ({ testItemIds, userRole, onFileUploaded }) => {
       const result = await response.json();
       alert(`批量上传成功！文件已关联到 ${result.affectedRows} 个检测项目`);
       
-      if (onFileUploaded) {
-        onFileUploaded();
-      }
+      onFileUploaded?.({
+        testItemIds,
+        category: 'order_attachment'
+      });
     } catch (error) {
       console.error('批量上传失败:', error);
       alert('批量上传失败: ' + error.message);

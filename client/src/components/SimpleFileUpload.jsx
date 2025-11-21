@@ -74,7 +74,10 @@ const SimpleFileUpload = ({
       const uploadPromises = selectedFiles.map(file => uploadFileWithProgress(file));
       await Promise.all(uploadPromises);
       loadFiles();
-      onFileUploaded?.();
+      onFileUploaded?.({
+        testItemId,
+        category: selectedCategory
+      });
     } catch (error) {
       alert('文件上传失败: ' + error.message);
     } finally {

@@ -1,3 +1,16 @@
+.file-management-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 110px;
+  min-height: 64px;
+  height: 100%;
+  width: 100%;
+  padding: 6px 4px;
+  box-sizing: border-box;
+}
 .commission-form {
   padding: 15px 10px;
   background-color: #f5f5f5;
@@ -496,6 +509,41 @@
 
 .btn-file:hover {
   background-color: #e3f2fd;
+}
+
+.file-management-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 110px;
+  height: 100%;
+  width: 100%;
+  padding: 0 !important;
+  margin: 0;
+  box-sizing: border-box;
+  background-color: #e8f5e9 !important;
+}
+
+.file-status-list {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  font-size: 10px;
+  line-height: 1.2;
+  color: #2e7d32;
+  gap: 2px;
+}
+
+.file-status-label {
+  color: inherit;
+  display: inline-block;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: rgba(56, 142, 60, 0.18);
+  min-width: 72px;
+  text-align: left;
 }
 
 /* 文件管理模态框样式 */
@@ -1624,17 +1672,17 @@
   position: sticky;
   background: #e8f5e9 !important;
   z-index: 25 !important;
-  border-left: none !important;
-  outline: 1px solid rgba(232,245,233,0.9);
-  outline-offset: -1px;
-  box-shadow: -5px 0 10px -3px rgba(0,0,0,0.1);
+  border-left: 1px solid rgba(76, 175, 80, 0.35) !important;
+  border-right: 1px solid rgba(76, 175, 80, 0.08) !important;
+  outline: none !important;
+  box-shadow: none;
 }
 
 /* 为固定右侧列添加背景 */
 .commission-form .data-table thead th.fixed-right {
   z-index: 40 !important;
   background: #e8f5e9 !important;
-  border-bottom: 2px solid #90caf9 !important;
+  border-bottom: 2px solid #a5d6a7 !important;
   position: sticky !important;
   top: 0 !important;
   box-shadow: 0 2px 2px -1px rgba(0, 0, 0, 0.1);
@@ -1643,6 +1691,8 @@
 .commission-form .data-table tbody td.fixed-right {
   z-index: 25 !important;
   background: #e8f5e9 !important;
+  border-top: 1px solid rgba(76, 175, 80, 0.05);
+  border-bottom: 1px solid rgba(76, 175, 80, 0.05);
 }
 
 /* 固定右侧列悬停效果 */
@@ -1705,12 +1755,17 @@
 .commission-form .data-table th.fixed-right:nth-last-child(2),
 .commission-form .data-table td.fixed-right:nth-last-child(2) {
   right: var(--operation-column-width, 280px); /* 使用CSS变量动态设置，默认280px */
+  border-left: none !important;
+  border-right: 0 !important;
+  background: #e8f5e9 !important;
 }
 
 /* 操作列 - 最后1列 */
 .commission-form .data-table th.fixed-right:last-child,
 .commission-form .data-table td.fixed-right:last-child {
   right: 0;
+  box-shadow: -5px 0 8px -4px rgba(0,0,0,0.08);
+  border-right: 0 !important;
 }
 
 /* 手机端强制覆盖：在所有规则之后添加，确保优先级最高 */

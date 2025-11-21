@@ -19,6 +19,59 @@ const SERVICE_URGENCY_OPTIONS = [
   { value: 'urgent_2x', label: '特急2倍' }
 ];
 
+const SERVICE_URGENCY_DISPLAY_MAP = {
+  normal: '不加急',
+  urgent_1_5x: '加急1.5倍',
+  urgent_2x: '特急2倍'
+};
+
+const SERVICE_URGENCY_MULTIPLIER_MAP = {
+  normal: 1,
+  urgent_1_5x: 1.5,
+  urgent_2x: 2,
+  '不加急': 1,
+  '加急1.5倍': 1.5,
+  '特急2倍': 2
+};
+
+const FILE_CATEGORY_FIELD_MAP = {
+  order_attachment: 'has_order_attachment',
+  raw_data: 'has_raw_data',
+  experiment_report: 'has_experiment_report'
+};
+
+const getServiceUrgencyDisplayValue = (value) => {
+  if (!value) return value;
+  return SERVICE_URGENCY_DISPLAY_MAP[value] || value;
+};
+
+const getServiceUrgencyMultiplier = (value) => {
+  if (!value) return 1;
+  return SERVICE_URGENCY_MULTIPLIER_MAP[value] ?? 1;
+};
+
+const calculateStandardLineTotal = (unitPrice, quantity, serviceUrgency) => {
+  if (
+    unitPrice === null || unitPrice === undefined ||
+    quantity === null || quantity === undefined
+  ) {
+    return null;
+  }
+  const unitPriceNum = Number(unitPrice);
+  const quantityNum = Number(quantity);
+  if (
+    Number.isNaN(unitPriceNum) || Number.isNaN(quantityNum) ||
+    unitPriceNum < 0 || quantityNum < 0
+  ) {
+    return null;
+  }
+  const multiplier = getServiceUrgencyMultiplier(serviceUrgency);
+  const result = unitPriceNum * quantityNum * multiplier;
+  return Number.isFinite(result) ? result : null;
+};
+
+const hasUploadedFile = (value) => value === true || value === 1 || value === '1';
+
 const COLUMN_VISIBILITY_STORAGE_KEY = 'commission_form_column_visibility';
 
 const TOGGLEABLE_COLUMNS = [
@@ -92,18 +145,37 @@ const CollapsibleText = ({ text, maxLength = 50 }) => {
 };
 
 
+const RETURN_STATE_STORAGE_KEY = 'commission_form_return_state';
+const RETURN_STATE_SHOULD_RESTORE_KEY = 'commission_form_should_restore';
+
 const CommissionForm = () => {
   const navigate = useNavigate();
+
+  const getSavedViewState = () => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const shouldRestore = sessionStorage.getItem(RETURN_STATE_SHOULD_RESTORE_KEY) === 'true';
+      if (!shouldRestore) return null;
+      const stored = sessionStorage.getItem(RETURN_STATE_STORAGE_KEY);
+      return stored ? JSON.parse(stored) : null;
+    } catch (error) {
+      console.warn('恢复委托单列表状态失败:', error);
+      return null;
+    }
+  };
+
+  const [savedViewState] = useState(() => getSavedViewState());
+
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
+  const [page, setPage] = useState(() => (savedViewState?.page ? Number(savedViewState.page) : 1));
   const [pageSize] = useState(100);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState([]); // 改为数组，支持多选
-  const [departmentFilter, setDepartmentFilter] = useState('');
-  const [fieldTestDateFilter, setFieldTestDateFilter] = useState('');
-  const [myItemsFilter, setMyItemsFilter] = useState(false);
+  const [searchQuery, setSearchQuery] = useState(() => savedViewState?.searchQuery || '');
+  const [statusFilter, setStatusFilter] = useState(() => savedViewState?.statusFilter || []); // 改为数组，支持多选
+  const [departmentFilter, setDepartmentFilter] = useState(() => savedViewState?.departmentFilter || '');
+  const [fieldTestDateFilter, setFieldTestDateFilter] = useState(() => savedViewState?.fieldTestDateFilter || '');
+  const [myItemsFilter, setMyItemsFilter] = useState(() => savedViewState?.myItemsFilter || false);
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [technicians, setTechnicians] = useState([]);
@@ -137,6 +209,34 @@ const CommissionForm = () => {
     }
     return { ...DEFAULT_COLUMN_VISIBILITY };
   });
+
+  useEffect(() => {
+    if (savedViewState) {
+      try {
+        sessionStorage.removeItem(RETURN_STATE_SHOULD_RESTORE_KEY);
+      } catch (error) {
+        console.warn('清除委托单返回标记失败:', error);
+      }
+    }
+  }, [savedViewState]);
+
+  const saveCurrentViewState = () => {
+    if (typeof window === 'undefined') return;
+    try {
+      const viewState = {
+        page,
+        searchQuery,
+        statusFilter,
+        departmentFilter,
+        fieldTestDateFilter,
+        myItemsFilter,
+      };
+      sessionStorage.setItem(RETURN_STATE_STORAGE_KEY, JSON.stringify(viewState));
+      sessionStorage.setItem(RETURN_STATE_SHOULD_RESTORE_KEY, 'true');
+    } catch (error) {
+      console.warn('保存委托单列表状态失败:', error);
+    }
+  };
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -211,12 +311,18 @@ const CommissionForm = () => {
     }
     const result = await response.json();
     const items = Array.isArray(result.data) ? result.data : [];
-    // 对每个项目计算测试总价
+    // 对每个项目计算测试总价和标准总价
     const processedItems = items.map(item => {
       const calculatedFinalUnitPrice = calculateFinalUnitPrice(item);
+      const calculatedLineTotal = calculateStandardLineTotal(
+        item.standard_price ?? item.unit_price,
+        item.actual_sample_quantity,
+        item.service_urgency
+      );
       return {
         ...item,
-        final_unit_price: calculatedFinalUnitPrice !== null ? calculatedFinalUnitPrice : item.final_unit_price
+        final_unit_price: calculatedFinalUnitPrice !== null ? calculatedFinalUnitPrice : item.final_unit_price,
+        line_total: calculatedLineTotal !== null ? calculatedLineTotal : item.line_total
       };
     });
     const eligibleItems = user?.role === 'leader'
@@ -249,6 +355,47 @@ const CommissionForm = () => {
     return parts.join(' - ');
   };
 
+  const handleFileStatusUpdate = ({ testItemId, testItemIds, category }) => {
+    const field = FILE_CATEGORY_FIELD_MAP[category];
+    if (!field) return;
+    const targetIds = testItemIds || (testItemId ? [testItemId] : []);
+    if (!Array.isArray(targetIds) || targetIds.length === 0) return;
+    const normalizedIds = targetIds.map(id => Number(id));
+    
+    setData(prevData => prevData.map(item => {
+      if (!normalizedIds.includes(Number(item.test_item_id))) return item;
+      return {
+        ...item,
+        [field]: 1
+      };
+    }));
+    
+    setSelectedFileTestItem(prev => {
+      if (prev && normalizedIds.includes(Number(prev.test_item_id))) {
+        return {
+          ...prev,
+          [field]: 1
+        };
+      }
+      return prev;
+    });
+  };
+
+  const renderFileUploadStatus = (item) => {
+    if (!item) return null;
+    const hasOrder = hasUploadedFile(item.has_order_attachment);
+    const hasRaw = hasUploadedFile(item.has_raw_data);
+    const hasReport = hasUploadedFile(item.has_experiment_report);
+    if (!hasOrder && !hasRaw && !hasReport) return null;
+    return (
+      <div className="file-status-list">
+        {hasOrder && <span className="file-status-label">已传委托单</span>}
+        {hasRaw && <span className="file-status-label">已传原始数据</span>}
+        {hasReport && <span className="file-status-label">已传报告</span>}
+      </div>
+    );
+  };
+
   // 计算测试总价：final_unit_price = price_note * (discount_rate / 100) * actual_sample_quantity * 加急系数
   const calculateFinalUnitPrice = (item) => {
     const priceNote = item.price_note !== null && item.price_note !== undefined ? Number(item.price_note) : null;
@@ -256,15 +403,7 @@ const CommissionForm = () => {
     const actualSampleQuantity = item.actual_sample_quantity !== null && item.actual_sample_quantity !== undefined ? Number(item.actual_sample_quantity) : null;
     
     // 获取加急系数
-    let urgencyMultiplier = 1;
-    const serviceUrgency = item.service_urgency;
-    if (serviceUrgency === 'urgent_1_5x' || serviceUrgency === '加急1.5倍') {
-      urgencyMultiplier = 1.5;
-    } else if (serviceUrgency === 'urgent_2x' || serviceUrgency === '特急2倍') {
-      urgencyMultiplier = 2;
-    } else if (serviceUrgency === 'normal' || serviceUrgency === '不加急' || !serviceUrgency) {
-      urgencyMultiplier = 1;
-    }
+    const urgencyMultiplier = getServiceUrgencyMultiplier(item.service_urgency);
     
     // 如果任一值为空或无效，返回null
     if (priceNote === null || isNaN(priceNote) || priceNote < 0 ||
@@ -325,6 +464,9 @@ const CommissionForm = () => {
   const canEditField = (field, item = null) => {
     const role = user?.role;
     if (!role) return false;
+    if (item && item.status === 'cancelled') {
+      return false;
+    }
     if (role === 'admin') {
       return true;
     }
@@ -1556,6 +1698,11 @@ const CommissionForm = () => {
 
   // 复制检测项目
   const handleCopyTestItem = (item) => {
+    saveCurrentViewState();
+    const resolvedUnitPrice = item && item.standard_price !== undefined && item.standard_price !== null && item.standard_price !== ''
+      ? item.standard_price
+      : item.unit_price;
+      
     // 构建复制数据的URL参数，排除ID相关字段
     const copyData = {
       order_id: item.order_id,
@@ -1569,7 +1716,7 @@ const CommissionForm = () => {
       standard_code: item.standard_code,
       department_id: item.department_id,
       group_id: item.group_id,
-      unit_price: item.unit_price,
+      unit_price: resolvedUnitPrice,
       discount_rate: item.discount_rate,
       final_unit_price: item.final_unit_price,
       line_total: item.line_total,
@@ -1581,8 +1728,9 @@ const CommissionForm = () => {
       seq_no: item.seq_no,
       sample_preparation: item.sample_preparation,
       note: item.note,
-      // 不复制分配相关字段，让用户重新选择
-      // current_assignee: item.current_assignee,
+      // 复制业务员，方便加测时沿用业务信息
+      current_assignee: item.current_assignee,
+      // 不复制负责人及实验员，让用户重新选择
       // supervisor_id: item.supervisor_id,
       // technician_id: item.technician_id,
       equipment_id: item.equipment_id,
@@ -1599,9 +1747,22 @@ const CommissionForm = () => {
 
     // 将数据编码为URL参数
     const params = new URLSearchParams();
+    // 数字类型字段列表，这些字段即使为0也应该传递
+    const numericFields = ['quantity', 'unit_price', 'discount_rate', 'final_unit_price', 'line_total', 
+                          'machine_hours', 'work_hours', 'is_add_on', 'is_outsourced', 'department_id', 
+                          'group_id', 'supervisor_id', 'technician_id', 'equipment_id', 'actual_sample_quantity'];
+    
     Object.keys(copyData).forEach(key => {
-      if (copyData[key] !== null && copyData[key] !== undefined && copyData[key] !== '') {
-        params.append(key, copyData[key]);
+      const value = copyData[key];
+      // 对于数字类型字段，即使为0也要传递；对于其他字段，排除null/undefined/空字符串
+      if (numericFields.includes(key)) {
+        if (value !== null && value !== undefined && value !== '') {
+          params.append(key, value);
+        }
+      } else {
+        if (value !== null && value !== undefined && value !== '') {
+          params.append(key, value);
+        }
       }
     });
 
@@ -1787,27 +1948,23 @@ const CommissionForm = () => {
         }
       }
       
-      // 实时计算标准总价：当修改标准单价或计费数量时，自动计算 line_total = unit_price × actual_sample_quantity
-      if (field === 'unit_price' || field === 'actual_sample_quantity') {
+      // 实时计算标准总价：当修改标准单价、计费数量或服务加急时，自动计算 line_total = unit_price × actual_sample_quantity × 加急系数
+      if (field === 'unit_price' || field === 'actual_sample_quantity' || field === 'service_urgency') {
         // 获取最新的标准单价和计费数量值
-        // 如果当前修改的是unit_price，使用新的value；否则使用currentItem中的值
         const unitPrice = field === 'unit_price' 
           ? (value === '' || value === undefined || value === null ? null : Number(value))
           : (currentItem.standard_price ? Number(currentItem.standard_price) : (currentItem.unit_price ? Number(currentItem.unit_price) : null));
         
-        // 如果当前修改的是actual_sample_quantity，使用新的value；否则使用currentItem中的值
         const quantity = field === 'actual_sample_quantity'
           ? (value === '' || value === undefined || value === null ? null : Number(value))
-          : (currentItem.actual_sample_quantity ? Number(currentItem.actual_sample_quantity) : null);
+          : (currentItem.actual_sample_quantity !== undefined && currentItem.actual_sample_quantity !== null ? Number(currentItem.actual_sample_quantity) : null);
         
-        // 计算标准总价
-        if (unitPrice !== null && quantity !== null && !isNaN(unitPrice) && !isNaN(quantity) && unitPrice >= 0 && quantity >= 0) {
-          const calculatedLineTotal = unitPrice * quantity;
-          updateData.line_total = calculatedLineTotal;
-        } else {
-          // 如果任一值为空或无效，则标准总价也为空
-          updateData.line_total = null;
-        }
+        const serviceUrgency = field === 'service_urgency'
+          ? getServiceUrgencyDisplayValue(value)
+          : currentItem.service_urgency;
+        
+        const calculatedLineTotal = calculateStandardLineTotal(unitPrice, quantity, serviceUrgency);
+        updateData.line_total = calculatedLineTotal !== null ? calculatedLineTotal : null;
       }
       
       // 实时计算测试总价：当修改业务报价、折扣、计费数量或服务加急时，自动计算 final_unit_price
@@ -1824,12 +1981,7 @@ const CommissionForm = () => {
           calcItem.actual_sample_quantity = value === '' || value === undefined || value === null ? null : Number(value);
         } else if (field === 'service_urgency') {
           // service_urgency 的值转换：将数据库值转换为显示值
-          const urgencyMap = {
-            'normal': '不加急',
-            'urgent_1_5x': '加急1.5倍',
-            'urgent_2x': '特急2倍'
-          };
-          calcItem.service_urgency = urgencyMap[value] || value;
+          calcItem.service_urgency = getServiceUrgencyDisplayValue(value);
         }
         
         // 计算测试总价
@@ -1905,18 +2057,14 @@ const CommissionForm = () => {
               merged.standard_price = updatedItem.unit_price;
             }
             
-            // 如果更新了标准单价或计费数量，重新计算标准总价（使用最新的值）
-            if (field === 'unit_price' || field === 'actual_sample_quantity') {
-              // 使用合并后的最新值进行计算
-              const unitPrice = merged.standard_price || merged.unit_price;
-              const quantity = merged.actual_sample_quantity;
-              if (unitPrice !== null && unitPrice !== undefined && quantity !== null && quantity !== undefined) {
-                const unitPriceNum = Number(unitPrice);
-                const quantityNum = Number(quantity);
-                if (!isNaN(unitPriceNum) && !isNaN(quantityNum)) {
-                  merged.line_total = unitPriceNum * quantityNum;
-                }
-              }
+            // 如果更新了标准单价、计费数量或服务加急，重新计算标准总价（使用最新的值）
+            if (field === 'unit_price' || field === 'actual_sample_quantity' || field === 'service_urgency') {
+              const recalculatedLineTotal = calculateStandardLineTotal(
+                merged.standard_price ?? merged.unit_price,
+                merged.actual_sample_quantity,
+                merged.service_urgency
+              );
+              merged.line_total = recalculatedLineTotal;
             }
             
             // 如果更新了业务报价、折扣、计费数量或服务加急，重新计算测试总价（使用最新的值）
@@ -2186,7 +2334,10 @@ const CommissionForm = () => {
           <div className="filter-actions">
             {canCreateTestItem && (
               <button 
-                onClick={() => navigate('/test-items/new')} 
+                onClick={() => {
+                  saveCurrentViewState();
+                  navigate('/test-items/new');
+                }}
                 className="btn btn-info"
               >
                 添加检测
@@ -2595,30 +2746,41 @@ const CommissionForm = () => {
                                     throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
                                   }
                                   await response.json();
-                                  const urgencyMap = {
-                                    'normal': '不加急',
-                                    'urgent_1_5x': '加急1.5倍',
-                                    'urgent_2x': '特急2倍'
-                                  };
                                   setData(prevData => 
                                     prevData.map(item => {
                                       if (item.test_item_id === testItemId) {
-                                        const updatedItem = { ...item, service_urgency: urgencyMap[value] || value };
+                                        const updatedItem = { ...item, service_urgency: getServiceUrgencyDisplayValue(value) };
                                         // 重新计算测试总价
                                         const calculatedFinalUnitPrice = calculateFinalUnitPrice(updatedItem);
                                         if (calculatedFinalUnitPrice !== null) {
                                           updatedItem.final_unit_price = calculatedFinalUnitPrice;
+                                        } else {
+                                          updatedItem.final_unit_price = null;
                                         }
-                                        // 同时更新数据库中的 final_unit_price
+                                        // 同步计算标准总价
+                                        const calculatedLineTotal = calculateStandardLineTotal(
+                                          updatedItem.standard_price ?? updatedItem.unit_price,
+                                          updatedItem.actual_sample_quantity,
+                                          updatedItem.service_urgency
+                                        );
+                                        updatedItem.line_total = calculatedLineTotal;
+                                        
+                                        const payload = {};
                                         if (calculatedFinalUnitPrice !== null) {
+                                          payload.final_unit_price = calculatedFinalUnitPrice;
+                                        }
+                                        if (calculatedLineTotal !== null) {
+                                          payload.line_total = calculatedLineTotal;
+                                        }
+                                        if (Object.keys(payload).length > 0) {
                                           fetch(`/api/test-items/${testItemId}`, {
                                             method: 'PUT',
                                             headers: {
                                               'Authorization': `Bearer ${userLocal.token}`,
                                               'Content-Type': 'application/json'
                                             },
-                                            body: JSON.stringify({ final_unit_price: calculatedFinalUnitPrice })
-                                          }).catch(err => console.error('更新测试总价失败:', err));
+                                            body: JSON.stringify(payload)
+                                          }).catch(err => console.error('更新测试/标准总价失败:', err));
                                         }
                                         return updatedItem;
                                       }
@@ -2962,7 +3124,7 @@ const CommissionForm = () => {
                       <td className={getColumnCellClass('abnormal_condition', 'lab-field narrow-col')} data-column-key="abnormal_condition">
                         <span className="readonly-field">{item.abnormal_condition || ''}</span>
                       </td>
-                      <td className="lab-field fixed-right narrow-col">
+                      <td className="lab-field fixed-right narrow-col file-management-cell">
                         <button 
                           className="btn-file" 
                           onClick={() => toggleFileView(item)}
@@ -2970,12 +3132,16 @@ const CommissionForm = () => {
                         >
                           📁
                         </button>
+                        {renderFileUploadStatus(item)}
                       </td>
                       <td className="fixed-right" style={{whiteSpace: 'nowrap'}}>
                         <div style={{display: 'flex', gap: '4px', alignItems: 'center', width: 'fit-content'}}>
                           <button 
                             className="btn btn-success"
-                            onClick={() => navigate(`/test-items/${item.test_item_id}?view=1`)}
+                            onClick={() => {
+                              saveCurrentViewState();
+                              navigate(`/test-items/${item.test_item_id}?view=1`);
+                            }}
                             title="查看检测项目"
                             style={{
                               padding: '2px 6px',
@@ -3015,10 +3181,13 @@ const CommissionForm = () => {
                               );
                             })()}
                             {/* 组长（supervisor）不可以编辑，管理员和室主任可以编辑 */}
-                            {(user?.role === 'admin' || user?.role === 'leader') && (
+                            {(user?.role === 'admin' || user?.role === 'leader') && item.status !== 'cancelled' && (
                               <button 
                                 className="btn btn-warning"
-                                onClick={() => navigate(`/test-items/${item.test_item_id}`)}
+                                onClick={() => {
+                                  saveCurrentViewState();
+                                  navigate(`/test-items/${item.test_item_id}`);
+                                }}
                                 title="编辑检测项目"
                                 style={{
                                   padding: '2px 6px',
@@ -3179,9 +3348,7 @@ const CommissionForm = () => {
                 testItemId={selectedFileTestItem.test_item_id}
                 orderId={selectedFileTestItem.order_id}
                 userRole={user?.role}
-                onFileUploaded={() => {
-                  // 文件上传成功后的回调
-                }}
+                onFileUploaded={(info) => handleFileStatusUpdate(info)}
               />
             </div>
           </div>
@@ -3200,9 +3367,10 @@ const CommissionForm = () => {
               <BatchFileUpload
                 testItemIds={selectedItems}
                 userRole={user?.role}
-                onFileUploaded={() => {
+                onFileUploaded={(info) => {
                   setShowBatchUploadModal(false);
                   setSelectedItems([]);
+                  handleFileStatusUpdate(info);
                 }}
               />
             </div>

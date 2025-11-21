@@ -533,17 +533,24 @@ const RealtimeEditableCell = ({
   }
 
   if (type === 'select') {
+    // 检查是否需要添加空选项（当 editValue 为空且 options 中没有空选项时）
+    const hasEmptyOption = options.some(opt => opt.value === '' || opt.value === null || opt.value === undefined);
+    const displayOptions = hasEmptyOption ? options : [
+      { value: '', label: '请选择' },
+      ...options
+    ];
+    
     return (
       <select
         ref={inputRef}
-        value={editValue}
+        value={editValue === null || editValue === undefined ? '' : editValue}
         onChange={handleChange}
         onKeyDown={handleKeyDown}
         onBlur={handleSave}
         className="editable-input select-input"
       >
-        {options.map((option, index) => (
-          <option key={option.value || index} value={option.value}>
+        {displayOptions.map((option, index) => (
+          <option key={option.value || index} value={option.value || ''}>
             {option.label}
           </option>
         ))}
