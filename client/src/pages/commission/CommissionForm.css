@@ -314,8 +314,15 @@
   width: 70px !important;
   max-width: 80px !important;
   text-align: right;
-  overflow: hidden !important; /* 确保数量列也正确显示省略号 */
-  text-overflow: ellipsis !important;
+  overflow: visible !important; /* 数量列不应该显示省略号 */
+  text-overflow: clip !important; /* 覆盖通用样式中的 ellipsis */
+}
+
+/* 数量列中的只读字段不应该显示省略号 */
+.data-table td.quantity-col .readonly-field {
+  overflow: visible !important;
+  text-overflow: clip !important;
+  white-space: nowrap !important;
 }
 .data-table th.discount-col, .data-table td.discount-col {
   min-width: 60px !important;
@@ -797,15 +804,15 @@
   z-index: 35 !important;
   background-color: #bbdefb !important; /* 表头背景色 */
 }
-/* 以"服务加急"为界：第2列到第17列（服务加急）为淡蓝；第18列（负责人）及以后为浅绿 */
+/* 以"服务加急"为界：第2列到第18列（服务加急）为淡蓝；第19列（负责人）及以后为浅绿 */
 /* 使用类名优先级，确保lab-field类覆盖nth-child规则 */
-.commission-form .data-table th:nth-child(n+2):nth-child(-n+17):not(.lab-field),
-.commission-form .data-table td:nth-child(n+2):nth-child(-n+17):not(.lab-field) {
+.commission-form .data-table th:nth-child(n+2):nth-child(-n+18):not(.lab-field),
+.commission-form .data-table td:nth-child(n+2):nth-child(-n+18):not(.lab-field) {
   background-color: #eef6ff !important;
 }
 
 /* 确保这些表头也能固定 */
-.commission-form .data-table thead th:nth-child(n+2):nth-child(-n+17):not(.lab-field) {
+.commission-form .data-table thead th:nth-child(n+2):nth-child(-n+18):not(.lab-field) {
   position: sticky !important;
   top: 0 !important;
   z-index: 35 !important;
@@ -1885,4 +1892,19 @@
   background-color: #a5b4fc;
   color: #111827;
   outline: none;
+}
+
+/* 加测标识样式 - 使用橙色系作为淡蓝色背景的互补色 */
+.add-on-badge {
+  display: inline-block;
+  padding: 1px 4px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #ff6b00;
+  background: rgba(255, 107, 0, 0.15);
+  border-radius: 3px;
+  line-height: 1.2;
+  white-space: nowrap;
+  min-width: 40px;
+  text-align: center;
 }

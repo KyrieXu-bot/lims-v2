@@ -70,6 +70,7 @@ export default function TestItemEdit() {
   const [showBusinessStaffSuggestions, setShowBusinessStaffSuggestions] = useState(false);
   const [supervisorSuggestions, setSupervisorSuggestions] = useState([]);
   const [showSupervisorSuggestions, setShowSupervisorSuggestions] = useState(false);
+  const [supervisorDisplayText, setSupervisorDisplayText] = useState(''); // 存储负责人显示文本（工号或姓名）
   const [employeeSuggestions, setEmployeeSuggestions] = useState([]);
   const [showEmployeeSuggestions, setShowEmployeeSuggestions] = useState(false);
   const [userSearchTimeout, setUserSearchTimeout] = useState(null);
@@ -114,6 +115,43 @@ export default function TestItemEdit() {
         }
         
         setIt({ ...data, sample_arrival_status: s });
+        
+        // 如果有负责人ID，需要查找并显示负责人信息
+        if (data.supervisor_id) {
+          try {
+            const supervisorIdStr = String(data.supervisor_id);
+            // 先尝试使用部门ID查找
+            let departmentIdForQuery = data.department_id || currentUser?.department_id || undefined;
+            let users = await api.getAllSupervisors({ q: '', department_id: departmentIdForQuery });
+            let supervisor = users.find(u => String(u.user_id) === supervisorIdStr);
+            
+            // 如果没找到，且没有指定部门，尝试不传部门ID（可能跨部门）
+            if (!supervisor && !departmentIdForQuery) {
+              users = await api.getAllSupervisors({ q: '' });
+              supervisor = users.find(u => String(u.user_id) === supervisorIdStr);
+            }
+            
+            // 如果还是没找到，尝试使用 supervisor_id 作为搜索词
+            if (!supervisor) {
+              users = await api.getAllSupervisors({ q: supervisorIdStr, department_id: departmentIdForQuery });
+              supervisor = users.find(u => String(u.user_id) === supervisorIdStr);
+            }
+            
+            if (supervisor) {
+              // 显示工号，如果没有工号则显示姓名
+              setSupervisorDisplayText(supervisor.account || supervisor.name || '');
+            } else if (data.supervisor_name) {
+              // 如果找不到用户，但有姓名，则显示姓名
+              setSupervisorDisplayText(data.supervisor_name);
+            }
+          } catch (error) {
+            console.error('加载负责人信息失败:', error);
+            // 如果加载失败，但有姓名，则显示姓名
+            if (data.supervisor_name) {
+              setSupervisorDisplayText(data.supervisor_name);
+            }
+          }
+        }
       }).catch(e=>alert(e.message));
     } else {
       // 检查是否有复制数据
@@ -124,9 +162,10 @@ export default function TestItemEdit() {
           const copyObj = {};
           for (const [key, value] of copyData.entries()) {
             // 处理数字类型字段
+            // supervisor_id 和 technician_id 可能是字符串类型的ID，不应该用 parseFloat 处理
             if (['quantity', 'unit_price', 'discount_rate', 'final_unit_price', 'line_total', 
                  'machine_hours', 'work_hours', 'is_add_on', 'is_outsourced', 'department_id', 
-                 'group_id', 'supervisor_id', 'technician_id', 'equipment_id', 'actual_sample_quantity'].includes(key)) {
+                 'group_id', 'equipment_id', 'actual_sample_quantity'].includes(key)) {
               if (value === '' || value === null || value === undefined) {
                 copyObj[key] = '';
               } else {
@@ -134,11 +173,53 @@ export default function TestItemEdit() {
                 // 确保解析后的值不是NaN
                 copyObj[key] = isNaN(numValue) ? '' : numValue;
               }
+            } else if (key === 'supervisor_id' || key === 'technician_id') {
+              // supervisor_id 和 technician_id 可能是字符串或数字，保持原值
+              copyObj[key] = value;
             } else {
               copyObj[key] = value;
             }
           }
           setIt(prev => ({ ...prev, ...copyObj }));
+          
+          // 如果复制数据包含 supervisor_id，需要根据ID查找用户信息并显示
+          if (copyObj.supervisor_id) {
+            const loadSupervisorInfo = async () => {
+              try {
+                const supervisorIdStr = String(copyObj.supervisor_id);
+                // 先尝试使用部门ID查找
+                let departmentIdForQuery = copyObj.department_id || currentUser?.department_id || undefined;
+                let users = await api.getAllSupervisors({ q: '', department_id: departmentIdForQuery });
+                let supervisor = users.find(u => String(u.user_id) === supervisorIdStr);
+                
+                // 如果没找到，且没有指定部门，尝试不传部门ID（可能跨部门）
+                if (!supervisor && !departmentIdForQuery) {
+                  users = await api.getAllSupervisors({ q: '' });
+                  supervisor = users.find(u => String(u.user_id) === supervisorIdStr);
+                }
+                
+                // 如果还是没找到，尝试使用 supervisor_id 作为搜索词
+                if (!supervisor) {
+                  users = await api.getAllSupervisors({ q: supervisorIdStr, department_id: departmentIdForQuery });
+                  supervisor = users.find(u => String(u.user_id) === supervisorIdStr);
+                }
+                
+                if (supervisor) {
+                  // 显示工号，如果没有工号则显示姓名
+                  setSupervisorDisplayText(supervisor.account || supervisor.name || '');
+                } else {
+                  console.warn('未找到负责人信息:', { 
+                    supervisor_id: copyObj.supervisor_id, 
+                    department_id: departmentIdForQuery,
+                    availableUsers: users.map(u => ({ user_id: u.user_id, name: u.name, account: u.account }))
+                  });
+                }
+              } catch (error) {
+                console.error('加载负责人信息失败:', error);
+              }
+            };
+            loadSupervisorInfo();
+          }
         } catch (error) {
           console.error('解析复制数据失败:', error);
         }
@@ -376,6 +457,8 @@ export default function TestItemEdit() {
       supervisor_id: newSupervisorId,
       status: newStatus
     }));
+    // 设置显示文本为工号，如果没有工号则显示姓名
+    setSupervisorDisplayText(user.account || user.name || '');
     setShowSupervisorSuggestions(false);
   };
 
@@ -837,18 +920,22 @@ export default function TestItemEdit() {
           <div style={{position: 'relative'}} ref={supervisorInputWrapperRef}>
               <input 
                 className="input" 
-                value={it.supervisor_id || ''} 
+                value={supervisorDisplayText} 
                 onChange={e => {
                   const value = e.target.value;
-                  const newStatus = updateStatusBasedOnAssignment(value, it.technician_id);
-                  setIt(prev => ({
-                    ...prev, 
-                    supervisor_id: value,
-                    status: newStatus
-                  }));
+                  setSupervisorDisplayText(value);
+                  // 如果输入框被清空，也清空 supervisor_id
+                  if (!value) {
+                    const newStatus = updateStatusBasedOnAssignment('', it.technician_id);
+                    setIt(prev => ({
+                      ...prev, 
+                      supervisor_id: '',
+                      status: newStatus
+                    }));
+                  }
                   searchSupervisors(value);
                 }}
-                onFocus={() => searchSupervisors('')}
+                onFocus={() => searchSupervisors(supervisorDisplayText || '')}
                 placeholder="输入组长姓名或工号"
                 disabled={isView}
               />

@@ -64,8 +64,9 @@ router.get('/commission-form', async (req, res) => {
       params.push(q);
     } else {
       // 普通文本搜索
-      filters.push('(ti.category_name LIKE ? OR ti.detail_name LIKE ? OR ti.test_code LIKE ? OR ti.order_id LIKE ? OR c.customer_name LIKE ? OR comm.contact_name LIKE ?)');
-      params.push(like, like, like, like, like, like);
+      // 使用子查询来搜索 payers.contact_name，避免 WHERE 子句中引用 JOIN 别名的问题
+      filters.push('(ti.category_name LIKE ? OR ti.detail_name LIKE ? OR ti.test_code LIKE ? OR ti.order_id LIKE ? OR c.customer_name LIKE ? OR comm.contact_name LIKE ? OR EXISTS (SELECT 1 FROM payers WHERE payers.payer_id = o.payer_id AND payers.contact_name LIKE ?))');
+      params.push(like, like, like, like, like, like, like);
     }
   }
   
@@ -157,6 +158,7 @@ router.get('/commission-form', async (req, res) => {
         ti.arrival_mode,
         ti.sample_arrival_status,
         ti.price_note,
+        ti.is_add_on,
         sup.name as supervisor_name,
         ti.supervisor_id,
         -- 业务员信息

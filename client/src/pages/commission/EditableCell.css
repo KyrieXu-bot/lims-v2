@@ -128,6 +128,14 @@
 input[type="number"] {
   text-align: right;
   min-width: 80px;
+  -moz-appearance: textfield; /* Firefox: 隐藏spinner */
+}
+
+/* 隐藏数字输入框的spinner按钮（上下箭头）- Chrome/Safari/Edge */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 
 /* 日期输入框样式 */

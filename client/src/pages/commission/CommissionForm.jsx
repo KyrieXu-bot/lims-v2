@@ -77,7 +77,8 @@ const COLUMN_VISIBILITY_STORAGE_KEY = 'commission_form_column_visibility';
 const TOGGLEABLE_COLUMNS = [
   { key: 'test_code', label: '项目编号' },
   { key: 'commissioner', label: '委托单位' },
-  { key: 'contact', label: '联系人' },
+  { key: 'contact', label: '委托联系人' },
+  { key: 'payer_contact', label: '付款联系人' },
   { key: 'department', label: '归属部门' },
   { key: 'price_original', label: '收费标准' },
   { key: 'price_note', label: '业务报价' },
@@ -956,16 +957,19 @@ const CommissionForm = () => {
     if (!item) return false;
 
     const responsibleFilled = hasValue(item.supervisor_id) || hasValue(item.supervisor_name);
-    const standardPriceFilled = hasPositiveNumber(item.standard_price ?? item.unit_price);
+    // 单价允许为0（可能存在0元项目）
+    const standardPriceFilled = hasNonNegativeNumber(item.standard_price ?? item.unit_price);
     const testerFilled = hasValue(item.technician_id) || hasValue(item.technician_name);
     const fieldTestTimeFilled = hasValue(item.field_test_time);
     const equipmentFilled = hasValue(item.equipment_id) || hasValue(item.equipment_name);
-    const quantityFilled = hasPositiveNumber(item.actual_sample_quantity);
+    // 计费数量允许为0
+    const quantityFilled = hasNonNegativeNumber(item.actual_sample_quantity);
     const unitFilled = hasValue(item.unit);
     // 机时和工时允许为0（按样品数收费的项目可能为0）
     const workHoursFilled = hasNonNegativeNumber(item.work_hours);
     const machineHoursFilled = hasNonNegativeNumber(item.machine_hours);
-    const standardTotalFilled = hasPositiveNumber(item.line_total);
+    // 标准总价允许为0
+    const standardTotalFilled = hasNonNegativeNumber(item.line_total);
 
     return responsibleFilled &&
       standardPriceFilled &&
@@ -1173,7 +1177,8 @@ const CommissionForm = () => {
         '收样日期': formatDate(item.order_created_at),
         '开单日期': formatDate(item.test_item_created_at),
         '委托单位': item.customer_commissioner_name || '',
-        '委托方联系人': item.customer_contact_name || '',
+        '委托联系人': item.customer_contact_name || '',
+        '付款联系人': item.payer_contact_name || '',
         '业务负责人': item.assignee_name || '',
         '检测项目': `${item.category_name || ''} - ${item.detail_name || ''}`,
         '样品原号': item.original_no || '',
@@ -1219,7 +1224,8 @@ const CommissionForm = () => {
         { wch: 12 },  // 收样日期
         { wch: 12 },  // 开单日期
         { wch: 20 },  // 委托单位
-        { wch: 12 },  // 委托方联系人
+        { wch: 12 },  // 委托联系人
+        { wch: 12 },  // 付款联系人
         { wch: 12 },  // 业务负责人
         { wch: 30 },  // 检测项目
         { wch: 15 },  // 样品原号
@@ -1716,13 +1722,15 @@ const CommissionForm = () => {
       standard_code: item.standard_code,
       department_id: item.department_id,
       group_id: item.group_id,
-      unit_price: resolvedUnitPrice,
+      // 不复制标准单价、标准总价、测试总价
+      // unit_price: resolvedUnitPrice,
       discount_rate: item.discount_rate,
-      final_unit_price: item.final_unit_price,
-      line_total: item.line_total,
+      // final_unit_price: item.final_unit_price,
+      // line_total: item.line_total,
       quantity: item.quantity,
-      machine_hours: item.machine_hours,
-      work_hours: item.work_hours,
+      // 不复制机时和工时
+      // machine_hours: item.machine_hours,
+      // work_hours: item.work_hours,
       is_add_on: 1, // 标记为加测
       is_outsourced: item.is_outsourced,
       seq_no: item.seq_no,
@@ -1730,20 +1738,40 @@ const CommissionForm = () => {
       note: item.note,
       // 复制业务员，方便加测时沿用业务信息
       current_assignee: item.current_assignee,
-      // 不复制负责人及实验员，让用户重新选择
+      // 复制负责人工号，如果原项目有负责人的话
       // supervisor_id: item.supervisor_id,
+      // 不复制实验员，让用户重新选择
       // technician_id: item.technician_id,
       equipment_id: item.equipment_id,
       arrival_mode: item.arrival_mode,
       sample_arrival_status: item.sample_arrival_status,
-      actual_sample_quantity: item.actual_sample_quantity,
+      // 不复制计费数量
+      // actual_sample_quantity: item.actual_sample_quantity,
       // 不复制交付日期，让用户重新填写
       // actual_delivery_date: item.actual_delivery_date,   
       field_test_time: item.field_test_time,
       price_note: item.price_note,
+      // 不复制指派备注、实验备注、业务备注
+      // assignment_note: item.assignment_note,
+      // test_notes: item.test_notes,
+      // business_note: item.business_note,
+      // 不复制单位
+      // unit: item.unit,
       // 添加其他可能缺失的字段
-      status: 'new' // 确保状态为新建
+      // status 将在后面根据是否有负责人来设置
     };
+
+    // 如果原项目有负责人，则复制负责人工号
+    const hasSupervisor = item.supervisor_id && 
+                          item.supervisor_id !== null && 
+                          item.supervisor_id !== undefined && 
+                          item.supervisor_id !== '';
+    if (hasSupervisor) {
+      copyData.supervisor_id = item.supervisor_id;
+    }
+    
+    // 根据是否有负责人来设置状态：有负责人则为已分配，否则为新建
+    copyData.status = hasSupervisor ? 'assigned' : 'new';
 
     // 将数据编码为URL参数
     const params = new URLSearchParams();
@@ -2238,7 +2266,7 @@ const CommissionForm = () => {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="搜索委托单号、客户名称、检测项目、委托方联系人..."
+                placeholder="搜索委托单号、客户名称、检测项目、委托联系人、付款联系人..."
                 onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
               />
               <div className="search-buttons">
@@ -2435,7 +2463,8 @@ const CommissionForm = () => {
                     <th className="pre-urgent-field fixed-left">检测项目</th>
                     {renderColumnHeader('test_code', '项目编号', 'pre-urgent-field narrow-col')}
                     {renderColumnHeader('commissioner', '委托单位', 'pre-urgent-field commissioner-col')}
-                    {renderColumnHeader('contact', '联系人', 'pre-urgent-field narrow-col')}
+                    {renderColumnHeader('contact', '委托联系人', 'pre-urgent-field narrow-col')}
+                    {renderColumnHeader('payer_contact', '付款联系人', 'pre-urgent-field narrow-col')}
                     {user?.role === 'admin' && renderColumnHeader('department', '归属部门', 'order-creator-field')}
                     {renderColumnHeader('price_original', '收费标准', 'order-creator-field price-original-col')}
                     {renderColumnHeader('price_note', '业务报价', 'order-creator-field price-note-col')}
@@ -2499,12 +2528,19 @@ const CommissionForm = () => {
                             />
                           </div>
                           <div>
-                            <strong>样品原号:</strong>{' '}
-                            <DetailViewLink 
-                              text={item.original_no || ''}
-                              maxLength={20}
-                              fieldName="样品原号"
-                            />
+                            <div style={{display: 'flex', alignItems: 'center', flexWrap: 'nowrap', gap: '4px'}}>
+                              <strong>样品原号:</strong>
+                              <DetailViewLink 
+                                text={item.original_no || ''}
+                                maxLength={20}
+                                fieldName="样品原号"
+                              />
+                            </div>
+                            {item.is_add_on === 1 && (
+                              <div style={{marginTop: '4px'}}>
+                                <span className="add-on-badge">加测</span>
+                              </div>
+                            )}
                           </div>
                         </div>
                       </td>
@@ -2528,6 +2564,17 @@ const CommissionForm = () => {
                             title="点击查看委托单相关信息（委托方/付款方/客户）"
                           >
                             {item.customer_contact_name}
+                          </span>
+                        ) : ''}
+                      </td>
+                      <td className={getColumnCellClass('payer_contact', 'pre-urgent-field narrow-col')} data-column-key="payer_contact">
+                        {item.payer_contact_name ? (
+                          <span 
+                            className="clickable-customer"
+                            onClick={() => handleOrderPartyClick(item.order_id)}
+                            title="点击查看委托单相关信息（委托方/付款方/客户）"
+                          >
+                            {item.payer_contact_name}
                           </span>
                         ) : ''}
                       </td>
