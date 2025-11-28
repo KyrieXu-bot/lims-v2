@@ -10,6 +10,27 @@ const EquipmentList = () => {
   const [pageSize] = useState(100);
   const [searchQuery, setSearchQuery] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
+  const [departmentOptions, setDepartmentOptions] = useState([]);
+
+  useEffect(() => {
+    const fetchDepartments = async () => {
+      try {
+        const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
+        const headers = {
+          'Authorization': `Bearer ${user.token}`,
+          'Content-Type': 'application/json'
+        };
+        const response = await fetch('/api/commission-form/department-options', { headers });
+        if (response.ok) {
+          const data = await response.json();
+          setDepartmentOptions(data);
+        }
+      } catch (error) {
+        console.error('获取部门列表失败:', error);
+      }
+    };
+    fetchDepartments();
+  }, []);
 
   const fetchData = async () => {
     setLoading(true);
@@ -60,6 +81,38 @@ const EquipmentList = () => {
     setPage(1);
   };
 
+  const handleStatusToggle = async (item) => {
+    const newStatus = item.status === '正常' ? '维修' : '正常';
+    const actionName = newStatus === '正常' ? '启用' : '禁用';
+
+    if (!window.confirm(`确定要${actionName}设备"${item.equipment_name}"吗？`)) {
+      return;
+    }
+
+    try {
+      const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
+      const headers = {
+        'Authorization': `Bearer ${user.token}`,
+        'Content-Type': 'application/json'
+      };
+
+      const response = await fetch(`/api/commission-form/equipment/${item.equipment_id}/status`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({ status: newStatus })
+      });
+
+      if (!response.ok) {
+        throw new Error('操作失败');
+      }
+
+      fetchData();
+    } catch (error) {
+      console.error('更新设备状态失败:', error);
+      alert('操作失败，请重试');
+    }
+  };
+
   return (
     <div className="equipment-list">
       {/* 搜索和筛选区域 - 首行 */}
@@ -77,12 +130,18 @@ const EquipmentList = () => {
           </div>
           <div className="filter-group">
             <label>部门:</label>
-            <input
-              type="text"
+            <select
               value={departmentFilter}
               onChange={(e) => setDepartmentFilter(e.target.value)}
-              placeholder="输入部门ID"
-            />
+              className="filter-select"
+            >
+              <option value="">所有部门</option>
+              {departmentOptions.map(dept => (
+                <option key={dept.department_id} value={dept.department_id}>
+                  {dept.department_name}
+                </option>
+              ))}
+            </select>
           </div>
           <div className="filter-actions">
             <button onClick={handleSearch} className="btn-primary">搜索</button>
@@ -105,28 +164,39 @@ const EquipmentList = () => {
                 <thead>
                   <tr>
                     <th>设备ID</th>
-                    <th>设备编号</th>
                     <th>设备名称</th>
                     <th>型号</th>
-                    <th>部门ID</th>
+                    <th>部门</th>
                     <th>设备标签</th>
-                    <th>参数及精度</th>
-                    <th>有效期</th>
-                    <th>报告标题</th>
+                    <th>状态</th>
+                    <th>操作</th>
                   </tr>
                 </thead>
                 <tbody>
                   {data.map((item) => (
                     <tr key={item.equipment_id}>
                       <td>{item.equipment_id}</td>
-                      <td>{item.equipment_no || '-'}</td>
                       <td>{item.equipment_name || '-'}</td>
                       <td>{item.model || '-'}</td>
-                      <td>{item.department_id || '-'}</td>
+                      <td>{item.department_name || '-'}</td>
                       <td>{item.equipment_label || '-'}</td>
-                      <td>{item.parameters_and_accuracy || '-'}</td>
-                      <td>{item.validity_period || '-'}</td>
-                      <td>{item.report_title || '-'}</td>
+                      <td>
+                        <span style={{ 
+                          color: item.status === '正常' || !item.status ? 'green' : 'red',
+                          fontWeight: 'bold'
+                        }}>
+                          {item.status || '正常'}
+                        </span>
+                      </td>
+                      <td>
+                        <button
+                          className={item.status === '正常' || !item.status ? 'btn-secondary' : 'btn-primary'}
+                          onClick={() => handleStatusToggle(item)}
+                          style={{ padding: '2px 8px', fontSize: '12px' }}
+                        >
+                          {item.status === '正常' || !item.status ? '禁用' : '启用'}
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>

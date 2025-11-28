@@ -1908,3 +1908,26 @@
   min-width: 40px;
   text-align: center;
 }
+
+/* 选中行效果 - 优先级需要足够高 */
+.commission-form .data-table tbody tr.active-row {
+  background-color: #cce5ff !important; /* 比 hover 稍微深一点的蓝色 */
+}
+
+.commission-form .data-table tbody tr.active-row td:not(.lab-field):not(.fixed-right) {
+  background-color: #b8daff !important;
+}
+
+.commission-form .data-table tbody tr.active-row td.fixed-left,
+.commission-form .data-table tbody tr.active-row td.fixed-left-checkbox,
+.commission-form .data-table tbody tr.active-row td.pre-urgent-field.fixed-left {
+  background-color: #b8daff !important;
+}
+
+.commission-form .data-table tbody tr.active-row td.fixed-right {
+  background-color: #a5d6a7 !important; /* 深一点的绿色 */
+}
+
+.commission-form .data-table tbody tr.active-row td.lab-field {
+  background-color: #c3e6cb !important; /* 深一点的浅绿色 */
+}

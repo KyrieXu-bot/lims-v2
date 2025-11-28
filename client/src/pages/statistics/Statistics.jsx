@@ -196,6 +196,7 @@ export default function Statistics() {
     if (role === 'leader') {
       return [
         { label: '总委托额（元）', value: formatCurrency(detail.summary.line_total) },
+        { label: '总合同额（元）', value: formatCurrency(detail.summary.final_unit_price) },
         { label: '总工时（小时）', value: formatHours(detail.summary.work_hours) },
         { label: '总机时（小时）', value: formatHours(detail.summary.machine_hours) }
       ];
@@ -203,12 +204,14 @@ export default function Statistics() {
     if (role === 'supervisor') {
       return [
         { label: '总委托额（元）', value: formatCurrency(detail.summary.line_total) },
+        { label: '总合同额（元）', value: formatCurrency(detail.summary.final_unit_price) },
         { label: '总工时（小时）', value: formatHours(detail.summary.work_hours) }
       ];
     }
     if (role === 'employee') {
       return [
         { label: '总委托额（元）', value: formatCurrency(detail.summary.line_total) },
+        { label: '总合同额（元）', value: formatCurrency(detail.summary.final_unit_price) },
         { label: '总机时（小时）', value: formatHours(detail.summary.machine_hours) }
       ];
     }
@@ -305,6 +308,7 @@ export default function Statistics() {
                   data={detail.supervisors}
                   series={[
                     { key: 'line_total', label: '总委托额（元）', color: '#4e79a7', formatter: formatCurrency },
+                    { key: 'final_unit_price', label: '总合同额（元）', color: '#76b7b2', formatter: formatCurrency },
                     { key: 'work_hours', label: '总工时（小时）', color: '#f28e2b', formatter: formatHours }
                   ]}
                   getLabel={(item) => item.name || '-'}
@@ -316,13 +320,14 @@ export default function Statistics() {
                       <th>组长</th>
                       <th>所属组</th>
                       <th>总委托额（元）</th>
+                      <th>总合同额（元）</th>
                       <th>总工时（小时）</th>
                     </tr>
                   </thead>
                   <tbody>
                     {detail.supervisors.length === 0 ? (
                       <tr>
-                        <td colSpan={4} className="stats-empty-cell">
+                        <td colSpan={5} className="stats-empty-cell">
                           暂无数据
                         </td>
                       </tr>
@@ -332,6 +337,7 @@ export default function Statistics() {
                           <td>{item.name}</td>
                           <td>{item.group_name || '-'}</td>
                           <td>{formatCurrency(item.line_total)}</td>
+                          <td>{formatCurrency(item.final_unit_price)}</td>
                           <td>{formatHours(item.work_hours)}</td>
                         </tr>
                       ))
@@ -349,6 +355,7 @@ export default function Statistics() {
                   data={detail.employees}
                   series={[
                     { key: 'line_total', label: '总委托额（元）', color: '#4e79a7', formatter: formatCurrency },
+                    { key: 'final_unit_price', label: '总合同额（元）', color: '#76b7b2', formatter: formatCurrency },
                     { key: 'work_hours', label: '总工时（小时）', color: '#59a14f', formatter: formatHours },
                     { key: 'machine_hours', label: '总机时（小时）', color: '#e15759', formatter: formatHours }
                   ]}
@@ -361,6 +368,7 @@ export default function Statistics() {
                       <th>员工</th>
                       <th>所属组</th>
                       <th>总委托额（元）</th>
+                      <th>总合同额（元）</th>
                       <th>总工时（小时）</th>
                       <th>总机时（小时）</th>
                     </tr>
@@ -368,7 +376,7 @@ export default function Statistics() {
                   <tbody>
                     {detail.employees.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="stats-empty-cell">
+                        <td colSpan={6} className="stats-empty-cell">
                           暂无数据
                         </td>
                       </tr>
@@ -378,6 +386,7 @@ export default function Statistics() {
                           <td>{item.name}</td>
                           <td>{item.group_name || '-'}</td>
                           <td>{formatCurrency(item.line_total)}</td>
+                          <td>{formatCurrency(item.final_unit_price)}</td>
                           <td>{formatHours(item.work_hours)}</td>
                           <td>{formatHours(item.machine_hours)}</td>
                         </tr>
@@ -440,6 +449,7 @@ export default function Statistics() {
                 data={detail.members}
                 series={[
                   { key: 'line_total', label: '总委托额（元）', color: '#4e79a7', formatter: formatCurrency },
+                  { key: 'final_unit_price', label: '总合同额（元）', color: '#76b7b2', formatter: formatCurrency },
                   { key: 'work_hours', label: '总工时（小时）', color: '#f28e2b', formatter: formatHours }
                 ]}
                 getLabel={(item) => item.name || '-'}
@@ -450,13 +460,14 @@ export default function Statistics() {
                   <tr>
                     <th>成员</th>
                     <th>总委托额（元）</th>
+                    <th>总合同额（元）</th>
                     <th>总工时（小时）</th>
                   </tr>
                 </thead>
                 <tbody>
                   {detail.members.length === 0 ? (
                     <tr>
-                      <td colSpan={3} className="stats-empty-cell">
+                      <td colSpan={4} className="stats-empty-cell">
                         暂无数据
                       </td>
                     </tr>
@@ -465,6 +476,7 @@ export default function Statistics() {
                       <tr key={item.user_id}>
                         <td>{item.name}</td>
                         <td>{formatCurrency(item.line_total)}</td>
+                        <td>{formatCurrency(item.final_unit_price)}</td>
                         <td>{formatHours(item.work_hours)}</td>
                       </tr>
                     ))
@@ -486,6 +498,7 @@ export default function Statistics() {
                 data={detail.daily}
                 series={[
                   { key: 'line_total', label: '总委托额（元）', color: '#4e79a7', formatter: formatCurrency },
+                  { key: 'final_unit_price', label: '总合同额（元）', color: '#76b7b2', formatter: formatCurrency },
                   { key: 'machine_hours', label: '总机时（小时）', color: '#e15759', formatter: formatHours }
                 ]}
                 getLabel={(item) => item.date}
@@ -497,13 +510,14 @@ export default function Statistics() {
                   <tr>
                     <th>日期</th>
                     <th>总委托额（元）</th>
+                    <th>总合同额（元）</th>
                     <th>总机时（小时）</th>
                   </tr>
                 </thead>
                 <tbody>
                   {detail.daily.length === 0 ? (
                     <tr>
-                      <td colSpan={3} className="stats-empty-cell">
+                      <td colSpan={4} className="stats-empty-cell">
                         暂无数据
                       </td>
                     </tr>
@@ -512,6 +526,7 @@ export default function Statistics() {
                       <tr key={item.date}>
                         <td>{item.date}</td>
                         <td>{formatCurrency(item.line_total)}</td>
+                        <td>{formatCurrency(item.final_unit_price)}</td>
                         <td>{formatHours(item.machine_hours)}</td>
                       </tr>
                     ))
@@ -525,6 +540,12 @@ export default function Statistics() {
     </div>
   );
 }
+
+
+
+
+
+
 
 
 

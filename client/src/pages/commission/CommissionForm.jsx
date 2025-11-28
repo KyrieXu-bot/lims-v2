@@ -150,6 +150,31 @@ const RETURN_STATE_STORAGE_KEY = 'commission_form_return_state';
 const RETURN_STATE_SHOULD_RESTORE_KEY = 'commission_form_should_restore';
 
 const CommissionForm = () => {
+  const [maintenanceList, setMaintenanceList] = useState([]);
+  const [isMaintenanceClosed, setIsMaintenanceClosed] = useState(false);
+
+  useEffect(() => {
+    const fetchMaintenance = async () => {
+      try {
+        const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
+        if (!user) return;
+        const headers = { 'Authorization': `Bearer ${user.token}` };
+        const res = await fetch('/api/commission-form/equipment/maintenance', { headers });
+        if (res.ok) {
+          const data = await res.json();
+          setMaintenanceList(data);
+        }
+      } catch (err) {
+        console.error('Fetch maintenance list failed', err);
+      }
+    };
+    fetchMaintenance();
+  }, []);
+
+  const handleCloseMaintenance = () => {
+    setIsMaintenanceClosed(true);
+  };
+
   const navigate = useNavigate();
 
   const getSavedViewState = () => {
@@ -187,6 +212,7 @@ const CommissionForm = () => {
   const [showFileModal, setShowFileModal] = useState(false);
   const [isOrderPartyModalOpen, setIsOrderPartyModalOpen] = useState(false);
   const [selectedOrderId, setSelectedOrderId] = useState(null);
+  const [activeRowId, setActiveRowId] = useState(null); // 新增：当前选中的行ID
   const [user, setUser] = useState(null);
   const [savingStatus, setSavingStatus] = useState({}); // 保存状态：{testItemId-field: 'saving'|'success'|'error'}
   const [selectedItems, setSelectedItems] = useState([]);
@@ -2182,6 +2208,9 @@ const CommissionForm = () => {
 
   const getRowClassNames = (item) => {
     const classes = [];
+    if (item.test_item_id === activeRowId) {
+      classes.push('active-row');
+    }
     const abnormal = item?.abnormal_condition ? String(item.abnormal_condition) : '';
     if (abnormal.includes('暂停')) {
       classes.push('row-paused');
@@ -2266,7 +2295,7 @@ const CommissionForm = () => {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="搜索委托单号、客户名称、检测项目、委托联系人、付款联系人..."
+                placeholder="搜索委托单号、客户名称、检测项目、委托联系人、付款联系人、负责人名字..."
                 onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
               />
               <div className="search-buttons">
@@ -2418,8 +2447,74 @@ const CommissionForm = () => {
           <div className="loading">加载中...</div>
         ) : (
           <>
-            <div className="table-info">
-              共 {total} 条记录，当前第 {page} 页
+            <div className="table-info" style={{ display: 'flex', alignItems: 'center' }}>
+              <span>共 {total} 条记录，当前第 {page} 页</span>
+              {maintenanceList.length > 0 && !isMaintenanceClosed && (
+                <div style={{ 
+                  marginLeft: '20px', 
+                  width: '600px',
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  background: '#fff1f0', 
+                  border: '1px solid #ffa39e', 
+                  borderRadius: '4px',
+                  padding: '0 20px 0 10px',
+                  height: '30px',
+                  overflow: 'hidden',
+                  position: 'relative'
+                }}>
+                  <span style={{ color: '#cf1322', fontWeight: 'bold', marginRight: '10px', whiteSpace: 'nowrap', fontSize: '12px' }}>⚠️ 设备维护公告:</span>
+                  <marquee 
+                    scrollamount="4" 
+                    style={{ color: '#cf1322', fontSize: '12px', flex: 1, marginRight: '18px' }}
+                    onMouseOver={(e) => e.target.stop()}
+                    onMouseOut={(e) => e.target.start()}
+                  >
+                    {(() => {
+                      const text = maintenanceList.map(eq => {
+                        const timeStr = eq.status_update_time 
+                        ? new Date(eq.status_update_time).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+                        : '';
+                      return `${eq.equipment_name} (${eq.model || '无型号'}) 于 ${timeStr} 报修`;
+                    }).join('\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0');
+                      // 重复一次内容以减少首尾间隔感（marquee默认首尾循环间隔取决于内容长度和容器宽度的关系，手动重复可以视觉上优化）
+                      return `${text}\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0${text}`;
+                    })()}
+                  </marquee>
+                  <button
+                    onClick={handleCloseMaintenance}
+                    style={{
+                      position: 'absolute',
+                      right: '2px',
+                      top: '2px',
+                      background: 'transparent',
+                      border: 'none',
+                      color: '#cf1322',
+                      fontSize: '14px',
+                      fontWeight: 'bold',
+                      cursor: 'pointer',
+                      padding: '0',
+                      lineHeight: '1',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      width: '16px',
+                      height: '16px',
+                      borderRadius: '2px',
+                      transition: 'background-color 0.2s'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.backgroundColor = 'rgba(207, 19, 34, 0.15)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.backgroundColor = 'transparent';
+                    }}
+                    title="关闭公告"
+                  >
+                    ×
+                  </button>
+                </div>
+              )}
             </div>
             {hiddenColumns.length > 0 && (
               <div className="hidden-columns-bar">
@@ -2501,7 +2596,11 @@ const CommissionForm = () => {
                 </thead>
                 <tbody>
                   {data.map((item) => (
-                    <tr key={item.test_item_id} className={getRowClassNames(item)}>
+                    <tr 
+                      key={item.test_item_id} 
+                      className={getRowClassNames(item)}
+                      onClick={() => setActiveRowId(item.test_item_id)}
+                    >
                       <td className="fixed-left-checkbox">
                         <input 
                           type="checkbox" 

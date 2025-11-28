@@ -65,8 +65,9 @@ router.get('/commission-form', async (req, res) => {
     } else {
       // 普通文本搜索
       // 使用子查询来搜索 payers.contact_name，避免 WHERE 子句中引用 JOIN 别名的问题
-      filters.push('(ti.category_name LIKE ? OR ti.detail_name LIKE ? OR ti.test_code LIKE ? OR ti.order_id LIKE ? OR c.customer_name LIKE ? OR comm.contact_name LIKE ? OR EXISTS (SELECT 1 FROM payers WHERE payers.payer_id = o.payer_id AND payers.contact_name LIKE ?))');
-      params.push(like, like, like, like, like, like, like);
+      // 添加对负责人名字的搜索
+      filters.push('(ti.category_name LIKE ? OR ti.detail_name LIKE ? OR ti.test_code LIKE ? OR ti.order_id LIKE ? OR c.customer_name LIKE ? OR comm.contact_name LIKE ? OR EXISTS (SELECT 1 FROM payers WHERE payers.payer_id = o.payer_id AND payers.contact_name LIKE ?) OR EXISTS (SELECT 1 FROM users WHERE users.user_id = ti.supervisor_id AND users.name LIKE ?))');
+      params.push(like, like, like, like, like, like, like, like);
     }
   }
   
@@ -242,7 +243,7 @@ router.get('/equipment-list', async (req, res) => {
 
   // 按部门筛选
   if (department_id) {
-    filters.push('department_id = ?');
+    filters.push('e.department_id = ?');
     params.push(department_id);
   }
 
@@ -251,24 +252,27 @@ router.get('/equipment-list', async (req, res) => {
   try {
     const [rows] = await pool.query(
       `SELECT 
-        equipment_id,
-        equipment_no,
-        equipment_name,
-        model,
-        department_id,
-        equipment_label,
-        parameters_and_accuracy,
-        validity_period,
-        report_title
-      FROM equipment 
+        e.equipment_id,
+        e.equipment_no,
+        e.equipment_name,
+        e.model,
+        e.department_id,
+        d.department_name,
+        e.equipment_label,
+        e.parameters_and_accuracy,
+        e.validity_period,
+        e.report_title,
+        e.status
+      FROM equipment e
+      LEFT JOIN departments d ON e.department_id = d.department_id
       ${where} 
-      ORDER BY equipment_name 
+      ORDER BY e.equipment_name 
       LIMIT ? OFFSET ?`,
       [...params, Number(pageSize), offset]
     );
 
     const [cnt] = await pool.query(
-      `SELECT COUNT(*) as cnt FROM equipment ${where}`,
+      `SELECT COUNT(*) as cnt FROM equipment e ${where}`,
       params
     );
 
@@ -276,6 +280,76 @@ router.get('/equipment-list', async (req, res) => {
   } catch (e) {
     console.error('Error fetching equipment list:', e);
     return res.status(500).json({ error: e.message });
+  }
+});
+
+// 更新设备状态
+router.put('/equipment/:id/status', async (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body;
+
+  if (!['正常', '维修'].includes(status)) {
+    return res.status(400).json({ error: 'Invalid status. Must be 正常 or 维修' });
+  }
+
+  const pool = await getPool();
+  try {
+    await pool.query(
+      'UPDATE equipment SET status = ?, status_update_time = NOW() WHERE equipment_id = ?',
+      [status, id]
+    );
+    res.json({ success: true });
+  } catch (e) {
+    console.error('Error updating equipment status:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 获取正在维护的设备列表（跑马灯用）
+router.get('/equipment/maintenance', requireAuth, async (req, res) => {
+  const pool = await getPool();
+  const user = req.user;
+  
+  try {
+    let whereClause = "WHERE status = '维修'";
+    let params = [];
+    
+    // 对于室主任、组长、实验员，只显示自己部门的设备
+    if (user.role === 'leader' || user.role === 'supervisor' || user.role === 'employee') {
+      let departmentId = user.department_id;
+      
+      // 如果没有department_id，通过group_id查找
+      if (!departmentId && user.group_id) {
+        const [deptRows] = await pool.query(
+          'SELECT department_id FROM lab_groups WHERE group_id = ?',
+          [user.group_id]
+        );
+        if (deptRows.length > 0) {
+          departmentId = deptRows[0].department_id;
+        }
+      }
+      
+      if (departmentId) {
+        whereClause += ' AND department_id = ?';
+        params.push(departmentId);
+      } else {
+        // 如果没有部门信息，返回空列表
+        return res.json([]);
+      }
+    }
+    // admin、sales、viewer 角色显示所有设备，不需要额外过滤
+    
+    const [rows] = await pool.query(
+      `SELECT equipment_name, equipment_no, model, status_update_time
+       FROM equipment 
+       ${whereClause}
+       ORDER BY status_update_time DESC, equipment_name`,
+      params
+    );
+    res.json(rows);
+  } catch (e) {
+    console.error('Error fetching maintenance equipment:', e);
+    res.status(500).json({ error: e.message });
   }
 });
 
@@ -368,8 +442,6 @@ router.get('/department-options', async (req, res) => {
           d.department_id,
           d.department_name
         FROM departments d
-        INNER JOIN test_items ti ON d.department_id = ti.department_id
-        WHERE ti.department_id IS NOT NULL
         ORDER BY d.department_id`
       );
     } else {

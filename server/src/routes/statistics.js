@@ -23,6 +23,7 @@ const isValidDate = (value) => {
 
 const normalizeTotals = (row = {}) => ({
   line_total: Number(row.total_line_total || 0),
+  final_unit_price: Number(row.total_final_unit_price || 0),
   work_hours: Number(row.total_work_hours || 0),
   machine_hours: Number(row.total_machine_hours || 0)
 });
@@ -61,6 +62,7 @@ async function buildLeaderData(pool, user, from, to) {
   const [summaryRows] = await pool.query(
     `SELECT 
         SUM(COALESCE(ti.line_total, 0)) AS total_line_total,
+        SUM(COALESCE(ti.final_unit_price, 0)) AS total_final_unit_price,
         SUM(COALESCE(ti.work_hours, 0)) AS total_work_hours,
         SUM(COALESCE(ti.machine_hours, 0)) AS total_machine_hours
      FROM test_items ti
@@ -75,6 +77,7 @@ async function buildLeaderData(pool, user, from, to) {
         u.group_id,
         lg.group_name,
         SUM(COALESCE(ti.line_total, 0)) AS total_line_total,
+        SUM(COALESCE(ti.final_unit_price, 0)) AS total_final_unit_price,
         SUM(COALESCE(ti.work_hours, 0)) AS total_work_hours
      FROM test_items ti
      JOIN users u ON u.user_id = ti.supervisor_id
@@ -92,6 +95,7 @@ async function buildLeaderData(pool, user, from, to) {
         u.group_id,
         lg.group_name,
         SUM(COALESCE(ti.line_total, 0)) AS total_line_total,
+        SUM(COALESCE(ti.final_unit_price, 0)) AS total_final_unit_price,
         SUM(COALESCE(ti.work_hours, 0)) AS total_work_hours,
         SUM(COALESCE(ti.machine_hours, 0)) AS total_machine_hours
      FROM test_items ti
@@ -126,6 +130,7 @@ async function buildLeaderData(pool, user, from, to) {
       group_id: row.group_id,
       group_name: row.group_name,
       line_total: Number(row.total_line_total || 0),
+      final_unit_price: Number(row.total_final_unit_price || 0),
       work_hours: Number(row.total_work_hours || 0)
     })),
     employees: employeeRows.map((row) => ({
@@ -134,6 +139,7 @@ async function buildLeaderData(pool, user, from, to) {
       group_id: row.group_id,
       group_name: row.group_name,
       line_total: Number(row.total_line_total || 0),
+      final_unit_price: Number(row.total_final_unit_price || 0),
       work_hours: Number(row.total_work_hours || 0),
       machine_hours: Number(row.total_machine_hours || 0)
     })),
@@ -165,6 +171,7 @@ async function buildSupervisorData(pool, user, from, to) {
   const [summaryRows] = await pool.query(
     `SELECT 
         SUM(COALESCE(ti.line_total, 0)) AS total_line_total,
+        SUM(COALESCE(ti.final_unit_price, 0)) AS total_final_unit_price,
         SUM(COALESCE(ti.work_hours, 0)) AS total_work_hours
      FROM test_items ti
      WHERE ${baseWhere} AND ${scopeWhere}`,
@@ -176,6 +183,7 @@ async function buildSupervisorData(pool, user, from, to) {
         ti.technician_id AS user_id,
         u.name,
         SUM(COALESCE(ti.line_total, 0)) AS total_line_total,
+        SUM(COALESCE(ti.final_unit_price, 0)) AS total_final_unit_price,
         SUM(COALESCE(ti.work_hours, 0)) AS total_work_hours
      FROM test_items ti
      JOIN users u ON u.user_id = ti.technician_id
@@ -189,12 +197,14 @@ async function buildSupervisorData(pool, user, from, to) {
     scope: { group_id: groupId, supervisor_id: supervisorId },
     summary: {
       line_total: Number(summaryRows[0]?.total_line_total || 0),
+      final_unit_price: Number(summaryRows[0]?.total_final_unit_price || 0),
       work_hours: Number(summaryRows[0]?.total_work_hours || 0)
     },
     members: memberRows.map((row) => ({
       user_id: row.user_id,
       name: row.name,
       line_total: Number(row.total_line_total || 0),
+      final_unit_price: Number(row.total_final_unit_price || 0),
       work_hours: Number(row.total_work_hours || 0)
     }))
   };
@@ -208,6 +218,7 @@ async function buildEmployeeData(pool, user, from, to) {
   const [summaryRows] = await pool.query(
     `SELECT 
         SUM(COALESCE(ti.line_total, 0)) AS total_line_total,
+        SUM(COALESCE(ti.final_unit_price, 0)) AS total_final_unit_price,
         SUM(COALESCE(ti.machine_hours, 0)) AS total_machine_hours
      FROM test_items ti
      WHERE ${baseWhere} AND ti.technician_id = ?`,
@@ -218,6 +229,7 @@ async function buildEmployeeData(pool, user, from, to) {
     `SELECT 
         DATE(ti.actual_delivery_date) AS stat_date,
         SUM(COALESCE(ti.line_total, 0)) AS total_line_total,
+        SUM(COALESCE(ti.final_unit_price, 0)) AS total_final_unit_price,
         SUM(COALESCE(ti.machine_hours, 0)) AS total_machine_hours
      FROM test_items ti
      WHERE ${baseWhere} AND ti.technician_id = ?
@@ -230,11 +242,13 @@ async function buildEmployeeData(pool, user, from, to) {
     scope: { user_id: employeeId },
     summary: {
       line_total: Number(summaryRows[0]?.total_line_total || 0),
+      final_unit_price: Number(summaryRows[0]?.total_final_unit_price || 0),
       machine_hours: Number(summaryRows[0]?.total_machine_hours || 0)
     },
     daily: dailyRows.map((row) => ({
       date: row.stat_date,
       line_total: Number(row.total_line_total || 0),
+      final_unit_price: Number(row.total_final_unit_price || 0),
       machine_hours: Number(row.total_machine_hours || 0)
     }))
   };
@@ -289,6 +303,7 @@ function appendLeaderSheets(workbook, payload) {
   summarySheet.addRow({ label: '统计范围', value: `${period.from} ~ ${period.to}` });
   summarySheet.addRow({ label: '部门ID', value: detail.scope.department_id });
   summarySheet.addRow({ label: '总委托额', value: detail.summary.line_total });
+  summarySheet.addRow({ label: '总合同额', value: detail.summary.final_unit_price });
   summarySheet.addRow({ label: '总工时', value: detail.summary.work_hours });
   summarySheet.addRow({ label: '总机时', value: detail.summary.machine_hours });
 
@@ -299,6 +314,7 @@ function appendLeaderSheets(workbook, payload) {
     { header: '所属组', key: 'group_name', width: 18 },
     { header: '组ID', key: 'group_id', width: 12 },
     { header: '总委托额', key: 'line_total', width: 18 },
+    { header: '总合同额', key: 'final_unit_price', width: 18 },
     { header: '总工时', key: 'work_hours', width: 18 }
   ];
   detail.supervisors.forEach((item) => supervisorSheet.addRow(item));
@@ -310,6 +326,7 @@ function appendLeaderSheets(workbook, payload) {
     { header: '所属组', key: 'group_name', width: 18 },
     { header: '组ID', key: 'group_id', width: 12 },
     { header: '总委托额', key: 'line_total', width: 18 },
+    { header: '总合同额', key: 'final_unit_price', width: 18 },
     { header: '总工时', key: 'work_hours', width: 18 },
     { header: '总机时', key: 'machine_hours', width: 18 }
   ];
@@ -335,6 +352,7 @@ function appendSupervisorSheets(workbook, payload) {
   summarySheet.addRow({ label: '组ID', value: detail.scope.group_id ?? '' });
   summarySheet.addRow({ label: '组长ID', value: detail.scope.supervisor_id });
   summarySheet.addRow({ label: '总委托额', value: detail.summary.line_total });
+  summarySheet.addRow({ label: '总合同额', value: detail.summary.final_unit_price });
   summarySheet.addRow({ label: '总工时', value: detail.summary.work_hours });
 
   const memberSheet = workbook.addWorksheet('组员明细');
@@ -342,6 +360,7 @@ function appendSupervisorSheets(workbook, payload) {
     { header: '人员ID', key: 'user_id', width: 16 },
     { header: '姓名', key: 'name', width: 18 },
     { header: '总委托额', key: 'line_total', width: 18 },
+    { header: '总合同额', key: 'final_unit_price', width: 18 },
     { header: '总工时', key: 'work_hours', width: 18 }
   ];
   detail.members.forEach((item) => memberSheet.addRow(item));
@@ -357,12 +376,14 @@ function appendEmployeeSheets(workbook, payload) {
   summarySheet.addRow({ label: '统计范围', value: `${period.from} ~ ${period.to}` });
   summarySheet.addRow({ label: '实验员ID', value: detail.scope.user_id });
   summarySheet.addRow({ label: '总委托额', value: detail.summary.line_total });
+  summarySheet.addRow({ label: '总合同额', value: detail.summary.final_unit_price });
   summarySheet.addRow({ label: '总机时', value: detail.summary.machine_hours });
 
   const dailySheet = workbook.addWorksheet('每日明细');
   dailySheet.columns = [
     { header: '日期', key: 'date', width: 16 },
     { header: '总委托额', key: 'line_total', width: 18 },
+    { header: '总合同额', key: 'final_unit_price', width: 18 },
     { header: '总机时', key: 'machine_hours', width: 18 }
   ];
   detail.daily.forEach((item) => dailySheet.addRow(item));
