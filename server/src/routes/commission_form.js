@@ -65,9 +65,9 @@ router.get('/commission-form', async (req, res) => {
     } else {
       // 普通文本搜索
       // 使用子查询来搜索 payers.contact_name，避免 WHERE 子句中引用 JOIN 别名的问题
-      // 添加对负责人名字的搜索
-      filters.push('(ti.category_name LIKE ? OR ti.detail_name LIKE ? OR ti.test_code LIKE ? OR ti.order_id LIKE ? OR c.customer_name LIKE ? OR comm.contact_name LIKE ? OR EXISTS (SELECT 1 FROM payers WHERE payers.payer_id = o.payer_id AND payers.contact_name LIKE ?) OR EXISTS (SELECT 1 FROM users WHERE users.user_id = ti.supervisor_id AND users.name LIKE ?))');
-      params.push(like, like, like, like, like, like, like, like);
+      // 添加对负责人名字和测试人员名字的搜索
+      filters.push('(ti.category_name LIKE ? OR ti.detail_name LIKE ? OR ti.test_code LIKE ? OR ti.order_id LIKE ? OR c.customer_name LIKE ? OR comm.contact_name LIKE ? OR EXISTS (SELECT 1 FROM payers WHERE payers.payer_id = o.payer_id AND payers.contact_name LIKE ?) OR EXISTS (SELECT 1 FROM users WHERE users.user_id = ti.supervisor_id AND users.name LIKE ?) OR EXISTS (SELECT 1 FROM users WHERE users.user_id = ti.technician_id AND users.name LIKE ?))');
+      params.push(like, like, like, like, like, like, like, like, like);
     }
   }
   

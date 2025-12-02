@@ -154,19 +154,15 @@ async function buildLeaderData(pool, user, from, to) {
 async function buildSupervisorData(pool, user, from, to) {
   const supervisorId = user?.user_id || user?.sub;
   const groupId = await resolveGroupId(pool, user);
+  // 恢复：按照actual_delivery_date有值来统计
   const baseWhere = 'ti.actual_delivery_date BETWEEN ? AND ? AND ti.actual_delivery_date IS NOT NULL';
   const params = [from, to];
-  const scopeClauses = ['ti.supervisor_id = ?'];
+  
+  // 修改逻辑：根据组长的group_id筛选组员数据，而不是根据test_items的group_id
+  // 筛选条件：只统计组长负责的项目（ti.supervisor_id = ?），与导出功能保持一致
+  // 不再使用OR条件，避免重复计算或遗漏
+  const scopeWhere = 'ti.supervisor_id = ?';
   const scopeParams = [supervisorId];
-
-  if (groupId !== null) {
-    scopeClauses.unshift('ti.group_id = ?');
-    scopeParams.unshift(groupId);
-  }
-
-  const scopeWhere = scopeClauses.length > 1
-    ? `(${scopeClauses.join(' OR ')})`
-    : scopeClauses[0];
 
   const [summaryRows] = await pool.query(
     `SELECT 
@@ -178,6 +174,7 @@ async function buildSupervisorData(pool, user, from, to) {
     [...params, ...scopeParams]
   );
 
+  // 组员统计：只统计组长负责的项目中的组员，与导出功能保持一致
   const [memberRows] = await pool.query(
     `SELECT 
         ti.technician_id AS user_id,

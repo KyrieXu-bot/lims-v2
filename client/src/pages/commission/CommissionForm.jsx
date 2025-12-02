@@ -1213,8 +1213,10 @@ const CommissionForm = () => {
         '收费标准-最低报价': formatPriceRange(item.original_unit_price, item.minimum_price),
         '业务报价': item.price_note || '',
         '数量': item.quantity || '',
+        '单位': item.unit || '',
         '标准单价': formatCurrency(item.standard_price),
         '标准总价': formatCurrency(item.line_total),
+        '业务总价': formatCurrency(item.final_unit_price),
         '折扣': formatPercentage(item.discount_rate),
         '客户备注': item.note || '',
         '样品到达方式': item.arrival_mode === 'on_site' ? '现场' : item.arrival_mode === 'delivery' ? '寄样' : '',
@@ -1260,8 +1262,10 @@ const CommissionForm = () => {
         { wch: 20 },  // 收费标准-最低报价
         { wch: 15 },  // 业务报价
         { wch: 8 },   // 数量
+        { wch: 8 },   // 单位
         { wch: 12 },  // 标准单价
         { wch: 12 },  // 标准总价
+        { wch: 12 },  // 业务总价
         { wch: 8 },   // 折扣
         { wch: 20 },  // 客户备注
         { wch: 12 },  // 样品到达方式
@@ -2273,14 +2277,11 @@ const CommissionForm = () => {
     );
   };
 
-  const canCreateTestItem = user && ['admin', 'leader', 'supervisor', 'sales'].includes(user.role);
+  const canCreateTestItem = user && user.role === 'admin';
 
   const canCopyItem = (item) => {
     if (!user) return false;
-    if (user.role === 'admin') return true;
-    if (user.role === 'leader') return canLeaderEditItem(item);
-    if (['supervisor', 'sales'].includes(user.role)) return true;
-    return false;
+    return user.role === 'admin';
   };
 
   return (
@@ -2295,7 +2296,7 @@ const CommissionForm = () => {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="搜索委托单号、客户名称、检测项目、委托联系人、付款联系人、负责人名字..."
+                placeholder="搜索委托单号、客户名称、检测项目、委托联系人、付款联系人、负责人名字、测试人员..."
                 onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
               />
               <div className="search-buttons">
@@ -3134,7 +3135,8 @@ const CommissionForm = () => {
                                   { value: '机时', label: '机时' },
                                   { value: '样品数', label: '样品数' },
                                   { value: '元素', label: '元素' },
-                                  { value: '点位', label: '点位' }
+                                  { value: '点位', label: '点位' },
+                                  { value: '次', label: '次' }
                                 ]}
                                 onSave={handleSaveEdit}
                                 field="unit"
