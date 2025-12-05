@@ -21,6 +21,8 @@ import CommissionForm from './pages/commission/CommissionForm.jsx';
 import EquipmentList from './pages/commission/EquipmentList.jsx';
 import Statistics from './pages/statistics/Statistics.jsx';
 import Profile from './pages/Profile.jsx';
+import Notifications from './pages/Notifications.jsx';
+import NotificationIcon from './components/NotificationIcon.jsx';
 import './app.css';
 
 function Layout({ children }) {
@@ -71,6 +73,7 @@ function Layout({ children }) {
               <div className="hstack" style={{marginLeft: 16, paddingLeft: 16, borderLeft: '1px solid var(--gray-300)'}}>
                 <span className="text-muted">用户: {user.name || user.username}</span>
                 <span className="badge badge-primary">{user.role_name}</span>
+                <NotificationIcon />
                 <NavLink to="/profile" className={({isActive})=>isActive?'active':''} style={{padding: '4px 12px', fontSize: '14px'}}>个人中心</NavLink>
                 <button className="btn btn-secondary btn-sm" onClick={logout}>登出</button>
               </div>
@@ -109,6 +112,7 @@ export default function App() {
       <Route path="/statistics" element={<Layout><Statistics/></Layout>} />
       <Route path="/equipment-list" element={<Layout><EquipmentList/></Layout>} />
       <Route path="/profile" element={<Layout><Profile/></Layout>} />
+      <Route path="/notifications" element={<Layout><Notifications/></Layout>} />
       <Route path="/" element={<Layout><CommissionForm/></Layout>} />
       <Route path="*" element={<Layout><Login/></Layout>} />
     </Routes>

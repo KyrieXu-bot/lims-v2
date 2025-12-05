@@ -160,6 +160,7 @@ router.get('/commission-form', async (req, res) => {
         ti.sample_arrival_status,
         ti.price_note,
         ti.is_add_on,
+        ti.business_confirmed,
         sup.name as supervisor_name,
         ti.supervisor_id,
         -- 业务员信息

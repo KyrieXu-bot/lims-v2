@@ -10,6 +10,11 @@ const roomUsers = new Map();
 
 let io; // 将io声明为模块级变量
 
+// 导出获取io的函数
+export function getIO() {
+  return io;
+}
+
 export function setupSocket(server) {
   io = new Server(server, {
     cors: {
@@ -54,6 +59,9 @@ export function setupSocket(server) {
     // 加入设备清单房间
     socket.join('equipment-list');
     updateRoomUsers('equipment-list');
+
+    // 加入个人通知房间（用于接收个人通知）
+    socket.join(`user-${socket.userId}`);
 
     // 处理数据更新事件
     socket.on('data-update', (data) => {

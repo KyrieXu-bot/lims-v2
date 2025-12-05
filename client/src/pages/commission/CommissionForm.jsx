@@ -339,8 +339,17 @@ const CommissionForm = () => {
     const result = await response.json();
     const items = Array.isArray(result.data) ? result.data : [];
     // 对每个项目计算测试总价和标准总价
+    // 如果业务已确认价格，则使用数据库中的值，不重新计算
     const processedItems = items.map(item => {
-      const calculatedFinalUnitPrice = calculateFinalUnitPrice(item);
+      const isBusinessConfirmed = item.business_confirmed === 1 || item.business_confirmed === true;
+      let finalUnitPrice = item.final_unit_price;
+      
+      // 只有在未确认的情况下才重新计算
+      if (!isBusinessConfirmed) {
+        const calculatedFinalUnitPrice = calculateFinalUnitPrice(item);
+        finalUnitPrice = calculatedFinalUnitPrice !== null ? calculatedFinalUnitPrice : item.final_unit_price;
+      }
+      
       const calculatedLineTotal = calculateStandardLineTotal(
         item.standard_price ?? item.unit_price,
         item.actual_sample_quantity,
@@ -348,7 +357,7 @@ const CommissionForm = () => {
       );
       return {
         ...item,
-        final_unit_price: calculatedFinalUnitPrice !== null ? calculatedFinalUnitPrice : item.final_unit_price,
+        final_unit_price: finalUnitPrice,
         line_total: calculatedLineTotal !== null ? calculatedLineTotal : item.line_total
       };
     });
@@ -572,11 +581,20 @@ const CommissionForm = () => {
       
       const data = await response.json();
       // 对每个项目计算测试总价
+      // 如果业务已确认价格，则使用数据库中的值，不重新计算
       const processedData = data.data.map(item => {
-        const calculatedFinalUnitPrice = calculateFinalUnitPrice(item);
+        const isBusinessConfirmed = item.business_confirmed === 1 || item.business_confirmed === true;
+        let finalUnitPrice = item.final_unit_price;
+        
+        // 只有在未确认的情况下才重新计算
+        if (!isBusinessConfirmed) {
+          const calculatedFinalUnitPrice = calculateFinalUnitPrice(item);
+          finalUnitPrice = calculatedFinalUnitPrice !== null ? calculatedFinalUnitPrice : item.final_unit_price;
+        }
+        
         return {
           ...item,
-          final_unit_price: calculatedFinalUnitPrice !== null ? calculatedFinalUnitPrice : item.final_unit_price
+          final_unit_price: finalUnitPrice
         };
       });
       setData(processedData);
@@ -1676,6 +1694,69 @@ const CommissionForm = () => {
     }
   };
 
+  // 导出测试服务清单模板
+  const handleExportBillsTemplate = async () => {
+    try {
+      const selectedData = await getSelectedItemsData();
+      if (selectedData.length === 0) {
+        alert('没有选中的检测项目数据');
+        return;
+      }
+
+      const testItemIds = selectedData.map(item => item.test_item_id);
+
+      const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
+      const headers = {
+        'Authorization': `Bearer ${user.token}`,
+        'Content-Type': 'application/json'
+      };
+
+      const response = await fetch('/api/templates/generate-bills-template', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          test_item_ids: testItemIds
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: '导出失败' }));
+        throw new Error(errorData.error || `导出失败: ${response.status}`);
+      }
+
+      // 从响应头中获取文件名
+      const contentDisposition = response.headers.get('Content-Disposition');
+      let fileName = '测试服务清单.docx';
+      if (contentDisposition) {
+        const fileNameMatch = contentDisposition.match(/filename\*=UTF-8''(.+)/);
+        if (fileNameMatch) {
+          fileName = decodeURIComponent(fileNameMatch[1]);
+        } else {
+          const fileNameMatch2 = contentDisposition.match(/filename="?(.+)"?/);
+          if (fileNameMatch2) {
+            fileName = fileNameMatch2[1];
+          }
+        }
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+
+      setShowExportModal(false);
+      alert('测试服务清单模板导出成功');
+    } catch (error) {
+      console.error('导出测试服务清单模板失败:', error);
+      alert('导出失败：' + error.message);
+    }
+  };
+
   // 删除单个检测项目
   const handleDeleteItem = async (testItemId) => {
     if (!window.confirm('确定要删除这个检测项目吗？删除后将无法恢复，包括所有相关的分配、委外、样品等信息。')) {
@@ -1828,6 +1909,36 @@ const CommissionForm = () => {
     navigate(`/test-items/new?copy=${encodeURIComponent(params.toString())}`);
   };
 
+
+  // 计算测试总价与标准总价的比值，判断是否需要标红
+  const shouldHighlightPrice = (finalUnitPrice, lineTotal) => {
+    if (!finalUnitPrice || !lineTotal || lineTotal === 0) return false;
+    const ratio = Number(finalUnitPrice) / Number(lineTotal);
+    return ratio < 0.7 || ratio > 2;
+  };
+
+  // 确认业务报价
+  const handleConfirmPrice = async (item, e) => {
+    // 阻止事件冒泡，防止触发行的点击事件
+    if (e) e.stopPropagation();
+    
+    if (window.confirm('是否确认？确认后不可更改')) {
+      try {
+        const userLocal = JSON.parse(localStorage.getItem('lims_user') || 'null');
+        const r = await fetch(`/api/test-items/${item.test_item_id}`, {
+          method: 'PUT',
+          headers: { 'Authorization': `Bearer ${userLocal.token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ business_confirmed: 1 })
+        });
+        if (!r.ok) throw new Error('确认失败');
+        
+        // Update local state
+        setData(prev => prev.map(x => x.test_item_id === item.test_item_id ? { ...x, business_confirmed: 1 } : x));
+      } catch (e) {
+        alert(e.message || '确认失败');
+      }
+    }
+  };
 
   const handleSaveEdit = async (field, value, testItemId) => {
     const statusKey = `${testItemId}-${field}`;
@@ -2026,7 +2137,9 @@ const CommissionForm = () => {
       }
       
       // 实时计算测试总价：当修改业务报价、折扣、计费数量或服务加急时，自动计算 final_unit_price
-      if (field === 'price_note' || field === 'discount_rate' || field === 'actual_sample_quantity' || field === 'service_urgency') {
+      // 如果已经业务确认，不再自动计算
+      const isBusinessConfirmed = currentItem.business_confirmed === 1 || currentItem.business_confirmed === true;
+      if ((field === 'price_note' || field === 'discount_rate' || field === 'actual_sample_quantity' || field === 'service_urgency') && !isBusinessConfirmed) {
         // 构建用于计算的临时对象，使用最新的值
         const calcItem = { ...currentItem };
         
@@ -3228,8 +3341,57 @@ const CommissionForm = () => {
                       </td>
                       <td className={getColumnCellClass('final_unit_price', 'lab-field narrow-col')} data-column-key="final_unit_price">
                         <div className="editable-field-container">
-                          {/* 测试总价改为自动计算，只读显示 */}
-                          <span className="readonly-field">{formatCurrency(item.final_unit_price)}</span>
+                          {((!item.business_confirmed || item.business_confirmed === 0 || item.business_confirmed === false) && user?.user_id === item.current_assignee) ? (
+                            <>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'nowrap' }}>
+                                <div 
+                                  style={{ flex: 1, position: 'relative' }}
+                                  className={shouldHighlightPrice(item.final_unit_price, item.line_total) ? 'price-highlight-red' : ''}
+                                >
+                                  <RealtimeEditableCell
+                                    value={item.final_unit_price}
+                                    type="number"
+                                    onSave={handleSaveEdit}
+                                    field="final_unit_price"
+                                    testItemId={item.test_item_id}
+                                    placeholder="测试总价"
+                                    isFieldBeingEdited={isFieldBeingEdited}
+                                    getEditingUser={getEditingUser}
+                                    emitUserEditing={emitUserEditing}
+                                    emitUserStopEditing={emitUserStopEditing}
+                                  />
+                                </div>
+                                <button 
+                                  onClick={(e) => handleConfirmPrice(item, e)}
+                                  title="确认测试总价"
+                                  style={{
+                                    padding: '2px 6px',
+                                    fontSize: '11px',
+                                    minWidth: 'auto',
+                                    backgroundColor: '#28a745',
+                                    color: '#fff',
+                                    border: 'none',
+                                    borderRadius: '4px',
+                                    cursor: 'pointer',
+                                    lineHeight: '1.2',
+                                    flexShrink: 0
+                                  }}
+                                >
+                                  确认
+                                </button>
+                              </div>
+                              <SavingIndicator testItemId={item.test_item_id} field="final_unit_price" />
+                            </>
+                          ) : (
+                            <span 
+                              className={`readonly-field ${shouldHighlightPrice(item.final_unit_price, item.line_total) ? 'price-highlight-red' : ''}`}
+                            >
+                                {formatCurrency(item.final_unit_price)}
+                                {(item.business_confirmed === 1 || item.business_confirmed === true) && (
+                                  <span style={{marginLeft: '4px', color: '#28a745', fontWeight: 'bold'}}>✓</span>
+                                )}
+                            </span>
+                          )}
                         </div>
                       </td>
                       <td className={getColumnCellClass('actual_delivery_date', 'lab-field')} data-column-key="actual_delivery_date">
@@ -3496,6 +3658,8 @@ const CommissionForm = () => {
                 testItemId={selectedFileTestItem.test_item_id}
                 orderId={selectedFileTestItem.order_id}
                 userRole={user?.role}
+                businessConfirmed={selectedFileTestItem.business_confirmed}
+                currentAssignee={selectedFileTestItem.current_assignee}
                 onFileUploaded={(info) => handleFileStatusUpdate(info)}
               />
             </div>
@@ -3561,8 +3725,19 @@ const CommissionForm = () => {
                     导出流转单模板
                   </button>
                 )}
+                {(user?.role === 'admin' || user?.role === 'sales') && (
+                  <button 
+                    className="btn btn-secondary" 
+                    style={{ padding: '10px 20px', fontSize: '14px', backgroundColor: '#6c757d', color: 'white' }}
+                    onClick={handleExportBillsTemplate}
+                  >
+                    导出测试服务清单模板
+                  </button>
+                )}
                 {user?.role !== 'admin' ? null : null}
                 {(() => {
+                  // 排除业务员角色
+                  if (user?.role === 'sales') return false;
                   if (String(user?.department_id) === '2') return true;
                   const selectedData = data.filter(item => selectedItems.includes(item.test_item_id));
                   if (selectedData.length === 0) return false;

@@ -5,6 +5,8 @@ const SimpleFileUpload = ({
   testItemId, 
   orderId, 
   userRole,
+  businessConfirmed,
+  currentAssignee,
   onFileUploaded 
 }) => {
   const [files, setFiles] = useState([]);
@@ -230,6 +232,17 @@ const SimpleFileUpload = ({
     if (!user || !user.token) {
       alert('用户未登录');
       return;
+    }
+
+    // 业务员权限检查：如果未确认价格且是原始数据，则阻止下载
+    if (userRole === 'sales' && file.category === 'raw_data') {
+      const isBusinessConfirmed = businessConfirmed === 1 || businessConfirmed === true;
+      const isCurrentAssignee = user.user_id === currentAssignee;
+      
+      if (isCurrentAssignee && !isBusinessConfirmed) {
+        alert('请先点击确认合同价格再下载');
+        return;
+      }
     }
 
     const xhr = new XMLHttpRequest();
@@ -508,6 +521,25 @@ const SimpleFileUpload = ({
     return false;
   };
 
+  // 判断是否可以下载文件（业务员权限检查）
+  const canDownloadFile = (file) => {
+    if (userRole === 'sales' && file.category === 'raw_data') {
+      try {
+        const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
+        const isBusinessConfirmed = businessConfirmed === 1 || businessConfirmed === true;
+        const isCurrentAssignee = user?.user_id === currentAssignee;
+        
+        // 如果是业务员且是当前负责人且未确认价格，则不能下载原始数据
+        if (isCurrentAssignee && !isBusinessConfirmed) {
+          return false;
+        }
+      } catch (error) {
+        return true; // 出错时允许下载，避免误拦截
+      }
+    }
+    return true;
+  };
+
   if (!testItemId) {
     return null;
   }
@@ -658,14 +690,21 @@ const SimpleFileUpload = ({
               </div>
               
               <div className="file-actions">
-                <button 
-                  onClick={() => handleDownload(file)}
-                  className="btn-download"
-                  title="下载"
-                  disabled={downloadProgress[file.file_id] !== undefined}
-                >
-                  {downloadProgress[file.file_id] ? '下载中...' : '下载'}
-                </button>
+                <div className="download-button-wrapper">
+                  <button 
+                    onClick={() => handleDownload(file)}
+                    className="btn-download"
+                    disabled={downloadProgress[file.file_id] !== undefined || !canDownloadFile(file)}
+                    style={!canDownloadFile(file) ? { opacity: 0.5, cursor: 'not-allowed' } : {}}
+                  >
+                    {downloadProgress[file.file_id] ? '下载中...' : '下载'}
+                  </button>
+                  {!canDownloadFile(file) && (
+                    <span className="download-tooltip">
+                      请先点击确认合同价格再下载
+                    </span>
+                  )}
+                </div>
                 {canDeleteFile(file) && (
                   <button 
                     onClick={() => handleDelete(file.file_id)}

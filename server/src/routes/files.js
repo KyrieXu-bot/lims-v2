@@ -5,6 +5,8 @@ import path from 'path';
 import fs from 'fs';
 import { getPool } from '../db.js';
 import { requireAuth, requireAnyRole } from '../middleware/auth.js';
+import { createNotification } from './notifications.js';
+import { getIO } from '../socket.js';
 
 // 处理中文文件名编码的辅助函数
 function decodeFileName(originalName) {
@@ -214,9 +216,67 @@ router.post('/upload',
       ]
     );
 
+    const fileId = result.insertId;
+
+    // 如果是实验原始数据文件，且有关联的检测项目，则通知业务员
+    if (category === 'raw_data' && test_item_id) {
+      try {
+        // 查询检测项目的current_assignee和order_id
+        const [testItemRows] = await pool.query(
+          `SELECT current_assignee, order_id 
+           FROM test_items 
+           WHERE test_item_id = ?`,
+          [test_item_id]
+        );
+
+        if (testItemRows.length > 0 && testItemRows[0].current_assignee) {
+          const currentAssignee = testItemRows[0].current_assignee;
+          const orderId = testItemRows[0].order_id;
+
+          // 创建通知
+          const notificationId = await createNotification(pool, {
+            user_id: currentAssignee,
+            title: '原始数据文件上传通知',
+            content: `您有委托单号 ${orderId || '未知'} 下的原始数据未下载。`,
+            type: 'raw_data_upload',
+            related_order_id: orderId,
+            related_test_item_id: test_item_id,
+            related_file_id: fileId
+          });
+
+          // 通过WebSocket推送通知
+          const io = getIO();
+          if (io) {
+            // 获取该用户的未读通知数量
+            const [countRows] = await pool.query(
+              'SELECT COUNT(*) as count FROM notifications WHERE user_id = ? AND is_read = 0',
+              [currentAssignee]
+            );
+            const unreadCount = countRows[0].count;
+
+            // 发送通知给该用户
+            io.to(`user-${currentAssignee}`).emit('new-notification', {
+              notification_id: notificationId,
+              title: '原始数据文件上传通知',
+              content: `您有委托单号 ${orderId || '未知'} 下的原始数据未下载。`,
+              type: 'raw_data_upload',
+              related_order_id: orderId,
+              related_test_item_id: test_item_id,
+              related_file_id: fileId,
+              unread_count: unreadCount,
+              created_at: new Date()
+            });
+          }
+        }
+      } catch (notifyError) {
+        // 通知失败不影响文件上传，只记录错误
+        console.error('创建通知失败:', notifyError);
+      }
+    }
+
     res.json({
       success: true,
-      file_id: result.insertId,
+      file_id: fileId,
       filename: originalName,
       filepath: req.file.path,
       category
