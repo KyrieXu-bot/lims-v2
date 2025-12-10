@@ -17,6 +17,7 @@ export default function TestItemEdit() {
   const location = useLocation();
   const isNew = id === 'new';
   const isView = new URLSearchParams(location.search).get('view') === '1';
+  const isAddonRequest = new URLSearchParams(location.search).get('addon_request') === '1';
   const [it, setIt] = useState({ 
     quantity: 1, 
     status: 'new', 
@@ -53,7 +54,8 @@ export default function TestItemEdit() {
     actual_sample_quantity: '',
     actual_delivery_date: '',
     field_test_time: '',
-    price_note: ''
+    price_note: '',
+    addon_reason: ''
   });
   const [orderSuggestions, setOrderSuggestions] = useState([]);
   const [showOrderSuggestions, setShowOrderSuggestions] = useState(false);
@@ -602,6 +604,11 @@ export default function TestItemEdit() {
     if (!it.category_name) return alert('大类必填');
     if (!it.detail_name) return alert('细项必填');
     
+    // 验证加测原因：如果是加测项目，必须填写加测原因
+    if ((isAddonRequest || it.is_add_on === 1 || it.is_add_on === '1') && (!it.addon_reason || it.addon_reason.trim() === '')) {
+      return alert('加测原因必填，请选择加测原因');
+    }
+    
     const payload = { ...it };
     
     // 验证和转换折扣率
@@ -630,6 +637,42 @@ export default function TestItemEdit() {
       payload.is_outsourced = Number(payload.is_outsourced) === 1 ? 1 : 0;
     }
     
+    // 如果是加测申请模式，提交到加测申请API
+    if (isAddonRequest && isNew) {
+      try {
+        const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
+        if (!user || !user.token) {
+          alert('用户未登录');
+          return;
+        }
+
+        const response = await fetch('/api/addon-requests', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${user.token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            order_id: payload.order_id,
+            test_item_data: payload,
+            note: payload.note || ''
+          })
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || '提交加测申请失败');
+        }
+
+        const result = await response.json();
+        alert('加测申请已提交，等待管理员审核');
+        navigate('/commission-form');
+      } catch (error) {
+        alert('提交加测申请失败：' + error.message);
+      }
+      return;
+    }
+    
     if (isNew) await api.createTestItem(payload);
     else await api.updateTestItem(id, payload);
     navigate('/commission-form');
@@ -652,7 +695,7 @@ export default function TestItemEdit() {
 
   return (
     <div style={{maxWidth: 1000}}>
-      <h2>{isNew ? '新增检测项目' : (isView ? `查看检测项目 #${id}` : `编辑检测项目 #${id}`)}</h2>
+      <h2>{isAddonRequest && isNew ? '加测申请' : (isNew ? '新增检测项目' : (isView ? `查看检测项目 #${id}` : `编辑检测项目 #${id}`))}</h2>
       <form onSubmit={onSubmit}>
         <div className="grid-3">
           <div>
@@ -819,10 +862,6 @@ export default function TestItemEdit() {
               placeholder="输入0-100的折扣率"
             />
           </div>
-          <Field label="折后单价" value={it.final_unit_price} onChange={v=>setIt({...it, final_unit_price:v})} disabled={isView} />
-          <Field label="行小计" value={it.line_total} onChange={v=>setIt({...it, line_total:v})} disabled={isView} />
-          <Field label="机时" value={it.machine_hours} onChange={v=>setIt({...it, machine_hours:v})} disabled={isView} />
-          <Field label="工时" value={it.work_hours} onChange={v=>setIt({...it, work_hours:v})} disabled={isView} />
           <div>
             <label>是否加测</label>
             <input 
@@ -833,6 +872,24 @@ export default function TestItemEdit() {
             />
             <input type="hidden" name="is_add_on" value={it.is_add_on !== undefined && it.is_add_on !== null ? it.is_add_on : 1} />
           </div>
+          {(isAddonRequest || it.is_add_on === 1 || it.is_add_on === '1') && (
+            <div>
+              <label>加测原因</label>
+              <select 
+                className="input" 
+                value={it.addon_reason || ''} 
+                onChange={e => setIt({...it, addon_reason: e.target.value})} 
+                disabled={isView}
+              >
+                <option value="">请选择加测原因</option>
+                <option value="增加样品">增加样品</option>
+                <option value="增加测试人员">增加测试人员</option>
+                <option value="样品评估不足">样品评估不足</option>
+                <option value="增加测试时段">增加测试时段</option>
+                <option value="更换设备">更换设备</option>
+              </select>
+            </div>
+          )}
           <div>
             <label>是否委外</label>
             <select className="input" value={it.is_outsourced ?? 0} onChange={e=>{
@@ -855,7 +912,6 @@ export default function TestItemEdit() {
               />
             </div>
           )}
-          <Field label="顺序号" value={it.seq_no} onChange={v=>setIt({...it, seq_no:v})} />
           <div>
             <label>状态</label>
             <select className="input" value={it.status || 'new'} onChange={e=>setIt({...it, status:e.target.value})} disabled={isView}>
@@ -1051,7 +1107,7 @@ export default function TestItemEdit() {
           <textarea className="input" rows="2" value={it.note||''} onChange={e=>setIt({...it, note:e.target.value})} disabled={isView}></textarea>
         </div>
         <div style={{display:'flex', gap:8}}>
-          {!isView && <button className="btn" type="submit">保存</button>}
+          {!isView && <button className="btn" type="submit">{isAddonRequest && isNew ? '提交申请' : '保存'}</button>}
           {!isNew && !isView && (
             <button 
               className="btn" 

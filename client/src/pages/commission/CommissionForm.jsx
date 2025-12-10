@@ -19,6 +19,15 @@ const SERVICE_URGENCY_OPTIONS = [
   { value: 'urgent_2x', label: '特急2倍' }
 ];
 
+// 加测原因选项常量
+const ADDON_REASON_OPTIONS = [
+  { value: '增加样品', label: '增加样品' },
+  { value: '增加测试人员', label: '增加测试人员' },
+  { value: '样品评估不足', label: '样品评估不足' },
+  { value: '增加测试时段', label: '增加测试时段' },
+  { value: '更换设备', label: '更换设备' }
+];
+
 const SERVICE_URGENCY_DISPLAY_MAP = {
   normal: '不加急',
   urgent_1_5x: '加急1.5倍',
@@ -200,13 +209,14 @@ const CommissionForm = () => {
   const [searchQuery, setSearchQuery] = useState(() => savedViewState?.searchQuery || '');
   const [statusFilter, setStatusFilter] = useState(() => savedViewState?.statusFilter || []); // 改为数组，支持多选
   const [departmentFilter, setDepartmentFilter] = useState(() => savedViewState?.departmentFilter || '');
-  const [fieldTestDateFilter, setFieldTestDateFilter] = useState(() => savedViewState?.fieldTestDateFilter || '');
+  const [monthFilter, setMonthFilter] = useState(() => savedViewState?.monthFilter || '');
   const [myItemsFilter, setMyItemsFilter] = useState(() => savedViewState?.myItemsFilter || false);
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [technicians, setTechnicians] = useState([]);
   const [equipmentOptions, setEquipmentOptions] = useState([]);
   const [assigneeOptions, setAssigneeOptions] = useState([]);
+  const [monthOptions, setMonthOptions] = useState([]);
   const [departmentOptions, setDepartmentOptions] = useState([]);
   const [selectedFileTestItem, setSelectedFileTestItem] = useState(null);
   const [showFileModal, setShowFileModal] = useState(false);
@@ -214,6 +224,8 @@ const CommissionForm = () => {
   const [selectedOrderId, setSelectedOrderId] = useState(null);
   const [activeRowId, setActiveRowId] = useState(null); // 新增：当前选中的行ID
   const [user, setUser] = useState(null);
+  const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
+  const statusDropdownRef = useRef(null);
   const [savingStatus, setSavingStatus] = useState({}); // 保存状态：{testItemId-field: 'saving'|'success'|'error'}
   const [selectedItems, setSelectedItems] = useState([]);
   const [showBatchUploadModal, setShowBatchUploadModal] = useState(false);
@@ -255,7 +267,7 @@ const CommissionForm = () => {
         searchQuery,
         statusFilter,
         departmentFilter,
-        fieldTestDateFilter,
+        monthFilter,
         myItemsFilter,
       };
       sessionStorage.setItem(RETURN_STATE_STORAGE_KEY, JSON.stringify(viewState));
@@ -276,7 +288,7 @@ const CommissionForm = () => {
 
   useEffect(() => {
     fullSelectionCacheRef.current = null;
-  }, [page, pageSize, searchQuery, statusFilter, departmentFilter, fieldTestDateFilter, myItemsFilter]);
+  }, [page, pageSize, searchQuery, statusFilter, departmentFilter, monthFilter, myItemsFilter]);
 
   const isColumnVisible = (key) => columnVisibility[key] !== false;
 
@@ -323,7 +335,7 @@ const CommissionForm = () => {
       statusFilter.forEach(status => params.append('status', status));
     }
     if (departmentFilter) params.append('department_id', departmentFilter);
-    if (fieldTestDateFilter) params.append('field_test_date', fieldTestDateFilter);
+    if (monthFilter) params.append('month_filter', monthFilter);
     if (myItemsFilter) params.append('my_items', 'true');
 
     const storedUser = JSON.parse(localStorage.getItem('lims_user') || 'null');
@@ -564,7 +576,7 @@ const CommissionForm = () => {
         statusFilter.forEach(status => params.append('status', status));
       }
       if (departmentFilter) params.append('department_id', departmentFilter);
-      if (fieldTestDateFilter) params.append('field_test_date', fieldTestDateFilter);
+      if (monthFilter) params.append('month_filter', monthFilter);
       if (myItemsFilter) params.append('my_items', 'true');
 
       const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
@@ -614,10 +626,11 @@ const CommissionForm = () => {
     fetchEquipmentOptions();
     fetchAssigneeOptions();
     fetchDepartmentOptions();
+    fetchMonthOptions();
     // 获取当前用户信息
     const currentUser = JSON.parse(localStorage.getItem('lims_user') || 'null');
     setUser(currentUser);
-  }, [page, searchQuery, statusFilter, departmentFilter, fieldTestDateFilter, myItemsFilter]);
+  }, [page, searchQuery, statusFilter, departmentFilter, monthFilter, myItemsFilter]);
 
   // 监听实时数据更新
   useEffect(() => {
@@ -638,6 +651,23 @@ const CommissionForm = () => {
       window.removeEventListener('realtime-data-update', handleDataUpdate);
     };
   }, []);
+
+  // 点击外部关闭状态下拉框
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (statusDropdownRef.current && !statusDropdownRef.current.contains(event.target)) {
+        setStatusDropdownOpen(false);
+      }
+    };
+
+    if (statusDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [statusDropdownOpen]);
 
   // 动态计算操作列宽度并更新文件管理列位置
   useEffect(() => {
@@ -908,6 +938,24 @@ const CommissionForm = () => {
     }
   };
 
+  const fetchMonthOptions = async () => {
+    try {
+      const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
+      const headers = {
+        'Authorization': `Bearer ${user.token}`,
+        'Content-Type': 'application/json'
+      };
+
+      const response = await fetch('/api/commission-form/month-options', { headers });
+      if (response.ok) {
+        const data = await response.json();
+        setMonthOptions(data);
+      }
+    } catch (error) {
+      console.error('获取月份列表失败:', error);
+    }
+  };
+
   const handleSearch = () => {
     setPage(1);
     fetchData();
@@ -917,7 +965,7 @@ const CommissionForm = () => {
     setSearchQuery('');
     setStatusFilter([]);
     setDepartmentFilter('');
-    setFieldTestDateFilter('');
+    setMonthFilter('');
     setMyItemsFilter(false);
     setPage(1);
   };
@@ -1222,7 +1270,13 @@ const CommissionForm = () => {
         '开单日期': formatDate(item.test_item_created_at),
         '委托单位': item.customer_commissioner_name || '',
         '委托联系人': item.customer_contact_name || '',
+        '联系人电话': item.customer_contact_phone || '',
+        '联系人邮箱': item.customer_contact_email || '',
+        '地址': item.customer_commissioner_address || '',
         '付款联系人': item.payer_contact_name || '',
+        '付款人电话': item.payer_contact_phone || '',
+        '区域': item.customer_province || '',
+        '单位性质': item.customer_nature || '',
         '业务负责人': item.assignee_name || '',
         '检测项目': `${item.category_name || ''} - ${item.detail_name || ''}`,
         '样品原号': item.original_no || '',
@@ -1239,6 +1293,8 @@ const CommissionForm = () => {
         '客户备注': item.note || '',
         '样品到达方式': item.arrival_mode === 'on_site' ? '现场' : item.arrival_mode === 'delivery' ? '寄样' : '',
         '样品是否已到': item.sample_arrival_status === 'arrived' ? '已到' : item.sample_arrival_status === 'not_arrived' ? '未到' : '',
+        '是否加测': item.is_add_on === 1 || item.is_add_on === '1' ? '是' : '否',
+        '加测原因': item.addon_reason || '',
         '服务加急': item.service_urgency || '',
         '现场测试时间': item.field_test_time ? formatDateTime(item.field_test_time) : '',
         '检测设备': item.equipment_name || '',
@@ -1271,7 +1327,13 @@ const CommissionForm = () => {
         { wch: 12 },  // 开单日期
         { wch: 20 },  // 委托单位
         { wch: 12 },  // 委托联系人
+        { wch: 15 },  // 联系人电话
+        { wch: 20 },  // 联系人邮箱
+        { wch: 25 },  // 地址
         { wch: 12 },  // 付款联系人
+        { wch: 15 },  // 付款人电话
+        { wch: 12 },  // 区域
+        { wch: 12 },  // 单位性质
         { wch: 12 },  // 业务负责人
         { wch: 30 },  // 检测项目
         { wch: 15 },  // 样品原号
@@ -1288,6 +1350,8 @@ const CommissionForm = () => {
         { wch: 20 },  // 客户备注
         { wch: 12 },  // 样品到达方式
         { wch: 12 },  // 样品是否已到
+        { wch: 10 },  // 是否加测
+        { wch: 15 },  // 加测原因
         { wch: 10 },  // 服务加急
         { wch: 18 },  // 现场测试时间
         { wch: 15 },  // 检测设备
@@ -1847,6 +1911,8 @@ const CommissionForm = () => {
       seq_no: item.seq_no,
       sample_preparation: item.sample_preparation,
       note: item.note,
+      // 复制加测原因
+      addon_reason: item.addon_reason,
       // 复制业务员，方便加测时沿用业务信息
       current_assignee: item.current_assignee,
       // 复制负责人工号，如果原项目有负责人的话
@@ -2110,6 +2176,16 @@ const CommissionForm = () => {
       if (field === 'unit') {
         // unit 是字符串类型，空字符串应该保存为null
         // 确保值不为undefined
+        if (value === '' || value === undefined || value === null) {
+          updateData[field] = null;
+        } else {
+          updateData[field] = String(value); // 确保是字符串类型
+        }
+      }
+      
+      // 对于 addon_reason 字段，确保字符串值正确保存
+      if (field === 'addon_reason') {
+        // addon_reason 是字符串类型，空字符串应该保存为null
         if (value === '' || value === undefined || value === null) {
           updateData[field] = null;
         } else {
@@ -2430,59 +2506,175 @@ const CommissionForm = () => {
           </div>
           <div className="filter-group">
             <label>状态:</label>
-            <div className="status-button-group" style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '4px' }}>
-              {[
-                { value: 'new', label: '新建' },
-                { value: 'assigned', label: '已分配' },
-                { value: 'running', label: '进行中' },
-                { value: 'completed', label: '已完成' },
-                { value: 'cancelled', label: '已取消' }
-              ].map(status => {
-                const isSelected = statusFilter.includes(status.value);
-                return (
-                  <button
-                    key={status.value}
-                    type="button"
-                    onClick={() => {
-                      if (isSelected) {
-                        setStatusFilter(prev => prev.filter(s => s !== status.value));
-                      } else {
-                        setStatusFilter(prev => [...prev, status.value]);
-                      }
-                    }}
-                    style={{
-                      padding: '2px 8px',
-                      fontSize: '11px',
-                      borderRadius: '3px',
-                      border: '1px solid #ccc',
-                      backgroundColor: isSelected ? '#007bff' : '#fff',
-                      color: isSelected ? '#fff' : '#333',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s'
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!isSelected) {
-                        e.target.style.backgroundColor = '#f0f0f0';
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!isSelected) {
-                        e.target.style.backgroundColor = '#fff';
-                      }
-                    }}
-                  >
-                    {status.label}
-                  </button>
-                );
-              })}
+            <div className="status-multiselect-wrapper" ref={statusDropdownRef} style={{ position: 'relative' }}>
+              <div
+                className="status-multiselect-input"
+                onClick={() => setStatusDropdownOpen(!statusDropdownOpen)}
+                style={{
+                  width: '160px',
+                  padding: '6px 10px',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px',
+                  fontSize: '13px',
+                  backgroundColor: '#fff',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  minHeight: '32px',
+                  boxSizing: 'border-box'
+                }}
+              >
+                <span style={{ 
+                  flex: 1, 
+                  color: statusFilter.length === 0 ? '#999' : '#333',
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: '4px'
+                }}>
+                  {statusFilter.length === 0 ? (
+                    '请选择状态'
+                  ) : (
+                    statusFilter.map(status => {
+                      const statusLabel = [
+                        { value: 'new', label: '新建' },
+                        { value: 'assigned', label: '已分配' },
+                        { value: 'running', label: '进行中' },
+                        { value: 'waiting_review', label: '待审核' },
+                        { value: 'completed', label: '已完成' },
+                        { value: 'cancelled', label: '已取消' }
+                      ].find(s => s.value === status)?.label || status;
+                      return (
+                        <span
+                          key={status}
+                          style={{
+                            padding: '2px 6px',
+                            backgroundColor: '#e7f3ff',
+                            border: '1px solid #b3d9ff',
+                            borderRadius: '3px',
+                            fontSize: '11px',
+                            display: 'inline-block'
+                          }}
+                        >
+                          {statusLabel}
+                        </span>
+                      );
+                    })
+                  )}
+                </span>
+                <span style={{ marginLeft: '8px', color: '#666' }}>
+                  {statusDropdownOpen ? '▲' : '▼'}
+                </span>
+              </div>
+              {statusDropdownOpen && (
+                <div
+                  className="status-dropdown"
+                  style={{
+                    position: 'absolute',
+                    top: '100%',
+                    left: 0,
+                    right: 0,
+                    backgroundColor: '#fff',
+                    border: '1px solid #ddd',
+                    borderRadius: '4px',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                    zIndex: 2000,
+                    marginTop: '4px',
+                    maxHeight: '200px',
+                    overflowY: 'auto',
+                    width: '160px'
+                  }}
+                >
+                  {[
+                    { value: 'new', label: '新建' },
+                    { value: 'assigned', label: '已分配' },
+                    { value: 'running', label: '进行中' },
+                    { value: 'waiting_review', label: '待审核' },
+                    { value: 'completed', label: '已完成' },
+                    { value: 'cancelled', label: '已取消' }
+                  ].map(status => {
+                    const isSelected = statusFilter.includes(status.value);
+                    return (
+                      <div
+                        key={status.value}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (isSelected) {
+                            setStatusFilter(prev => prev.filter(s => s !== status.value));
+                          } else {
+                            setStatusFilter(prev => [...prev, status.value]);
+                          }
+                        }}
+                        style={{
+                          padding: '8px 12px',
+                          cursor: 'pointer',
+                          backgroundColor: isSelected ? '#e7f3ff' : '#fff',
+                          borderBottom: '1px solid #f0f0f0',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px'
+                        }}
+                        onMouseEnter={(e) => {
+                          if (!isSelected) {
+                            e.target.style.backgroundColor = '#f5f5f5';
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (!isSelected) {
+                            e.target.style.backgroundColor = '#fff';
+                          }
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => {}}
+                          style={{ cursor: 'pointer' }}
+                        />
+                        <span>{status.label}</span>
+                      </div>
+                    );
+                  })}
+                  {statusFilter.length > 0 && (
+                    <div
+                      style={{
+                        padding: '8px 12px',
+                        borderTop: '1px solid #ddd',
+                        backgroundColor: '#f8f9fa'
+                      }}
+                    >
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setStatusFilter([]);
+                        }}
+                        style={{
+                          width: '100%',
+                          padding: '4px 8px',
+                          fontSize: '12px',
+                          border: '1px solid #ccc',
+                          borderRadius: '3px',
+                          backgroundColor: '#fff',
+                          cursor: 'pointer',
+                          color: '#666'
+                        }}
+                      >
+                        清除所有选择
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
           {(user?.role === 'admin' || user?.role === 'viewer' || (user?.role === 'leader' && Number(user?.department_id) === 5)) && (
-            <div className="filter-group">
+            <div className="filter-group department-filter-group">
               <label>部门:</label>
               <select
                 value={departmentFilter}
                 onChange={(e) => setDepartmentFilter(e.target.value)}
+                style={{ width: '120px' }}
               >
                 <option value="">全部部门</option>
                 {departmentOptions.map(dept => (
@@ -2493,14 +2685,17 @@ const CommissionForm = () => {
               </select>
             </div>
           )}
-          <div className="filter-group">
-            <label>现场测试时间:</label>
-            <input
-              type="date"
-              value={fieldTestDateFilter}
-              onChange={(e) => setFieldTestDateFilter(e.target.value)}
-              placeholder="选择日期"
-            />
+          <div className="filter-group month-filter-group">
+            <label>月份:</label>
+            <select
+              value={monthFilter}
+              onChange={(e) => setMonthFilter(e.target.value)}
+            >
+              <option value="">全部月份</option>
+              {monthOptions.map(month => (
+                <option key={month} value={month}>{month}</option>
+              ))}
+            </select>
           </div>
           <div className="filter-actions">
             {canCreateTestItem && (
@@ -2512,6 +2707,15 @@ const CommissionForm = () => {
                 className="btn btn-info"
               >
                 添加检测
+              </button>
+            )}
+            {(user?.role === 'sales' || user?.role === 'leader' || user?.role === 'supervisor' || user?.role === 'employee') && (
+              <button 
+                onClick={() => navigate('/test-items/new?addon_request=1')} 
+                className="btn btn-success"
+                title="提交加测申请"
+              >
+                加测申请
               </button>
             )}
             <button 
@@ -2550,9 +2754,6 @@ const CommissionForm = () => {
             )}
           </div>
         </div>
-        <div className="online-indicator">
-          {isConnected ? `🟢 在线 (${getOnlineUserCount()} 人)` : '🔴 离线'}
-        </div>
       </div>
 
       {/* 数据表格 */}
@@ -2561,12 +2762,14 @@ const CommissionForm = () => {
           <div className="loading">加载中...</div>
         ) : (
           <>
-            <div className="table-info" style={{ display: 'flex', alignItems: 'center' }}>
-              <span>共 {total} 条记录，当前第 {page} 页</span>
+            <div className="table-info" style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'nowrap' }}>
+              <span style={{ flexShrink: 0 }}>共 {total} 条记录，当前第 {page} 页</span>
               {maintenanceList.length > 0 && !isMaintenanceClosed && (
                 <div style={{ 
-                  marginLeft: '20px', 
-                  width: '600px',
+                  marginLeft: '0', 
+                  minWidth: '300px',
+                  maxWidth: '600px',
+                  flex: '1 1 auto',
                   display: 'flex', 
                   alignItems: 'center', 
                   background: '#fff1f0', 
@@ -2575,7 +2778,8 @@ const CommissionForm = () => {
                   padding: '0 20px 0 10px',
                   height: '30px',
                   overflow: 'hidden',
-                  position: 'relative'
+                  position: 'relative',
+                  flexShrink: 1
                 }}>
                   <span style={{ color: '#cf1322', fontWeight: 'bold', marginRight: '10px', whiteSpace: 'nowrap', fontSize: '12px' }}>⚠️ 设备维护公告:</span>
                   <marquee 
@@ -2629,6 +2833,9 @@ const CommissionForm = () => {
                   </button>
                 </div>
               )}
+              <div className="online-indicator" style={{ marginLeft: 'auto', position: 'relative', top: 'auto', right: 'auto' }}>
+                {isConnected ? `🟢 在线 (${getOnlineUserCount()} 人)` : '🔴 离线'}
+              </div>
             </div>
             {hiddenColumns.length > 0 && (
               <div className="hidden-columns-bar">
@@ -2750,8 +2957,30 @@ const CommissionForm = () => {
                               />
                             </div>
                             {item.is_add_on === 1 && (
-                              <div style={{marginTop: '4px'}}>
+                              <div style={{marginTop: '4px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap'}}>
                                 <span className="add-on-badge">加测</span>
+                                {(user?.role === 'admin' || user?.role === 'supervisor' || user?.role === 'leader') ? (
+                                  <div style={{display: 'inline-block', minWidth: '120px'}}>
+                                    <RealtimeEditableCell
+                                      value={item.addon_reason || ''}
+                                      type="select"
+                                      options={ADDON_REASON_OPTIONS}
+                                      onSave={handleSaveEdit}
+                                      field="addon_reason"
+                                      testItemId={item.test_item_id}
+                                      placeholder="选择加测原因"
+                                      isFieldBeingEdited={isFieldBeingEdited}
+                                      getEditingUser={getEditingUser}
+                                      emitUserEditing={emitUserEditing}
+                                      emitUserStopEditing={emitUserStopEditing}
+                                    />
+                                    <SavingIndicator testItemId={item.test_item_id} field="addon_reason" />
+                                  </div>
+                                ) : (
+                                  <span style={{fontSize: '12px', color: '#666'}}>
+                                    {item.addon_reason || '原因未填写'}
+                                  </span>
+                                )}
                               </div>
                             )}
                           </div>

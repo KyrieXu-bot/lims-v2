@@ -20,6 +20,7 @@ import labGroupsRouter from './src/routes/lab_groups.js';
 import templatesRouter from './src/routes/templates.js';
 import statisticsRouter from './src/routes/statistics.js';
 import notificationsRouter from './src/routes/notifications.js';
+import addonRequestsRouter from './src/routes/addon_requests.js';
 import { setupSocket } from './src/socket.js';
 import { getPool } from './src/db.js';
 
@@ -59,6 +60,7 @@ app.use('/api/lab-groups', labGroupsRouter);
 app.use('/api/templates', templatesRouter);
 app.use('/api/statistics', statisticsRouter);
 app.use('/api/notifications', notificationsRouter);
+app.use('/api/addon-requests', addonRequestsRouter);
 
 // 设置WebSocket
 const io = setupSocket(server);

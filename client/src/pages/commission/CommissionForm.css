@@ -49,39 +49,108 @@
   box-shadow: 0 2px 4px rgba(0,0,0,0.1);
   flex-shrink: 0;
   position: relative;
+  z-index: 12000; /* 整体置于表格/固定列之上 */
 }
 
 .filter-row {
   display: flex;
-  gap: 20px;
-  align-items: end;
+  gap: 12px;
+  row-gap: 10px;
+  align-items: center;
   flex-wrap: wrap;
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  justify-content: flex-start;
+  align-content: flex-start; /* 确保换行时对齐 */
 }
 
 .filter-group {
   display: flex;
-  flex-direction: column;
-  gap: 5px;
-  min-width: 200px;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  min-width: auto;
+  position: relative;
+  z-index: 1;
+  flex-shrink: 0;
 }
 
-/* 搜索组特殊样式 */
+/* 部门筛选组：适度宽度，可收缩 */
+.department-filter-group {
+  min-width: 120px !important;
+  max-width: 160px;
+  flex: 0 1 150px;
+}
+
+.department-filter-group select {
+  width: 100% !important;
+  min-width: 120px;
+  max-width: 180px;
+}
+
+/* 状态筛选组：适度宽度，可收缩 */
+.filter-group:has(.status-multiselect-wrapper) {
+  min-width: 120px;
+  max-width: 205px;
+  flex: 0 1 auto; /* 改为根据内容自适应，不强制宽度 */
+  z-index: 13000;
+}
+
+.filter-group:has(.status-multiselect-wrapper) .status-multiselect-input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* 状态下拉层级提升，避免被表格遮挡 */
+.status-multiselect-wrapper {
+  position: relative;
+  z-index: 14000; /* 高于表头/固定列 */
+}
+
+.status-dropdown {
+  position: absolute;
+  z-index: 15000; /* 高于固定列/表头的sticky层级 */
+}
+
+/* 月份筛选组：适度宽度，可收缩 */
+.month-filter-group {
+  min-width: 120px;
+  max-width: 160px;
+  flex: 0 1 140px;
+}
+
+.month-filter-group select {
+  width: 100%;
+  min-width: 120px;
+  max-width: 160px;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+
+/* 搜索组：降低固定宽度，允许收缩和拉伸 */
 .search-group {
-  min-width: 300px;
+  min-width: 220px;
+  max-width: 400px; /* 增加最大宽度以容纳3个按钮 */
+  flex: 0 1 auto; /* 改为不自动增长，根据内容自适应 */
 }
 
 .search-input-container {
   display: flex;
   gap: 8px;
   align-items: center;
+  width: 100%;
+  min-width: 0; /* 允许收缩 */
 }
 
 .search-input-container input {
-  flex: 1;
-  padding: 8px 12px;
+  flex: 1 1 auto; /* 允许收缩和增长 */
+  min-width: 150px; /* 最小宽度 */
+  padding: 6px 10px;
   border: 1px solid #ddd;
   border-radius: 4px;
-  font-size: 14px;
+  font-size: 13px;
+  box-sizing: border-box;
 }
 
 .search-input-container input:focus {
@@ -98,8 +167,8 @@
 
 /* 小按钮样式 */
 .btn-small {
-  padding: 6px 12px !important;
-  font-size: 12px !important;
+  padding: 6px 10px !important;
+  font-size: 11px !important;
   min-width: auto !important;
   white-space: nowrap;
 }
@@ -107,15 +176,60 @@
 .filter-group label {
   font-weight: 500;
   color: #333;
-  font-size: 14px;
+  font-size: 13px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  min-width: fit-content;
 }
 
 .filter-group input,
 .filter-group select {
-  padding: 8px 12px;
+  padding: 6px 10px;
   border: 1px solid #ddd;
   border-radius: 4px;
-  font-size: 14px;
+  font-size: 13px;
+  box-sizing: border-box;
+}
+
+.status-multiselect-wrapper {
+  position: relative;
+  z-index: 2000;
+  isolation: isolate;
+}
+
+.status-multiselect-input {
+  position: relative;
+}
+
+.status-multiselect-input:hover {
+  border-color: #007bff;
+}
+
+.status-multiselect-input:focus-within {
+  border-color: #007bff;
+  box-shadow: 0 0 0 2px rgba(0,123,255,0.25);
+}
+
+.status-dropdown {
+  scrollbar-width: thin;
+  scrollbar-color: #ccc #f5f5f5;
+}
+
+.status-dropdown::-webkit-scrollbar {
+  width: 6px;
+}
+
+.status-dropdown::-webkit-scrollbar-track {
+  background: #f5f5f5;
+}
+
+.status-dropdown::-webkit-scrollbar-thumb {
+  background: #ccc;
+  border-radius: 3px;
+}
+
+.status-dropdown::-webkit-scrollbar-thumb:hover {
+  background: #999;
 }
 
 .filter-group input:focus,
@@ -125,15 +239,42 @@
   box-shadow: 0 0 0 2px rgba(0,123,255,0.25);
 }
 
+.status-multiselect-wrapper {
+  position: relative;
+}
+
+.status-multiselect {
+  padding: 6px 12px !important;
+  min-height: 36px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.status-multiselect option {
+  padding: 4px 8px;
+}
+
+.status-multiselect option:checked {
+  background: #007bff linear-gradient(0deg, #007bff 0%, #007bff 100%);
+  color: white;
+}
+
 .filter-actions {
   display: flex;
   gap: 8px;
   margin-left: auto;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: fit-content;
 }
 
 .filter-actions .btn {
   padding: 6px 12px;
   font-size: 13px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .filter-actions .btn-small {
@@ -141,20 +282,42 @@
   font-size: 12px !important;
 }
 
-.online-indicator {
-  position: absolute;
-  top: 8px;
-  right: 12px;
-  font-size: 10px;
+/* 中大屏幕：当空间不足时允许换行，但保持按钮右对齐 */
+@media (max-width: 1400px) {
+  .filter-row {
+    flex-wrap: wrap;
+  }
+
+  .filter-actions {
+    width: 100%;
+    margin-left: 0;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 4px;
+  }
+}
+
+.table-info .online-indicator {
+  font-size: 12px;
   color: #666;
   display: flex;
   align-items: center;
+  justify-content: center;
   white-space: nowrap;
-  padding: 3px 6px;
+  padding: 4px 10px;
   background-color: #f8f9fa;
-  border-radius: 3px;
+  border-radius: 4px;
   border: 1px solid #e9ecef;
+  margin-left: auto;
+  position: relative !important;
+  top: auto !important;
+  right: auto !important;
   z-index: 10;
+  flex-shrink: 0;
+  height: fit-content;
+  align-self: center;
+  box-shadow: none !important;
 }
 
 /* 按钮样式继承系统样式 */
@@ -242,6 +405,12 @@
   border-bottom: 1px solid #dee2e6;
   font-size: 14px;
   color: #666;
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 40px;
+  align-items: center;
 }
 
 .table-wrapper {
@@ -564,7 +733,7 @@
   display: flex;
   justify-content: center;
   align-items: center;
-  z-index: 1000;
+  z-index: 20000; /* 覆盖筛选栏与表格，确保搜索栏被遮挡变灰 */
 }
 
 .file-modal-content {
@@ -954,6 +1123,39 @@
 }
 
 /* 响应式设计 - 平板和桌面保持不变 */
+/* 中等屏幕样式 - 平板屏幕（768px - 1024px） */
+@media (min-width: 768px) and (max-width: 1024px) {
+  .filter-row {
+    gap: 10px;
+  }
+  
+  .search-group {
+    min-width: 250px;
+    max-width: 350px;
+    flex: 0 1 auto;
+  }
+  
+  .month-filter-group {
+    min-width: 150px;
+    max-width: 170px;
+  }
+  
+  .month-filter-group select {
+    width: 150px;
+    min-width: 150px;
+    max-width: 150px;
+  }
+  
+  .department-filter-group {
+    min-width: 140px !important;
+    max-width: 140px;
+  }
+  
+  .department-filter-group select {
+    width: 140px !important;
+  }
+}
+
 /* 移动端样式 - 手机屏幕（小于768px） */
 @media (max-width: 767px) {
   .commission-form {
@@ -974,7 +1176,8 @@
   }
   
   .filter-group {
-    min-width: auto;
+    min-width: auto !important;
+    max-width: 100% !important;
     width: 100%;
     gap: 3px;
   }
@@ -988,12 +1191,48 @@
   .filter-group select {
     padding: 5px 8px;
     font-size: 12px;
+    width: 100%;
+    min-width: auto !important;
+    max-width: 100% !important;
+  }
+  
+  /* 移动端：月份选择框全宽 */
+  .month-filter-group {
+    min-width: auto !important;
+    max-width: 100% !important;
+    width: 100%;
+  }
+  
+  .month-filter-group select {
+    width: 100% !important;
+    min-width: auto !important;
+    max-width: 100% !important;
+  }
+  
+  /* 移动端：状态筛选组全宽 */
+  .filter-group:has(.status-multiselect-wrapper) {
+    min-width: auto !important;
+    max-width: 100% !important;
+    width: 100%;
+  }
+  
+  /* 移动端：部门筛选组全宽 */
+  .department-filter-group {
+    min-width: auto !important;
+    max-width: 100% !important;
+    width: 100%;
+  }
+  
+  .department-filter-group select {
+    width: 100% !important;
   }
   
   .search-group {
-    min-width: auto;
+    min-width: auto !important;
+    max-width: 100% !important;
     width: 100%;
     gap: 3px;
+    flex: none !important;
   }
   
   .search-group label {
@@ -1004,12 +1243,14 @@
   .search-input-container {
     flex-direction: row;
     gap: 4px;
+    width: 100%;
   }
   
   .search-input-container input {
     flex: 1;
     padding: 5px 8px;
     font-size: 12px;
+    min-width: 0;
   }
   
   .search-buttons {
@@ -1044,16 +1285,15 @@
     font-size: 10px !important;
   }
   
-  .online-indicator {
-    position: relative;
-    top: auto;
-    right: auto;
-    margin-left: 0;
-    margin-top: 4px;
-    width: 100%;
-    justify-content: center;
-    font-size: 9px;
-    padding: 2px 4px;
+  .table-info .online-indicator {
+    margin-left: auto;
+    font-size: 11px;
+    padding: 3px 8px;
+    flex-shrink: 0;
+    position: relative !important;
+    top: auto !important;
+    right: auto !important;
+    box-shadow: none !important;
   }
   
   /* 表格容器优化 */

@@ -48,7 +48,7 @@ header {
   box-shadow: var(--shadow);
   position: sticky;
   top: 0;
-  z-index: 1000;
+  z-index: 17000; /* 高于搜索栏(12000)和状态下拉(15000)，确保通知下拉菜单显示在最上层 */
   padding: 0;
 }
 

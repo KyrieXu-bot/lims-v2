@@ -150,7 +150,7 @@ router.post('/', requireRole(CREATE_ROLES), async (req, res) => {
     seq_no, sample_preparation, note, status = 'new', current_assignee, supervisor_id, technician_id,
     arrival_mode, sample_arrival_status, equipment_id, check_notes, test_notes,
     actual_sample_quantity, actual_delivery_date, field_test_time, price_note,
-    assignment_note, business_note, abnormal_condition
+    assignment_note, business_note, abnormal_condition, addon_reason
   } = req.body || {};
 
   // 处理空字符串，将其转换为null，这样数据库可以接受空值
@@ -263,7 +263,8 @@ router.post('/', requireRole(CREATE_ROLES), async (req, res) => {
         processedFieldTestTime,
         price_note || null,
         assignment_note || null,
-        business_note || null
+        business_note || null,
+        addon_reason || null
       ];
       
       // 重新构建SQL语句，确保字段和占位符数量匹配
@@ -274,7 +275,7 @@ router.post('/', requireRole(CREATE_ROLES), async (req, res) => {
         'seq_no', 'sample_preparation', 'note', 'status', 'current_assignee', 'supervisor_id', 'technician_id',
         'arrival_mode', 'sample_arrival_status', 'equipment_id', 'check_notes', 'test_notes',
         'actual_sample_quantity', 'actual_delivery_date', 'field_test_time', 'price_note',
-        'assignment_note', 'business_note'
+        'assignment_note', 'business_note', 'addon_reason'
       ];
       
       const placeholders = sqlFields.map(() => '?').join(',');
@@ -352,7 +353,8 @@ router.put('/:id', requireRole(EDIT_ROLES), async (req, res) => {
     seq_no, sample_preparation, note, status, current_assignee, supervisor_id, technician_id,
     arrival_mode, sample_arrival_status, equipment_id, check_notes, test_notes, unit,
     actual_sample_quantity, actual_delivery_date, field_test_time, price_note,
-    assignment_note, business_note, abnormal_condition, service_urgency, business_confirmed
+    assignment_note, business_note, abnormal_condition, service_urgency, business_confirmed,
+    addon_reason
   } = req.body || {};
 
   // 处理空字符串，将其转换为null，这样数据库可以接受空值
@@ -466,6 +468,7 @@ router.put('/:id', requireRole(EDIT_ROLES), async (req, res) => {
       addUpdate('abnormal_condition', abnormal_condition);
       addUpdate('service_urgency', service_urgency);
       addUpdate('business_confirmed', business_confirmed);
+      addUpdate('addon_reason', addon_reason);
       
       // 如果没有要更新的字段，直接返回
       if (updateFields.length === 0) {

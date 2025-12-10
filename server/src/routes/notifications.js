@@ -32,11 +32,14 @@ router.get('/', async (req, res) => {
       `SELECT n.*, 
               o.order_id as order_id_display,
               ti.test_item_id as test_item_id_display,
-              pf.filename as file_name
+              pf.filename as file_name,
+              ar.request_id as addon_request_id,
+              ar.status as addon_request_status
        FROM notifications n
        LEFT JOIN orders o ON n.related_order_id = o.order_id
        LEFT JOIN test_items ti ON n.related_test_item_id = ti.test_item_id
        LEFT JOIN project_files pf ON n.related_file_id = pf.file_id
+       LEFT JOIN addon_requests ar ON n.related_addon_request_id = ar.request_id
        ${whereClause}
        ORDER BY n.created_at DESC
        LIMIT ? OFFSET ?`,
@@ -157,14 +160,15 @@ export async function createNotification(pool, {
   type = 'other',
   related_order_id = null,
   related_test_item_id = null,
-  related_file_id = null
+  related_file_id = null,
+  related_addon_request_id = null
 }) {
   try {
     const [result] = await pool.query(
       `INSERT INTO notifications 
-       (user_id, title, content, type, related_order_id, related_test_item_id, related_file_id) 
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [user_id, title, content, type, related_order_id, related_test_item_id, related_file_id]
+       (user_id, title, content, type, related_order_id, related_test_item_id, related_file_id, related_addon_request_id) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [user_id, title, content, type, related_order_id, related_test_item_id, related_file_id, related_addon_request_id]
     );
     return result.insertId;
   } catch (error) {
@@ -174,4 +178,6 @@ export async function createNotification(pool, {
 }
 
 export default router;
+
+
 

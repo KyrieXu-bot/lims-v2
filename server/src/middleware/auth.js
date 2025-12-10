@@ -25,8 +25,11 @@ export function requireRole(roles) {
     if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
     if (req.user.role === 'admin') return next();
     
+    // 如果传入的是字符串，转换为数组
+    const rolesArray = Array.isArray(roles) ? roles : [roles];
+    
     const userRoles = req.user.roles || [req.user.role];
-    const hasRole = roles.some(role => userRoles.includes(role));
+    const hasRole = rolesArray.some(role => userRoles.includes(role));
     
     if (!hasRole) {
       return res.status(403).json({ error: 'Insufficient permissions' });
@@ -40,8 +43,11 @@ export function requireAnyRole(roles) {
     if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
     if (req.user.role === 'admin') return next();
     
+    // 确保 roles 是数组
+    const rolesArray = Array.isArray(roles) ? roles : [roles];
+    
     const userRoles = req.user.roles || [req.user.role];
-    const hasAnyRole = roles.some(role => userRoles.includes(role));
+    const hasAnyRole = rolesArray.some(role => userRoles.includes(role));
     
     if (!hasAnyRole) {
       return res.status(403).json({ error: 'Insufficient permissions' });

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSocket } from '../hooks/useSocket.js';
+import AddonRequestModal from '../components/AddonRequestModal.jsx';
 import './Notifications.css';
 
 const Notifications = () => {
@@ -13,6 +14,8 @@ const Notifications = () => {
   const pageSize = 20;
   const navigate = useNavigate();
   const { socket } = useSocket(null);
+  const [showAddonRequestModal, setShowAddonRequestModal] = useState(false);
+  const [selectedRequestId, setSelectedRequestId] = useState(null);
 
   // 加载通知列表
   const loadNotifications = async () => {
@@ -181,10 +184,47 @@ const Notifications = () => {
   const getTypeLabel = (type) => {
     const typeMap = {
       'raw_data_upload': '原始数据上传',
+      'addon_request': '加测申请',
       'system': '系统通知',
       'other': '其他'
     };
     return typeMap[type] || type;
+  };
+
+  const handleViewRequest = (notification) => {
+    // 从通知中获取申请ID，优先使用 related_addon_request_id
+    let requestId = notification.related_addon_request_id || notification.addon_request_id;
+    
+    // 如果数据库查询没有返回，尝试从content中解析
+    if (!requestId && notification.content) {
+      const match = notification.content.match(/申请ID：(\d+)/);
+      if (match) {
+        requestId = parseInt(match[1]);
+      }
+    }
+    
+    if (requestId) {
+      setSelectedRequestId(requestId);
+      setShowAddonRequestModal(true);
+    } else {
+      alert('无法获取申请ID，请刷新页面重试');
+    }
+  };
+
+  // 获取申请状态显示文本
+  const getRequestStatusText = (status) => {
+    if (!status) return null;
+    const statusMap = {
+      'pending': { text: '待处理', className: 'status-pending' },
+      'approved': { text: '已通过', className: 'status-approved' },
+      'cancelled': { text: '已取消', className: 'status-cancelled' }
+    };
+    return statusMap[status] || null;
+  };
+
+  const handleRequestApproved = () => {
+    // 刷新通知列表
+    loadNotifications();
   };
 
   const totalPages = Math.ceil(total / pageSize);
@@ -253,6 +293,15 @@ const Notifications = () => {
             原始数据上传
           </button>
           <button
+            className={`filter-btn ${typeFilter === 'addon_request' ? 'active' : ''}`}
+            onClick={() => {
+              setTypeFilter('addon_request');
+              setPage(1);
+            }}
+          >
+            加测申请
+          </button>
+          <button
             className={`filter-btn ${typeFilter === 'system' ? 'active' : ''}`}
             onClick={() => {
               setTypeFilter('system');
@@ -285,8 +334,35 @@ const Notifications = () => {
                       {!notification.is_read && <span className="notification-dot"></span>}
                       <span>{notification.title}</span>
                       <span className="notification-type-badge">{getTypeLabel(notification.type)}</span>
+                      {notification.type === 'addon_request' && notification.addon_request_status && (
+                        <span className={`request-status-badge ${getRequestStatusText(notification.addon_request_status)?.className || ''}`}>
+                          {getRequestStatusText(notification.addon_request_status)?.text || notification.addon_request_status}
+                        </span>
+                      )}
                     </div>
                     <div className="notification-card-actions">
+                      {notification.type === 'addon_request' && notification.addon_request_status !== 'approved' && (
+                        <button
+                          className="btn-view-request"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleViewRequest(notification);
+                          }}
+                        >
+                          查看申请
+                        </button>
+                      )}
+                      {notification.type === 'addon_request' && notification.addon_request_status === 'approved' && (
+                        <button
+                          className="btn-view-request"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleViewRequest(notification);
+                          }}
+                        >
+                          查看详情
+                        </button>
+                      )}
                       {!notification.is_read && (
                         <button
                           className="btn-mark-read"
@@ -345,6 +421,17 @@ const Notifications = () => {
             </div>
           )}
         </>
+      )}
+
+      {showAddonRequestModal && selectedRequestId && (
+        <AddonRequestModal
+          requestId={selectedRequestId}
+          onClose={() => {
+            setShowAddonRequestModal(false);
+            setSelectedRequestId(null);
+          }}
+          onApprove={handleRequestApproved}
+        />
       )}
     </div>
   );

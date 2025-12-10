@@ -7,7 +7,7 @@ router.use(requireAuth, requireAnyRole(['admin', 'leader', 'supervisor', 'employ
 
 // 获取委托单登记表数据（扁平化，以test_item_id为单位）
 router.get('/commission-form', async (req, res) => {
-  const { q = '', page = 1, pageSize = 100, status, department_id, field_test_date, my_items } = req.query;
+  const { q = '', page = 1, pageSize = 100, status, department_id, month_filter, my_items } = req.query;
   const offset = (Number(page) - 1) * Number(pageSize);
   const pool = await getPool();
   const like = `%${q}%`;
@@ -81,9 +81,20 @@ router.get('/commission-form', async (req, res) => {
     filters.push('ti.department_id = ?');
     params.push(department_id);
   }
-  if (field_test_date) {
-    filters.push('DATE(ti.field_test_time) = ?');
-    params.push(field_test_date);
+  // 月份筛选：基于委托单号格式 JC + 年份(2位) + 月份(2位) + 编号
+  // 例如：JC25100001 表示 25年10月
+  if (month_filter && month_filter.trim() !== '') {
+    // month_filter 格式为 "yyyy-MM"，需要转换为年份和月份
+    // 例如 "2025-10" -> 年份25，月份10
+    const [year, month] = month_filter.split('-');
+    if (year && month && year.length === 4 && month.length === 2) {
+      // 提取年份的后两位（例如2025 -> 25）
+      const yearSuffix = year.slice(-2);
+      // 委托单号格式：JC + 年份(2位) + 月份(2位) + 编号
+      // 使用LIKE匹配：JC + 年份 + 月份
+      filters.push('ti.order_id LIKE ?');
+      params.push(`JC${yearSuffix}${month.padStart(2, '0')}%`);
+    }
   }
   // "我的"筛选：筛选 current_assignee 等于当前用户的项目
   if (my_items === 'true') {
@@ -92,6 +103,7 @@ router.get('/commission-form', async (req, res) => {
   }
 
   const where = filters.length ? 'WHERE ' + filters.join(' AND ') : '';
+
 
   try {
     const [rows] = await pool.query(
@@ -160,6 +172,7 @@ router.get('/commission-form', async (req, res) => {
         ti.sample_arrival_status,
         ti.price_note,
         ti.is_add_on,
+        ti.addon_reason,
         ti.business_confirmed,
         sup.name as supervisor_name,
         ti.supervisor_id,
@@ -176,6 +189,8 @@ router.get('/commission-form', async (req, res) => {
         c.tax_id as payer_tax_number, -- 从customers表获取
         c.bank_account as payer_bank_account, -- 从customers表获取
         c.address as payer_address, -- 从customers表获取
+        c.province as customer_province, -- 区域
+        c.nature as customer_nature, -- 单位性质
         -- 其他信息
         o.delivery_days_after_receipt as delivery_days,
         o.remarks as other_requirements,
@@ -473,6 +488,44 @@ router.get('/department-options', async (req, res) => {
     res.json(rows);
   } catch (e) {
     console.error('Error fetching department options:', e);
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// 获取所有存在的月份列表（从委托单号中提取）
+// 委托单号格式：JC + 年份(2位) + 月份(2位) + 编号
+// 例如：JC25100001 表示 25年10月
+router.get('/month-options', async (req, res) => {
+  const pool = await getPool();
+  try {
+    // 从委托单号中提取年份和月份
+    // 委托单号格式：JC + 年份(2位) + 月份(2位) + 编号
+    // 例如：JC25100001 -> 位置3-4是年份(25)，位置5-6是月份(10)
+    const [rows] = await pool.query(
+      `SELECT DISTINCT
+        CONCAT(
+          CASE 
+            WHEN CAST(SUBSTRING(ti.order_id, 3, 2) AS UNSIGNED) < 50 THEN CONCAT('20', SUBSTRING(ti.order_id, 3, 2))
+            ELSE CONCAT('19', SUBSTRING(ti.order_id, 3, 2))
+          END,
+          '-',
+          LPAD(SUBSTRING(ti.order_id, 5, 2), 2, '0')
+        ) as month_value
+      FROM test_items ti
+      WHERE ti.order_id LIKE 'JC____%'
+        AND LENGTH(ti.order_id) >= 7
+        AND SUBSTRING(ti.order_id, 3, 2) REGEXP '^[0-9]{2}$'
+        AND SUBSTRING(ti.order_id, 5, 2) REGEXP '^[0-9]{2}$'
+        AND CAST(SUBSTRING(ti.order_id, 5, 2) AS UNSIGNED) BETWEEN 1 AND 12
+      ORDER BY month_value DESC`
+    );
+    
+    // 提取唯一的月份值并去重
+    const months = [...new Set(rows.map(row => row.month_value))];
+    
+    res.json(months);
+  } catch (e) {
+    console.error('Error fetching month options:', e);
     return res.status(500).json({ error: e.message });
   }
 });

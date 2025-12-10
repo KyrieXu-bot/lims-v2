@@ -1,6 +1,7 @@
 .notification-icon-container {
   position: relative;
   display: inline-block;
+  z-index: 16000; /* 确保通知图标容器也在搜索栏之上 */
 }
 
 .notification-icon-button {
@@ -50,7 +51,7 @@
   border: 1px solid var(--gray-300);
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  z-index: 1000;
+  z-index: 20000; /* 高于搜索栏(12000)和状态下拉(15000) */
   display: flex;
   flex-direction: column;
 }
@@ -195,4 +196,7 @@
 .notification-list::-webkit-scrollbar-thumb:hover {
   background: var(--gray-500);
 }
+
+
+
 
