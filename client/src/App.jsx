@@ -20,6 +20,7 @@ import OrderDelete from './pages/orders/OrderDelete.jsx';
 import CommissionForm from './pages/commission/CommissionForm.jsx';
 import EquipmentList from './pages/commission/EquipmentList.jsx';
 import Statistics from './pages/statistics/Statistics.jsx';
+import SettlementManagement from './pages/settlements/SettlementManagement.jsx';
 import Profile from './pages/Profile.jsx';
 import Notifications from './pages/Notifications.jsx';
 import NotificationIcon from './components/NotificationIcon.jsx';
@@ -70,12 +71,16 @@ function Layout({ children }) {
               {user.role === 'admin' && (
                 <NavLink to="/price" className={({isActive})=>isActive?'active':''}>价目表</NavLink>
               )}
-              <div className="hstack" style={{marginLeft: 16, paddingLeft: 16, borderLeft: '1px solid var(--gray-300)'}}>
-                <span className="text-muted">用户: {user.name || user.username}</span>
-                <span className="badge badge-primary">{user.role_name}</span>
+              {/* 费用结算 - 仅管理员可以使用 */}
+              {user.role === 'admin' && (
+                <NavLink to="/settlements" className={({isActive})=>isActive?'active':''}>费用结算</NavLink>
+              )}
+              <div className="hstack" style={{marginLeft: 16, paddingLeft: 16, borderLeft: '1px solid var(--gray-300)', flexShrink: 0}}>
+                <span className="text-muted" style={{whiteSpace: 'nowrap'}}>用户: {user.name || user.username}</span>
+                <span className="badge badge-primary" style={{whiteSpace: 'nowrap'}}>{user.role_name}</span>
                 <NotificationIcon />
-                <NavLink to="/profile" className={({isActive})=>isActive?'active':''} style={{padding: '4px 12px', fontSize: '14px'}}>个人中心</NavLink>
-                <button className="btn btn-secondary btn-sm" onClick={logout}>登出</button>
+                <NavLink to="/profile" className={({isActive})=>isActive?'active':''} style={{padding: '4px 12px', fontSize: '14px', whiteSpace: 'nowrap'}}>个人中心</NavLink>
+                <button className="btn btn-secondary btn-sm" onClick={logout} style={{whiteSpace: 'nowrap'}}>登出</button>
               </div>
             </>) : (
               <NavLink to="/login" className={({isActive})=>isActive?'active':''}>登录</NavLink>
@@ -110,6 +115,7 @@ export default function App() {
       <Route path="/orders/delete" element={<Layout><OrderDelete/></Layout>} />
       <Route path="/commission-form" element={<Layout><CommissionForm/></Layout>} />
       <Route path="/statistics" element={<Layout><Statistics/></Layout>} />
+      <Route path="/settlements" element={<Layout><SettlementManagement/></Layout>} />
       <Route path="/equipment-list" element={<Layout><EquipmentList/></Layout>} />
       <Route path="/profile" element={<Layout><Profile/></Layout>} />
       <Route path="/notifications" element={<Layout><Notifications/></Layout>} />

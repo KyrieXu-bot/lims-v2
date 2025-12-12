@@ -154,15 +154,17 @@ async function buildLeaderData(pool, user, from, to) {
 async function buildSupervisorData(pool, user, from, to) {
   const supervisorId = user?.user_id || user?.sub;
   const groupId = await resolveGroupId(pool, user);
+  if (groupId === null) {
+    throw new Error('当前用户未配置所属组，无法查询统计数据');
+  }
   // 恢复：按照actual_delivery_date有值来统计
   const baseWhere = 'ti.actual_delivery_date BETWEEN ? AND ? AND ti.actual_delivery_date IS NOT NULL';
   const params = [from, to];
   
-  // 修改逻辑：根据组长的group_id筛选组员数据，而不是根据test_items的group_id
-  // 筛选条件：只统计组长负责的项目（ti.supervisor_id = ?），与导出功能保持一致
-  // 不再使用OR条件，避免重复计算或遗漏
-  const scopeWhere = 'ti.supervisor_id = ?';
-  const scopeParams = [supervisorId];
+  // 修改逻辑：根据组长的group_id筛选该组的所有项目，而不是根据supervisor_id
+  // 筛选条件：统计该组的所有项目（ti.group_id = ?），这样组长可以看到组内所有成员的单子
+  const scopeWhere = 'ti.group_id = ?';
+  const scopeParams = [groupId];
 
   const [summaryRows] = await pool.query(
     `SELECT 
@@ -174,7 +176,7 @@ async function buildSupervisorData(pool, user, from, to) {
     [...params, ...scopeParams]
   );
 
-  // 组员统计：只统计组长负责的项目中的组员，与导出功能保持一致
+  // 组员统计：统计该组所有项目中的组员
   const [memberRows] = await pool.query(
     `SELECT 
         ti.technician_id AS user_id,

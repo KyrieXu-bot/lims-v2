@@ -32,9 +32,15 @@ router.get('/commission-form', async (req, res) => {
       params.push(user.group_id);
     }
   } else if (user.role === 'supervisor') {
-    // 组长：只能看到分配给他的检测项目
-    filters.push('ti.supervisor_id = ?');
-    params.push(user.user_id);
+    // 组长：可以看到该组的所有检测项目（基于group_id）
+    if (user.group_id) {
+      filters.push('ti.group_id = ?');
+      params.push(user.group_id);
+    } else {
+      // 如果没有group_id，回退到原来的逻辑（通过supervisor_id）
+      filters.push('ti.supervisor_id = ?');
+      params.push(user.user_id);
+    }
   } else if (user.role === 'employee') {
     // 实验员：只能看到指派给他的检测项目
     filters.push('ti.technician_id = ?');
@@ -126,7 +132,7 @@ router.get('/commission-form', async (req, res) => {
         u.name as assignee_name,
         u.account as assignee_account,
         ti.current_assignee,
-        NULL as unpaid_amount, -- 开票未到款金额（暂时为空）
+        ti.unpaid_amount, -- 开票未到款金额
         CONCAT(ti.category_name, ' - ', ti.detail_name) as test_item_name,
         ti.category_name,
         ti.detail_name,

@@ -57,8 +57,10 @@ header .header-content {
   justify-content: space-between;
   align-items: center;
   padding: 12px 24px;
-  max-width: 1400px;
+  max-width: 100%;
+  width: 100%;
   margin: 0 auto;
+  min-width: 0; /* 允许 flex 子元素收缩 */
 }
 
 header h1 {
@@ -66,21 +68,31 @@ header h1 {
   font-size: 24px;
   font-weight: 600;
   margin: 0;
+  flex-shrink: 0; /* 标题不收缩 */
+  white-space: nowrap;
 }
 
 nav {
   display: flex;
   gap: 4px;
+  flex-wrap: nowrap;
+  align-items: center;
+  flex: 1 1 auto; /* 允许导航区域扩展 */
+  min-width: 0; /* 允许收缩 */
+  justify-content: flex-end; /* 右对齐 */
 }
 
 nav a {
-  padding: 8px 16px;
+  padding: 8px 12px;
   text-decoration: none;
   color: var(--gray-700);
   border-radius: 6px;
   font-weight: 500;
   transition: all 0.2s ease;
   border: 1px solid transparent;
+  white-space: nowrap;
+  flex-shrink: 0; /* 导航项不收缩 */
+  font-size: 14px;
 }
 
 nav a:hover {

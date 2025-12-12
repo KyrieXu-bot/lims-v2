@@ -5,3 +5,6 @@ ALTER TABLE test_items
 ADD COLUMN addon_reason VARCHAR(100) NULL 
 COMMENT '加测原因：增加样品、增加测试人员、样品评估不足、增加测试时段、更换设备';
 
+
+
+
