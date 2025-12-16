@@ -1,8 +1,27 @@
 // 统一的后端 API 根地址
-// 开发环境指向本地 server，生产环境指向正式服务器
-const API_BASE = import.meta.env.DEV
-  ? 'http://localhost:3001'
-  : 'http://192.168.9.46:3004';
+// 优先级：环境变量 > Capacitor 配置 > 默认值
+import { Capacitor } from '@capacitor/core';
+
+function getApiBase() {
+  // 1. 优先使用环境变量
+  if (import.meta.env.VITE_API_BASE) {
+    return import.meta.env.VITE_API_BASE;
+  }
+  
+  // 2. 在 Capacitor 原生环境中，使用 HTTPS 域名
+  if (Capacitor.isNativePlatform()) {
+    // 原生应用使用 HTTPS 域名（支持外网访问）
+    return 'https://jicuijiance.mat-jitri.cn';
+  }
+  
+  // 3. Web 环境：开发环境使用本地，生产环境使用 HTTPS 域名
+  return import.meta.env.DEV
+    ? 'http://localhost:3001'
+    : 'https://jicuijiance.mat-jitri.cn';
+}
+
+const API_BASE = getApiBase();
+console.log('API Base URL:', API_BASE, 'Platform:', Capacitor.getPlatform());
 
 export const api = {
   // auth
@@ -438,7 +457,14 @@ export const api = {
   // 委托单登记表API
   async getCommissionFormData({ q = '', page = 1, pageSize = 100, status, order_id } = {}) {
     const params = new URLSearchParams({ q, page, pageSize });
-    if (status) params.set('status', status);
+    // 支持多个状态筛选（数组或单个值）
+    if (status) {
+      if (Array.isArray(status)) {
+        status.forEach(s => params.append('status', s));
+      } else {
+        params.set('status', status);
+      }
+    }
     if (order_id) params.set('order_id', order_id);
     const r = await fetch(`${API_BASE}/api/commission-form/commission-form?${params.toString()}`, { headers: this.authHeaders() });
     if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');

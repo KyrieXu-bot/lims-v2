@@ -13,9 +13,18 @@ export const useSocket = (room) => {
     if (!user || !user.token) return;
 
     // 获取Socket.IO服务器地址
-    // 使用环境变量或默认到当前域（支持代理）
-    const socketUrl = import.meta.env.VITE_SOCKET_URL || 
-                      (import.meta.env.DEV ? 'http://localhost:3001' : '');
+    // 使用环境变量或根据环境选择
+    let socketUrl = import.meta.env.VITE_SOCKET_URL;
+    
+    if (!socketUrl) {
+      if (import.meta.env.DEV) {
+        // 开发环境使用本地服务器
+        socketUrl = 'http://localhost:3001';
+      } else {
+        // 生产环境使用 HTTPS 域名
+        socketUrl = 'https://jicuijiance.mat-jitri.cn';
+      }
+    }
     
     // 创建Socket连接
     const newSocket = io(socketUrl, {

@@ -20,27 +20,18 @@ const MobileCommissionForm = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const params = new URLSearchParams({
-        q: searchQuery,
-        page: '1',
-        pageSize: '50'
-      });
+      // 构建状态参数（支持多个状态筛选）
+      const statusParams = statusFilter.length > 0 ? statusFilter : undefined;
       
-      if (statusFilter.length > 0) {
-        statusFilter.forEach(status => params.append('status', status));
-      }
-
-      const response = await fetch(`/api/commission-form/commission-form?${params.toString()}`, {
-        headers: {
-          'Authorization': `Bearer ${user.token}`,
-          'Content-Type': 'application/json'
-        }
+      // 使用 api 方法，它会自动使用正确的 API_BASE URL
+      const result = await api.getCommissionFormData({
+        q: searchQuery,
+        page: 1,
+        pageSize: 50,
+        status: statusParams // 传递数组，支持多个状态筛选
       });
 
-      if (response.ok) {
-        const result = await response.json();
-        setData(result.data || []);
-      }
+      setData(result.data || []);
     } catch (error) {
       console.error('获取数据失败:', error);
       alert('获取数据失败: ' + error.message);

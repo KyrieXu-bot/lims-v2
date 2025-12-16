@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useSocket } from '../../hooks/useSocket.js';
 import AddonRequestModal from '../../components/AddonRequestModal.jsx';
 import { downloadFile } from '../../utils/fileDownload.js';
+import { requestNotificationPermission, showLocalNotification, checkNotificationPermission } from '../../utils/notificationService.js';
 import './MobileNotifications.css';
 
 const MobileNotifications = () => {
@@ -54,6 +55,18 @@ const MobileNotifications = () => {
     }
   };
 
+  // 初始化通知权限
+  useEffect(() => {
+    const initNotifications = async () => {
+      const hasPermission = await checkNotificationPermission();
+      if (!hasPermission) {
+        // 首次加载时请求权限
+        await requestNotificationPermission();
+      }
+    };
+    initNotifications();
+  }, []);
+
   useEffect(() => {
     loadNotifications();
   }, [filter, typeFilter]);
@@ -62,7 +75,23 @@ const MobileNotifications = () => {
   useEffect(() => {
     if (!socket) return;
 
-    const handleNewNotification = () => {
+    const handleNewNotification = async (notificationData) => {
+      // 显示本地推送通知
+      if (notificationData) {
+        await showLocalNotification({
+          title: notificationData.title || '新通知',
+          body: notificationData.content || '您有一条新消息',
+          id: notificationData.notification_id
+        });
+      } else {
+        // 如果没有详细数据，只显示通用通知
+        await showLocalNotification({
+          title: '新通知',
+          body: '您有一条新消息',
+        });
+      }
+
+      // 刷新通知列表
       if (filter === 'all' || filter === 'unread') {
         loadNotifications();
       }
@@ -75,6 +104,7 @@ const MobileNotifications = () => {
         socket.off('new-notification', handleNewNotification);
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [socket, filter]);
 
   // 标记为已读
