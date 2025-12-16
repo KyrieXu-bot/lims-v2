@@ -24,6 +24,57 @@ allprojects {
     }
 }
 
+// 为缺少 namespace 的 Capacitor 插件添加命名空间
+subprojects {
+    afterEvaluate { project ->
+        if (project.hasProperty('android')) {
+            // 检查是否已经设置了 namespace
+            def hasNamespace = false
+            try {
+                hasNamespace = project.android.namespace != null && !project.android.namespace.isEmpty()
+            } catch (Exception e) {
+                // namespace 属性不存在
+            }
+            
+            if (!hasNamespace) {
+                def projectName = project.name
+                def namespace = null
+                
+                // 根据插件名称设置正确的命名空间
+                switch (projectName) {
+                    case 'capacitor-http':
+                        namespace = 'com.getcapacitor.plugin.http'
+                        break
+                    case 'capacitor-app':
+                        namespace = 'com.capacitorjs.plugins.app'
+                        break
+                    case 'capacitor-filesystem':
+                        namespace = 'com.capacitorjs.plugins.filesystem'
+                        break
+                    case 'capacitor-network':
+                        namespace = 'com.capacitorjs.plugins.network'
+                        break
+                    case 'capacitor-status-bar':
+                        namespace = 'com.capacitorjs.plugins.statusbar'
+                        break
+                    default:
+                        // 尝试从项目路径推断
+                        if (projectName.startsWith('capacitor-')) {
+                            def pluginName = projectName.replace('capacitor-', '')
+                            namespace = "com.capacitorjs.plugins.${pluginName}"
+                        }
+                        break
+                }
+                
+                if (namespace != null) {
+                    project.android.namespace = namespace
+                    println "设置 ${projectName} 的命名空间为: ${namespace}"
+                }
+            }
+        }
+    }
+}
+
 task clean(type: Delete) {
     delete rootProject.buildDir
 }

@@ -7,7 +7,8 @@ const SimpleFileUpload = ({
   userRole,
   businessConfirmed,
   currentAssignee,
-  onFileUploaded 
+  onFileUploaded,
+  enableUpload = true, // 是否允许上传，手机端可传 false 仅保留下载
 }) => {
   const [files, setFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
@@ -23,7 +24,7 @@ const SimpleFileUpload = ({
     { value: 'experiment_report', label: '实验报告', icon: '📊' }
   ];
 
-  const canUpload = ['admin', 'leader', 'supervisor', 'employee', 'sales'].includes(userRole);
+  const canUpload = enableUpload && ['admin', 'leader', 'supervisor', 'employee', 'sales'].includes(userRole);
 
   useEffect(() => {
     if (testItemId) {

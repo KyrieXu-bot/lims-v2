@@ -1,5 +1,5 @@
 import React from 'react';
-import { Routes, Route, NavLink, useNavigate, useLocation } from 'react-router-dom';
+import { Routes, Route, NavLink, useNavigate, useLocation, Navigate } from 'react-router-dom';
 import Login from './pages/Login.jsx';
 import Customers from './pages/customers/Customers.jsx';
 import CustomerEdit from './pages/customers/CustomerEdit.jsx';
@@ -29,7 +29,7 @@ import MobileLayout from './components/mobile/MobileLayout.jsx';
 import MobileCommissionForm from './pages/mobile/MobileCommissionForm.jsx';
 import MobileNotifications from './pages/mobile/MobileNotifications.jsx';
 import MobileProfile from './pages/mobile/MobileProfile.jsx';
-import { isMobile } from './utils/isMobile.js';
+import { isMobile, isCapacitorNative } from './utils/isMobile.js';
 import './app.css';
 
 function Layout({ children }) {
@@ -113,6 +113,66 @@ function MobileRouteWrapper({ children }) {
   return <Layout>{children}</Layout>;
 }
 
+// PC端路径到移动端路径的映射
+const PC_TO_MOBILE_ROUTE_MAP = {
+  '/login': '/mobile/login',
+  '/commission-form': '/mobile/commission-form',
+  '/notifications': '/mobile/notifications',
+  '/profile': '/mobile/profile',
+};
+
+// PC端路由包装组件 - 在Capacitor原生环境中自动重定向到移动端
+function PCRouteWrapper({ children }) {
+  const location = useLocation();
+  const isNative = isCapacitorNative();
+  
+  // 如果是原生平台，重定向到移动端
+  if (isNative) {
+    const mobilePath = PC_TO_MOBILE_ROUTE_MAP[location.pathname];
+    if (mobilePath) {
+      return <Navigate to={mobilePath} replace />;
+    }
+    // 如果没有对应的移动端路径，重定向到移动端首页
+    const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
+    if (user?.token) {
+      return <Navigate to="/mobile/commission-form" replace />;
+    } else {
+      return <Navigate to="/mobile/login" replace />;
+    }
+  }
+  
+  return <>{children}</>;
+}
+
+// 根路径重定向组件 - 根据设备类型重定向
+function RootRedirect() {
+  // 优先检测是否是原生平台
+  const isNative = isCapacitorNative();
+  const isMobileDevice = isMobile();
+  const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
+  
+  // 如果是原生平台，或者检测到是移动设备，都重定向到移动端
+  if (isNative || isMobileDevice) {
+    // 移动设备或原生应用
+    if (user?.token) {
+      // 已登录，重定向到移动端首页
+      return <Navigate to="/mobile/commission-form" replace />;
+    } else {
+      // 未登录，重定向到移动端登录页
+      return <Navigate to="/mobile/login" replace />;
+    }
+  } else {
+    // PC设备
+    if (user?.token) {
+      // 已登录，重定向到PC端首页
+      return <Navigate to="/commission-form" replace />;
+    } else {
+      // 未登录，重定向到PC端登录页
+      return <Navigate to="/login" replace />;
+    }
+  }
+}
+
 export default function App() {
   return (
     <Routes>
@@ -122,31 +182,31 @@ export default function App() {
       <Route path="/mobile/notifications" element={<MobileLayout><MobileNotifications/></MobileLayout>} />
       <Route path="/mobile/profile" element={<MobileLayout><MobileProfile/></MobileLayout>} />
       
-      {/* PC端路由 */}
-      <Route path="/login" element={<Layout><Login/></Layout>} />
-      <Route path="/customers" element={<Layout><Customers/></Layout>} />
-      <Route path="/customers/new" element={<Layout><CustomerIntegratedAdd/></Layout>} />
-      <Route path="/customers/:id" element={<Layout><CustomerEdit/></Layout>} />
-      <Route path="/payers" element={<Layout><Payers/></Layout>} />
-      <Route path="/payers/:id" element={<Layout><PayerEdit/></Layout>} />
-      <Route path="/commissioners" element={<Layout><Commissioners/></Layout>} />
-      <Route path="/commissioners/:id" element={<Layout><CommissionerEdit/></Layout>} />
-      <Route path="/price" element={<Layout><PriceList/></Layout>} />
-      <Route path="/price/:id" element={<Layout><PriceEdit/></Layout>} />
-      <Route path="/test-items" element={<Layout><TestItems/></Layout>} />
-      <Route path="/test-items/:id" element={<Layout><TestItemEdit/></Layout>} />
-      <Route path="/sample-management" element={<Layout><SampleManagement/></Layout>} />
-      <Route path="/sample-tracking/:id" element={<Layout><SampleDetail/></Layout>} />
-      <Route path="/outsource" element={<Layout><OutsourceManagement/></Layout>} />
-      <Route path="/orders" element={<Layout><OrderManagement/></Layout>} />
-      <Route path="/orders/delete" element={<Layout><OrderDelete/></Layout>} />
-      <Route path="/commission-form" element={<Layout><CommissionForm/></Layout>} />
-      <Route path="/statistics" element={<Layout><Statistics/></Layout>} />
-      <Route path="/settlements" element={<Layout><SettlementManagement/></Layout>} />
-      <Route path="/equipment-list" element={<Layout><EquipmentList/></Layout>} />
-      <Route path="/profile" element={<Layout><Profile/></Layout>} />
-      <Route path="/notifications" element={<Layout><Notifications/></Layout>} />
-      <Route path="/" element={<MobileRouteWrapper><CommissionForm/></MobileRouteWrapper>} />
+      {/* PC端路由 - 在原生环境中会自动重定向到移动端 */}
+      <Route path="/login" element={<PCRouteWrapper><Layout><Login/></Layout></PCRouteWrapper>} />
+      <Route path="/customers" element={<PCRouteWrapper><Layout><Customers/></Layout></PCRouteWrapper>} />
+      <Route path="/customers/new" element={<PCRouteWrapper><Layout><CustomerIntegratedAdd/></Layout></PCRouteWrapper>} />
+      <Route path="/customers/:id" element={<PCRouteWrapper><Layout><CustomerEdit/></Layout></PCRouteWrapper>} />
+      <Route path="/payers" element={<PCRouteWrapper><Layout><Payers/></Layout></PCRouteWrapper>} />
+      <Route path="/payers/:id" element={<PCRouteWrapper><Layout><PayerEdit/></Layout></PCRouteWrapper>} />
+      <Route path="/commissioners" element={<PCRouteWrapper><Layout><Commissioners/></Layout></PCRouteWrapper>} />
+      <Route path="/commissioners/:id" element={<PCRouteWrapper><Layout><CommissionerEdit/></Layout></PCRouteWrapper>} />
+      <Route path="/price" element={<PCRouteWrapper><Layout><PriceList/></Layout></PCRouteWrapper>} />
+      <Route path="/price/:id" element={<PCRouteWrapper><Layout><PriceEdit/></Layout></PCRouteWrapper>} />
+      <Route path="/test-items" element={<PCRouteWrapper><Layout><TestItems/></Layout></PCRouteWrapper>} />
+      <Route path="/test-items/:id" element={<PCRouteWrapper><Layout><TestItemEdit/></Layout></PCRouteWrapper>} />
+      <Route path="/sample-management" element={<PCRouteWrapper><Layout><SampleManagement/></Layout></PCRouteWrapper>} />
+      <Route path="/sample-tracking/:id" element={<PCRouteWrapper><Layout><SampleDetail/></Layout></PCRouteWrapper>} />
+      <Route path="/outsource" element={<PCRouteWrapper><Layout><OutsourceManagement/></Layout></PCRouteWrapper>} />
+      <Route path="/orders" element={<PCRouteWrapper><Layout><OrderManagement/></Layout></PCRouteWrapper>} />
+      <Route path="/orders/delete" element={<PCRouteWrapper><Layout><OrderDelete/></Layout></PCRouteWrapper>} />
+      <Route path="/commission-form" element={<PCRouteWrapper><Layout><CommissionForm/></Layout></PCRouteWrapper>} />
+      <Route path="/statistics" element={<PCRouteWrapper><Layout><Statistics/></Layout></PCRouteWrapper>} />
+      <Route path="/settlements" element={<PCRouteWrapper><Layout><SettlementManagement/></Layout></PCRouteWrapper>} />
+      <Route path="/equipment-list" element={<PCRouteWrapper><Layout><EquipmentList/></Layout></PCRouteWrapper>} />
+      <Route path="/profile" element={<PCRouteWrapper><Layout><Profile/></Layout></PCRouteWrapper>} />
+      <Route path="/notifications" element={<PCRouteWrapper><Layout><Notifications/></Layout></PCRouteWrapper>} />
+      <Route path="/" element={<RootRedirect />} />
       <Route path="*" element={<MobileRouteWrapper><Login/></MobileRouteWrapper>} />
     </Routes>
   )

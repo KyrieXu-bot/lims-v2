@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api.js';
 import { useSocket } from '../../hooks/useSocket.js';
+import SimpleFileUpload from '../../components/SimpleFileUpload.jsx';
 import './MobileCommissionForm.css';
 
 const MobileCommissionForm = () => {
@@ -84,7 +85,7 @@ const MobileCommissionForm = () => {
   const statusOptions = [
     { value: 'new', label: '新建' },
     { value: 'assigned', label: '已分配' },
-    { value: 'testing', label: '检测中' },
+    { value: 'running', label: '进行中' },
     { value: 'completed', label: '已完成' },
     { value: 'cancelled', label: '已取消' }
   ];
@@ -101,7 +102,7 @@ const MobileCommissionForm = () => {
     const statusMap = {
       'new': 'status-new',
       'assigned': 'status-assigned',
-      'testing': 'status-testing',
+      'running': 'status-running',
       'completed': 'status-completed',
       'cancelled': 'status-cancelled'
     };
@@ -112,7 +113,7 @@ const MobileCommissionForm = () => {
     const statusMap = {
       'new': '新建',
       'assigned': '已分配',
-      'testing': '检测中',
+      'running': '进行中',
       'completed': '已完成',
       'cancelled': '已取消'
     };
@@ -160,14 +161,11 @@ const MobileCommissionForm = () => {
             >
               <div className="mobile-card-header">
                 <div className="mobile-card-title">
-                  <span className="mobile-test-code">{item.test_code || '未编号'}</span>
+                  <span className="mobile-test-code">{item.order_id_display || item.order_id || '未编号'}</span>
                   <span className={`mobile-status-badge ${getStatusBadgeClass(item.status)}`}>
                     {getStatusLabel(item.status)}
                   </span>
                 </div>
-                {item.order_id_display && (
-                  <div className="mobile-order-id">委托单: {item.order_id_display}</div>
-                )}
               </div>
               
               <div className="mobile-card-body">
@@ -226,13 +224,40 @@ const MobileCommissionForm = () => {
 const MobileCommissionDetail = ({ item, onClose, onUpdate }) => {
   const [formData, setFormData] = useState(item);
   const [saving, setSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState('basic'); // basic, test, notes
+  const [activeTab, setActiveTab] = useState('basic'); // basic, test, notes, files
   const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
 
-  // 根据角色确定可编辑字段
+  // 计算组长部门ID
+  const leaderDepartmentId = user?.department_id ? Number(user.department_id) : null;
+
+  // 组长权限检查函数
+  const canLeaderEditItem = (item) => {
+    if (!item) {
+      return leaderDepartmentId === 5;
+    }
+    const itemDept = Number(item.department_id);
+    if (leaderDepartmentId === 5) {
+      return itemDept === 5;
+    }
+    if (leaderDepartmentId !== null) {
+      return itemDept === leaderDepartmentId;
+    }
+    return false;
+  };
+
+  // 根据角色确定可编辑字段（与浏览器版本同步）
   const canEditField = (field) => {
     const role = user?.role;
-    if (role === 'admin') return true;
+    if (!role) return false;
+    if (formData && formData.status === 'cancelled') {
+      return false;
+    }
+    if (role === 'admin') {
+      return true;
+    }
+    if (role === 'leader') {
+      return canLeaderEditItem(formData);
+    }
     if (role === 'sales') {
       return ['final_unit_price', 'business_note'].includes(field);
     }
@@ -244,10 +269,19 @@ const MobileCommissionDetail = ({ item, onClose, onUpdate }) => {
       ].includes(field);
     }
     if (role === 'supervisor') {
-      return [
+      const baseFields = [
         'supervisor_name', 'unit_price', 'technician_name', 'assignment_note',
         'field_test_time', 'equipment_name'
-      ].includes(field);
+      ];
+      // 如果组长将自己分配为实验员，则额外允许编辑计费数量、单位、机时、工时、价格
+      if (formData && formData.technician_name === user?.name) {
+        const extendedFields = [
+          ...baseFields,
+          'actual_sample_quantity', 'unit', 'work_hours', 'machine_hours', 'final_unit_price'
+        ];
+        return extendedFields.includes(field);
+      }
+      return baseFields.includes(field);
     }
     return false;
   };
@@ -341,20 +375,32 @@ const MobileCommissionDetail = ({ item, onClose, onUpdate }) => {
           >
             备注信息
           </button>
+          <button
+            className={`mobile-detail-tab ${activeTab === 'files' ? 'active' : ''}`}
+            onClick={() => setActiveTab('files')}
+          >
+            附件管理
+          </button>
         </div>
 
         <div className="mobile-detail-body">
           {activeTab === 'basic' && (
             <div className="mobile-detail-section">
-              {renderField('项目编号', 'test_code')}
+              <div className="mobile-form-field">
+                <label className="mobile-form-label">委托单号</label>
+                <div className="mobile-form-readonly">
+                  {formData.order_id_display || formData.order_id || '-'}
+                </div>
+              </div>
               {renderField('委托单位', 'customer_name')}
               {renderField('检测项目', 'detail_name')}
+              {renderField('项目编号', 'test_code')}
               {renderField('负责人', 'supervisor_name')}
               {renderField('业务负责人', 'assignee_name')}
               {renderField('状态', 'status', 'select', [
                 { value: 'new', label: '新建' },
                 { value: 'assigned', label: '已分配' },
-                { value: 'testing', label: '检测中' },
+                { value: 'running', label: '进行中' },
                 { value: 'completed', label: '已完成' }
               ])}
             </div>
@@ -381,6 +427,23 @@ const MobileCommissionDetail = ({ item, onClose, onUpdate }) => {
               {renderField('客户备注', 'customer_note', 'textarea')}
             </div>
           )}
+
+          {activeTab === 'files' && (
+            <div className="mobile-detail-section">
+              <SimpleFileUpload
+                testItemId={formData.test_item_id}
+                orderId={formData.order_id}
+                userRole={user?.role}
+                businessConfirmed={formData.business_confirmed}
+                currentAssignee={formData.current_assignee}
+                enableUpload={false}
+                onFileUploaded={() => {
+                  // 文件上传后可以刷新数据
+                  if (onUpdate) onUpdate();
+                }}
+              />
+            </div>
+          )}
         </div>
 
         {saving && (
@@ -392,4 +455,8 @@ const MobileCommissionDetail = ({ item, onClose, onUpdate }) => {
 };
 
 export default MobileCommissionForm;
+
+
+
+
 

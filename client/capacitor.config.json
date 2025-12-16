@@ -3,7 +3,6 @@
   "appName": "limsV2.0",
   "webDir": "dist",
   "server": {
-    "url": "http://192.168.9.46:3004",
     "cleartext": true
   },
   "plugins": {

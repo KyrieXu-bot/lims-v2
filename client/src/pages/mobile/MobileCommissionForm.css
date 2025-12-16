@@ -98,10 +98,6 @@
   color: #f57c00;
 }
 
-.status-testing {
-  background: #f3e5f5;
-  color: #7b1fa2;
-}
 
 .status-completed {
   background: #e8f5e9;
@@ -306,4 +302,8 @@
   border-radius: 20px;
   font-size: 14px;
 }
+
+
+
+
 

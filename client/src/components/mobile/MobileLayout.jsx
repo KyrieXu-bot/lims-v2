@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { useNavigate, useLocation, NavLink } from 'react-router-dom';
-import NotificationIcon from '../NotificationIcon.jsx';
 import './MobileLayout.css';
 
 const MobileLayout = ({ children }) => {
@@ -11,7 +10,7 @@ const MobileLayout = ({ children }) => {
 
   const logout = () => {
     localStorage.removeItem('lims_user');
-    navigate('/login');
+    navigate('/mobile/login');
   };
 
   // 底部导航栏配置
@@ -46,7 +45,6 @@ const MobileLayout = ({ children }) => {
         <div className="mobile-header-content">
           <h1 className="mobile-title">LIMS V2.0</h1>
           <div className="mobile-header-actions">
-            <NotificationIcon />
             <button 
               className="mobile-menu-btn"
               onClick={() => setShowMenu(!showMenu)}
@@ -144,4 +142,8 @@ const MobileLayout = ({ children }) => {
 };
 
 export default MobileLayout;
+
+
+
+
 

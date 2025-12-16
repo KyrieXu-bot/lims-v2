@@ -6,7 +6,19 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "cap:sync": "cap sync",
+    "cap:sync:ios": "cap sync ios",
+    "cap:sync:android": "cap sync android",
+    "cap:open:ios": "cap open ios",
+    "cap:open:android": "cap open android",
+    "ios:build": "npm run build && cap sync ios",
+    "ios:open": "npm run ios:build && cap open ios",
+    "android:build": "npm run build && cap sync android",
+    "android:open": "npm run android:build && cap open android",
+    "android:apk": "cd android && gradlew.bat assembleRelease",
+    "android:apk:debug": "cd android && gradlew.bat assembleDebug",
+    "android:install": "cd android && gradlew.bat installRelease"
   },
   "dependencies": {
     "@capacitor/android": "^8.0.0",
@@ -14,7 +26,6 @@
     "@capacitor/cli": "^8.0.0",
     "@capacitor/core": "^8.0.0",
     "@capacitor/filesystem": "^8.0.0",
-    "@capacitor/http": "^0.0.2",
     "@capacitor/ios": "^8.0.0",
     "@capacitor/network": "^8.0.0",
     "@capacitor/status-bar": "^8.0.0",
