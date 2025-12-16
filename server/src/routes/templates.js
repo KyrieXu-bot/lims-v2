@@ -524,7 +524,7 @@ router.post('/generate-bills-template', requireAnyRole(['admin', 'sales']), asyn
        LEFT JOIN orders o ON o.order_id = ti.order_id
        LEFT JOIN commissioners comm ON o.commissioner_id = comm.commissioner_id
        WHERE ti.test_item_id IN (${placeholders})
-       ORDER BY ti.order_id, ti.test_item_id`,
+       ORDER BY ti.order，_id, ti.test_item_id`,
       test_item_ids
     );
 

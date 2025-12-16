@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { api } from '../api.js';
+import { isMobile } from '../utils/isMobile.js';
 
 export default function Login() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const navigate = useNavigate();
+  const location = useLocation();
 
   async function onSubmit(e) {
     e.preventDefault();
@@ -15,8 +17,15 @@ export default function Login() {
       const res = await api.login(username, password);
       localStorage.setItem('lims_user', JSON.stringify(res));
       
-      // 所有角色都跳转到委托单登记表
-      navigate('/commission-form');
+      // 根据路径判断跳转方向
+      const isMobilePath = location.pathname.startsWith('/mobile');
+      const isMobileDevice = isMobile();
+      
+      if (isMobilePath || isMobileDevice) {
+        navigate('/mobile/commission-form');
+      } else {
+        navigate('/commission-form');
+      }
     } catch (e) {
       setError(e.message);
     }

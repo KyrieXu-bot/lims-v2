@@ -1,5 +1,5 @@
 import React from 'react';
-import { Routes, Route, NavLink, useNavigate } from 'react-router-dom';
+import { Routes, Route, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import Login from './pages/Login.jsx';
 import Customers from './pages/customers/Customers.jsx';
 import CustomerEdit from './pages/customers/CustomerEdit.jsx';
@@ -24,6 +24,12 @@ import SettlementManagement from './pages/settlements/SettlementManagement.jsx';
 import Profile from './pages/Profile.jsx';
 import Notifications from './pages/Notifications.jsx';
 import NotificationIcon from './components/NotificationIcon.jsx';
+// 移动端组件
+import MobileLayout from './components/mobile/MobileLayout.jsx';
+import MobileCommissionForm from './pages/mobile/MobileCommissionForm.jsx';
+import MobileNotifications from './pages/mobile/MobileNotifications.jsx';
+import MobileProfile from './pages/mobile/MobileProfile.jsx';
+import { isMobile } from './utils/isMobile.js';
 import './app.css';
 
 function Layout({ children }) {
@@ -93,9 +99,30 @@ function Layout({ children }) {
   );
 }
 
+// 移动端路由包装组件
+function MobileRouteWrapper({ children }) {
+  const location = useLocation();
+  const isMobileDevice = isMobile();
+  
+  // 如果路径以 /mobile 开头或者是移动设备访问根路径，使用移动端布局
+  if (location.pathname.startsWith('/mobile') || (isMobileDevice && location.pathname === '/')) {
+    return <MobileLayout>{children}</MobileLayout>;
+  }
+  
+  // 否则使用PC端布局
+  return <Layout>{children}</Layout>;
+}
+
 export default function App() {
   return (
     <Routes>
+      {/* 移动端路由 */}
+      <Route path="/mobile/login" element={<MobileLayout><Login/></MobileLayout>} />
+      <Route path="/mobile/commission-form" element={<MobileLayout><MobileCommissionForm/></MobileLayout>} />
+      <Route path="/mobile/notifications" element={<MobileLayout><MobileNotifications/></MobileLayout>} />
+      <Route path="/mobile/profile" element={<MobileLayout><MobileProfile/></MobileLayout>} />
+      
+      {/* PC端路由 */}
       <Route path="/login" element={<Layout><Login/></Layout>} />
       <Route path="/customers" element={<Layout><Customers/></Layout>} />
       <Route path="/customers/new" element={<Layout><CustomerIntegratedAdd/></Layout>} />
@@ -119,8 +146,8 @@ export default function App() {
       <Route path="/equipment-list" element={<Layout><EquipmentList/></Layout>} />
       <Route path="/profile" element={<Layout><Profile/></Layout>} />
       <Route path="/notifications" element={<Layout><Notifications/></Layout>} />
-      <Route path="/" element={<Layout><CommissionForm/></Layout>} />
-      <Route path="*" element={<Layout><Login/></Layout>} />
+      <Route path="/" element={<MobileRouteWrapper><CommissionForm/></MobileRouteWrapper>} />
+      <Route path="*" element={<MobileRouteWrapper><Login/></MobileRouteWrapper>} />
     </Routes>
   )
 }

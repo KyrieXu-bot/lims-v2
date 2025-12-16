@@ -2,6 +2,7 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
 export default defineConfig({
+  base: './',  // 添加这一行，使用相对路径
   plugins: [react()],
   server: {
     port: 5173,
@@ -25,7 +26,7 @@ export default defineConfig({
     outDir: 'dist',
     assetsDir: 'assets',
     sourcemap: false,
-    minify: 'terser',
+    minify: 'esbuild', // 使用 esbuild（Vite 默认，更快）
     rollupOptions: {
       external: [],
       output: {
