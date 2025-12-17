@@ -357,11 +357,12 @@ const MobileFileUpload = ({
                 reader.readAsDataURL(blob);
               });
 
-              // 清理文件名中的特殊字符，确保iOS兼容，保留原始扩展名
-              const fileExt = downloadFilename.split('.').pop();
-              const fileNameWithoutExt = downloadFilename.substring(0, downloadFilename.lastIndexOf('.')) || downloadFilename;
-              const safeName = fileNameWithoutExt.replace(/[^a-zA-Z0-9._-]/g, '_');
-              const safeFilename = `${safeName}.${fileExt}`;
+              // iOS文件系统支持UTF-8文件名（包括中文），只需要移除路径分隔符等非法字符
+              // 保留原始文件名，只移除会导致文件系统问题的字符
+              const safeFilename = downloadFilename
+                .replace(/[\/\\\x00]/g, '_')  // 移除路径分隔符和null字符
+                .replace(/[\x01-\x1f]/g, '_')  // 移除控制字符
+                .trim();  // 移除首尾空白
               
               // 保存文件到Cache目录（临时目录）
               const fileResult = await Filesystem.writeFile({
@@ -373,8 +374,9 @@ const MobileFileUpload = ({
 
               // 使用Share插件分享文件（iOS会自动显示UIActivityViewController）
               // files参数会触发iOS原生分享菜单，包括"保存到文件"、"AirDrop"等选项
+              // 注意：Share插件的title会作为分享时的文件名，使用原始文件名保持中文显示
               await Share.share({
-                title: downloadFilename,
+                title: downloadFilename, // 使用原始文件名（包含中文），Share插件会正确显示
                 text: `文件：${downloadFilename}`,
                 files: [fileResult.uri], // 文件URI，iOS会自动识别并显示分享选项
                 dialogTitle: '保存或分享文件'
