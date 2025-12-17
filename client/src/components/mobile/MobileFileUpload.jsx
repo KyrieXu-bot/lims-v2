@@ -1,5 +1,26 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { Capacitor } from '@capacitor/core';
 import './MobileFileUpload.css';
+
+// 获取API基础URL（与api.js保持一致）
+function getApiBase() {
+  // 1. 优先使用环境变量
+  if (import.meta.env.VITE_API_BASE) {
+    return import.meta.env.VITE_API_BASE;
+  }
+  
+  // 2. 在 Capacitor 原生环境中，使用 HTTPS 域名
+  if (Capacitor.isNativePlatform()) {
+    return 'https://jicuijiance.mat-jitri.cn';
+  }
+  
+  // 3. Web 环境：开发环境使用本地，生产环境使用 HTTPS 域名
+  return import.meta.env.DEV
+    ? 'http://localhost:3001'
+    : 'https://jicuijiance.mat-jitri.cn';
+}
+
+const API_BASE = getApiBase();
 
 const MobileFileUpload = ({ 
   testItemId, 
@@ -51,7 +72,7 @@ const MobileFileUpload = ({
         pageSize: 50
       });
       
-      const response = await fetch(`/api/files?${params}`, {
+      const response = await fetch(`${API_BASE}/api/files?${params}`, {
         headers: {
           'Authorization': `Bearer ${user.token}`
         }
@@ -170,7 +191,7 @@ const MobileFileUpload = ({
               const uploadedAt = uploaded.created_at || new Date().toISOString();
               const dateOnly = new Date(uploadedAt).toISOString().slice(0, 10);
 
-              fetch(`/api/test-items/${testItemId}`, {
+              fetch(`${API_BASE}/api/test-items/${testItemId}`, {
                 method: 'PUT',
                 headers: {
                   'Authorization': `Bearer ${user.token}`,
@@ -218,7 +239,7 @@ const MobileFileUpload = ({
         reject(new Error('上传已取消'));
       });
 
-      xhr.open('POST', '/api/files/upload');
+      xhr.open('POST', `${API_BASE}/api/files/upload`);
       xhr.setRequestHeader('Authorization', `Bearer ${user.token}`);
       xhr.send(formData);
     });
@@ -391,7 +412,7 @@ const MobileFileUpload = ({
     });
 
     xhr.responseType = 'blob';
-    xhr.open('GET', `/api/files/download/${file.file_id}`);
+    xhr.open('GET', `${API_BASE}/api/files/download/${file.file_id}`);
     xhr.setRequestHeader('Authorization', `Bearer ${user.token}`);
     xhr.send();
   };
@@ -412,7 +433,7 @@ const MobileFileUpload = ({
         throw new Error('用户未登录');
       }
 
-      const response = await fetch(`/api/files/${fileId}`, {
+      const response = await fetch(`${API_BASE}/api/files/${fileId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${user.token}`
