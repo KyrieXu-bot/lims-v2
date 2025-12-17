@@ -54,16 +54,10 @@ router.get('/', async (req, res) => {
       params.push(user.group_id);
     }
   } else if (user.role === 'supervisor') {
-    // 组长：可以看到该组的所有检测项目（基于group_id），且样品已到
+    // 组长：查询负责人是自己的项目（登录用户是组长且负责人=组长），且样品已到
     filters.push('(ti.sample_arrival_status IS NULL OR ti.sample_arrival_status != "not_arrived")');
-    if (user.group_id) {
-      filters.push('ti.group_id = ?');
-      params.push(user.group_id);
-    } else {
-      // 如果没有group_id，回退到原来的逻辑（通过supervisor_id）
-      filters.push('ti.supervisor_id = ?');
-      params.push(user.user_id);
-    }
+    filters.push('ti.supervisor_id = ?');
+    params.push(user.user_id);
   } else if (user.role === 'employee') {
     // 实验员：只能看到指派给他的检测项目，且样品已到
     filters.push('ti.technician_id = ?');

@@ -9,6 +9,7 @@ export default function Login() {
   const [error, setError] = useState('');
   const navigate = useNavigate();
   const location = useLocation();
+  const isMobilePath = location.pathname.startsWith('/mobile');
 
   async function onSubmit(e) {
     e.preventDefault();
@@ -18,7 +19,6 @@ export default function Login() {
       localStorage.setItem('lims_user', JSON.stringify(res));
       
       // 根据路径判断跳转方向
-      const isMobilePath = location.pathname.startsWith('/mobile');
       const isMobileDevice = isMobile();
       
       if (isMobilePath || isMobileDevice) {
@@ -31,21 +31,102 @@ export default function Login() {
     }
   }
 
+  // 手机端样式
+  const mobileStyles = isMobilePath ? {
+    container: {
+      display: 'flex',
+      flexDirection: 'column',
+      justifyContent: 'center',
+      alignItems: 'center',
+      minHeight: '100vh',
+      padding: '20px',
+      boxSizing: 'border-box'
+    },
+    formWrapper: {
+      width: '100%',
+      maxWidth: '320px',
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center'
+    },
+    title: {
+      textAlign: 'center',
+      marginBottom: '32px',
+      fontSize: '20px',
+      color: '#2c5aa0'
+    },
+    form: {
+      width: '100%',
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      gap: '16px'
+    },
+    inputWrapper: {
+      width: '280px',
+      display: 'flex',
+      flexDirection: 'column'
+    },
+    input: {
+      width: '280px',
+      boxSizing: 'border-box'
+    },
+    button: {
+      width: '280px',
+      boxSizing: 'border-box'
+    },
+    error: {
+      width: '280px',
+      textAlign: 'center',
+      color: '#dc3545',
+      fontSize: '14px',
+      padding: '8px',
+      backgroundColor: '#f8d7da',
+      border: '1px solid #f5c6cb',
+      borderRadius: '6px',
+      boxSizing: 'border-box'
+    }
+  } : {
+    container: {
+      maxWidth: 420
+    },
+    formWrapper: {},
+    title: {},
+    form: {},
+    inputWrapper: {},
+    input: {},
+    button: {},
+    error: {}
+  };
+
   return (
-    <div style={{maxWidth: 420}}>
-      <h2>集萃实验室系统V2.0</h2>
-      <form onSubmit={onSubmit}>
-        <div>
-          <label>用户名</label>
-          <input className="input" value={username} onChange={e=>setUsername(e.target.value)} />
-        </div>
-        <div>
-          <label>密码</label>
-          <input className="input" type="password" value={password} onChange={e=>setPassword(e.target.value)} />
-        </div>
-        {error && <div className="error">{error}</div>}
-        <button className="btn" type="submit">登录</button>
-      </form>
+    <div style={mobileStyles.container}>
+      <div style={mobileStyles.formWrapper}>
+        <h2 style={mobileStyles.title}>集萃实验室系统V2.0</h2>
+        <form onSubmit={onSubmit} style={mobileStyles.form}>
+          <div style={mobileStyles.inputWrapper}>
+            <label>用户名</label>
+            <input 
+              className="input" 
+              value={username} 
+              onChange={e=>setUsername(e.target.value)}
+              style={mobileStyles.input}
+            />
+          </div>
+          <div style={mobileStyles.inputWrapper}>
+            <label>密码</label>
+            <input 
+              className="input" 
+              type="password" 
+              value={password} 
+              onChange={e=>setPassword(e.target.value)}
+              style={mobileStyles.input}
+            />
+          </div>
+          {error && <div className="error" style={mobileStyles.error}>{error}</div>}
+          <button className="btn btn-primary" type="submit" style={mobileStyles.button}>登录</button>
+        </form>
+      </div>
     </div>
   );
 }

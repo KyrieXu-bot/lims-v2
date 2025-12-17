@@ -2134,6 +2134,31 @@
   outline: none;
 }
 
+/* 加急标识样式 */
+.urgency-badge {
+  display: inline-block;
+  padding: 1px 4px;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: 3px;
+  line-height: 1.2;
+  white-space: nowrap;
+  min-width: 50px;
+  text-align: center;
+}
+
+/* 2倍加急 - 红色标签 */
+.urgency-badge.urgency-2x {
+  color: #dc2626;
+  background: rgba(220, 38, 38, 0.15);
+}
+
+/* 1.5倍加急 - 黄色标签 */
+.urgency-badge.urgency-1-5x {
+  color: #d97706;
+  background: rgba(217, 119, 6, 0.15);
+}
+
 /* 加测标识样式 - 使用橙色系作为淡蓝色背景的互补色 */
 .add-on-badge {
   display: inline-block;

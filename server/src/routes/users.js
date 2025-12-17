@@ -286,7 +286,7 @@ router.get('/all-supervisors', async (req, res) => {
   const { q = '', department_id } = req.query;
   const user = req.user;
   const pool = await getPool();
-  
+
   try {
     const normalizeNumber = (value) => {
       if (value === undefined || value === null || value === '') return null;
@@ -299,20 +299,30 @@ router.get('/all-supervisors', async (req, res) => {
     const isOutsourceLeader = user.role === 'leader' && userDepartmentId === 5;
     const shouldSeeAll = user.role === 'admin' || (isOutsourceLeader && (targetDepartmentId === 5 || targetDepartmentId === null));
     const searchTerm = (q || '').trim();
-    
+
     let query_sql = `SELECT u.user_id, u.name, u.account, u.department_id
        FROM users u
        JOIN user_roles ur ON ur.user_id = u.user_id
        JOIN roles r ON r.role_id = ur.role_id
-       WHERE r.role_code = 'supervisor' 
-       AND u.is_active = 1
-       AND (u.name LIKE ? OR u.account LIKE ?)`;
-    
-    const params = [`%${searchTerm}%`, `%${searchTerm}%`];
-    
-    if (user.role === 'leader' && userDepartmentId !== null && !shouldSeeAll) {
+       WHERE r.role_code = 'supervisor'
+       AND u.is_active = 1`;
+
+    const params = [];
+
+    // 如果传入了department_id参数，优先使用该参数过滤
+    if (targetDepartmentId !== null) {
+      query_sql += ' AND u.department_id = ?';
+      params.push(targetDepartmentId);
+    } else if (user.role === 'leader' && userDepartmentId !== null && !shouldSeeAll) {
+      // 如果没有传入department_id，且用户是leader，使用用户的department_id
       query_sql += ' AND u.department_id = ?';
       params.push(userDepartmentId);
+    }
+    
+    // 如果有搜索词，添加搜索条件
+    if (searchTerm) {
+      query_sql += ' AND (u.name LIKE ? OR u.account LIKE ?)';
+      params.push(`%${searchTerm}%`, `%${searchTerm}%`);
     }
     
     query_sql += ' ORDER BY u.name ASC LIMIT 50';
@@ -348,14 +358,24 @@ router.get('/all-employees', async (req, res) => {
        JOIN user_roles ur ON ur.user_id = u.user_id
        JOIN roles r ON r.role_id = ur.role_id
        WHERE r.role_code = 'employee' 
-       AND u.is_active = 1
-       AND (u.name LIKE ? OR u.account LIKE ?)`;
+       AND u.is_active = 1`;
     
-    const params = [`%${searchTerm}%`, `%${searchTerm}%`];
+    const params = [];
     
-    if (user.role === 'leader' && userDepartmentId !== null && !shouldSeeAll) {
+    // 如果传入了department_id参数，优先使用该参数过滤
+    if (targetDepartmentId !== null) {
+      query_sql += ' AND u.department_id = ?';
+      params.push(targetDepartmentId);
+    } else if (user.role === 'leader' && userDepartmentId !== null && !shouldSeeAll) {
+      // 如果没有传入department_id，且用户是leader，使用用户的department_id
       query_sql += ' AND u.department_id = ?';
       params.push(userDepartmentId);
+    }
+    
+    // 如果有搜索词，添加搜索条件
+    if (searchTerm) {
+      query_sql += ' AND (u.name LIKE ? OR u.account LIKE ?)';
+      params.push(`%${searchTerm}%`, `%${searchTerm}%`);
     }
     
     query_sql += ' ORDER BY u.name ASC LIMIT 50';

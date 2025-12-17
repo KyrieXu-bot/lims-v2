@@ -509,6 +509,7 @@ const AddonRequestModal = ({ requestId, onClose, onApprove }) => {
                     <option value="样品评估不足">样品评估不足</option>
                     <option value="增加测试时段">增加测试时段</option>
                     <option value="更换设备">更换设备</option>
+                    <option value="客户原因">客户原因</option>
                   </select>
                 </div>
               )}

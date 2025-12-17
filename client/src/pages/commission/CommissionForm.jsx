@@ -25,7 +25,8 @@ const ADDON_REASON_OPTIONS = [
   { value: '增加测试人员', label: '增加测试人员' },
   { value: '样品评估不足', label: '样品评估不足' },
   { value: '增加测试时段', label: '增加测试时段' },
-  { value: '更换设备', label: '更换设备' }
+  { value: '更换设备', label: '更换设备' },
+  { value: '客户原因', label: '客户原因' }
 ];
 
 const SERVICE_URGENCY_DISPLAY_MAP = {
@@ -3192,9 +3193,17 @@ const CommissionForm = () => {
                                 fieldName="样品原号"
                               />
                             </div>
-                            {item.is_add_on === 1 && (
-                              <div style={{marginTop: '4px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap'}}>
-                                <span className="add-on-badge">加测</span>
+                            <div style={{marginTop: '4px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap'}}>
+                              {/* 加急标签 */}
+                              {item.service_urgency === 'urgent_2x' || item.service_urgency === '特急2倍' ? (
+                                <span className="urgency-badge urgency-2x">2倍加急</span>
+                              ) : item.service_urgency === 'urgent_1_5x' || item.service_urgency === '加急1.5倍' ? (
+                                <span className="urgency-badge urgency-1-5x">1.5倍加急</span>
+                              ) : null}
+                              {/* 加测标签 */}
+                              {item.is_add_on === 1 && (
+                                <>
+                                  <span className="add-on-badge">加测</span>
                                 {(user?.role === 'admin' || user?.role === 'supervisor' || user?.role === 'leader') ? (
                                   <div style={{display: 'inline-block', minWidth: '120px'}}>
                                     <RealtimeEditableCell
@@ -3217,8 +3226,9 @@ const CommissionForm = () => {
                                     {item.addon_reason || '原因未填写'}
                                   </span>
                                 )}
-                              </div>
-                            )}
+                                </>
+                              )}
+                            </div>
                           </div>
                         </div>
                       </td>

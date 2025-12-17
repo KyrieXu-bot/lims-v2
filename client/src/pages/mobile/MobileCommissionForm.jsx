@@ -1,48 +1,148 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api.js';
 import { useSocket } from '../../hooks/useSocket.js';
 import SimpleFileUpload from '../../components/SimpleFileUpload.jsx';
+import Toast from '../../components/Toast.jsx';
 import './MobileCommissionForm.css';
 
 const MobileCommissionForm = () => {
   const navigate = useNavigate();
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState([]);
   const [selectedItem, setSelectedItem] = useState(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
+  const pageSize = 100;
   const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
   const { socket } = useSocket('commission-form');
+  const loadingMoreRef = useRef(false);
+  const hasMoreRef = useRef(true);
+  const loadingRef = useRef(false);
 
-  // 获取委托单数据
-  const fetchData = async () => {
-    setLoading(true);
+  // 获取委托单数据（初始加载或重置）
+  const fetchData = async (reset = true) => {
+    if (reset) {
+      setLoading(true);
+      loadingRef.current = true;
+      setPage(1);
+    } else {
+      setLoadingMore(true);
+      loadingMoreRef.current = true;
+    }
+    
     try {
       // 构建状态参数（支持多个状态筛选）
       const statusParams = statusFilter.length > 0 ? statusFilter : undefined;
+      const currentPage = reset ? 1 : page;
       
       // 使用 api 方法，它会自动使用正确的 API_BASE URL
       const result = await api.getCommissionFormData({
         q: searchQuery,
-        page: 1,
-        pageSize: 50,
+        page: currentPage,
+        pageSize: pageSize,
         status: statusParams // 传递数组，支持多个状态筛选
       });
 
-      setData(result.data || []);
+      const newData = result.data || [];
+      const newTotal = result.total || 0;
+      
+      if (reset) {
+        setData(newData);
+        setPage(1);
+      } else {
+        setData(prevData => [...prevData, ...newData]);
+        setPage(prev => prev + 1);
+      }
+      
+      setTotal(newTotal);
+      const currentDataLength = reset ? newData.length : data.length + newData.length;
+      const hasMoreData = currentDataLength < newTotal;
+      setHasMore(hasMoreData);
+      hasMoreRef.current = hasMoreData;
     } catch (error) {
       console.error('获取数据失败:', error);
-      alert('获取数据失败: ' + error.message);
+      if (reset) {
+        alert('获取数据失败: ' + error.message);
+      }
     } finally {
       setLoading(false);
+      setLoadingMore(false);
+      loadingRef.current = false;
+      loadingMoreRef.current = false;
     }
   };
 
+  // 同步ref
+  useEffect(() => {
+    loadingMoreRef.current = loadingMore;
+    hasMoreRef.current = hasMore;
+    loadingRef.current = loading;
+  }, [loadingMore, hasMore, loading]);
+
+  // 加载更多数据
+  const loadMore = useCallback(async () => {
+    if (loadingMoreRef.current || !hasMoreRef.current || loadingRef.current) return;
+    
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    
+    try {
+      const statusParams = statusFilter.length > 0 ? statusFilter : undefined;
+      const nextPage = page + 1;
+      const result = await api.getCommissionFormData({
+        q: searchQuery,
+        page: nextPage,
+        pageSize: pageSize,
+        status: statusParams
+      });
+
+      const newData = result.data || [];
+      const newTotal = result.total || 0;
+      
+      setData(prevData => {
+        const updatedData = [...prevData, ...newData];
+        const hasMoreData = updatedData.length < newTotal;
+        hasMoreRef.current = hasMoreData;
+        setHasMore(hasMoreData);
+        return updatedData;
+      });
+      setTotal(newTotal);
+      setPage(nextPage);
+    } catch (error) {
+      console.error('加载更多数据失败:', error);
+    } finally {
+      loadingMoreRef.current = false;
+      setLoadingMore(false);
+    }
+  }, [page, searchQuery, statusFilter]);
+
+  // 滚动监听
+  useEffect(() => {
+    const handleScroll = () => {
+      // 检查是否滚动到底部（距离底部100px时开始加载）
+      const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+      const windowHeight = window.innerHeight;
+      const documentHeight = document.documentElement.scrollHeight;
+      
+      if (scrollTop + windowHeight >= documentHeight - 100) {
+        loadMore();
+      }
+    };
+
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, [loadMore]);
+
+  // 初始加载或搜索/筛选变化时重置数据
   useEffect(() => {
     if (user?.token) {
-      fetchData();
+      fetchData(true);
     }
   }, [searchQuery, statusFilter]);
 
@@ -94,6 +194,8 @@ const MobileCommissionForm = () => {
       'new': 'status-new',
       'assigned': 'status-assigned',
       'running': 'status-running',
+      'waiting_review': 'status-waiting-review',
+      'report_uploaded': 'status-report-uploaded',
       'completed': 'status-completed',
       'cancelled': 'status-cancelled'
     };
@@ -105,6 +207,8 @@ const MobileCommissionForm = () => {
       'new': '新建',
       'assigned': '已分配',
       'running': '进行中',
+      'waiting_review': '待审核',
+      'report_uploaded': '待传数据',
       'completed': '已完成',
       'cancelled': '已取消'
     };
@@ -193,6 +297,21 @@ const MobileCommissionForm = () => {
               </div>
             </div>
           ))}
+          
+          {/* 加载更多提示 */}
+          {loadingMore && (
+            <div className="mobile-loading-more">
+              <div className="mobile-loading-spinner"></div>
+              <span>加载中...</span>
+            </div>
+          )}
+          
+          {/* 没有更多数据提示 */}
+          {!hasMore && data.length > 0 && (
+            <div className="mobile-no-more">
+              已加载全部 {total} 条数据
+            </div>
+          )}
         </div>
       )}
 
@@ -216,10 +335,96 @@ const MobileCommissionDetail = ({ item, onClose, onUpdate }) => {
   const [formData, setFormData] = useState(item);
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState('basic'); // basic, test, notes, files
+  const [showToast, setShowToast] = useState(false);
   const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
+  
+  // 选项列表状态
+  const [technicianOptions, setTechnicianOptions] = useState([]);
+  const [supervisorOptions, setSupervisorOptions] = useState([]);
+  const [assigneeOptions, setAssigneeOptions] = useState([]);
+  const [equipmentOptions, setEquipmentOptions] = useState([]);
+  const [loadingOptions, setLoadingOptions] = useState(false);
 
   // 计算组长部门ID
   const leaderDepartmentId = user?.department_id ? Number(user.department_id) : null;
+
+  // 加载选项列表
+  useEffect(() => {
+    const loadOptions = async () => {
+      if (!item) return;
+      
+      setLoadingOptions(true);
+      try {
+        // 确保departmentId是数字类型
+        const departmentId = item.department_id ? Number(item.department_id) : (user?.department_id ? Number(user.department_id) : null);
+        
+        // 加载测试人员选项
+        if (departmentId) {
+          try {
+            const technicians = await api.getAllEmployees({ department_id: departmentId });
+            setTechnicianOptions(technicians.map(t => ({
+              value: t.name,
+              label: t.name,
+              id: t.user_id || t.id
+            })));
+          } catch (error) {
+            console.error('加载测试人员列表失败:', error);
+          }
+        }
+        
+        // 加载负责人选项（也需要按部门过滤）
+        try {
+          const supervisors = await api.getAllSupervisors({ department_id: departmentId });
+          setSupervisorOptions(supervisors.map(s => ({
+            value: s.name,
+            label: s.name,
+            id: s.user_id || s.id
+          })));
+        } catch (error) {
+          console.error('加载负责人列表失败:', error);
+        }
+        
+        // 加载业务负责人选项（所有用户）
+        try {
+          const users = await api.listAllUsers({ is_active: 1 });
+          setAssigneeOptions(users.map(u => ({
+            value: u.name,
+            label: u.name,
+            id: u.user_id || u.id
+          })));
+        } catch (error) {
+          console.error('加载业务负责人列表失败:', error);
+        }
+        
+        // 加载设备选项
+        if (departmentId) {
+          try {
+            const equipment = await api.getEquipmentByDepartment(departmentId);
+            setEquipmentOptions(equipment.map(e => ({
+              value: e.equipment_name,
+              label: e.equipment_name,
+              id: e.equipment_id || e.id
+            })));
+          } catch (error) {
+            console.error('加载设备列表失败:', error);
+          }
+        }
+      } catch (error) {
+        console.error('加载选项失败:', error);
+      } finally {
+        setLoadingOptions(false);
+      }
+    };
+    
+    loadOptions();
+  }, [item?.test_item_id, item?.department_id, user?.department_id]);
+  
+  // 当item变化时，更新formData
+  useEffect(() => {
+    if (item) {
+      setFormData(item);
+    }
+  }, [item?.test_item_id]);
 
   // 组长权限检查函数
   const canLeaderEditItem = (item) => {
@@ -284,7 +489,80 @@ const MobileCommissionDetail = ({ item, onClose, onUpdate }) => {
     // 实时保存
     try {
       setSaving(true);
-      await api.updateTestItem(item.test_item_id, { [field]: value });
+      
+      // 构建更新数据
+      let updateData = {};
+      
+      // 特殊处理测试人员字段：需要保存technician_id而不是technician_name
+      if (field === 'technician_name') {
+        const technician = technicianOptions.find(t => t.value === value);
+        if (technician) {
+          updateData.technician_id = technician.id;
+          updateData.technician_name = value;
+        } else {
+          updateData.technician_id = null;
+          updateData.technician_name = value;
+        }
+        // 规则：测试人员有值 => 进行中；否则 => 已分配
+        const hasTech = !!(value && value.trim());
+        if (hasTech) {
+          updateData.status = 'running';
+        } else {
+          updateData.status = formData.supervisor_name ? 'assigned' : 'assigned';
+        }
+      }
+      // 特殊处理检测设备字段：需要保存equipment_id而不是equipment_name
+      else if (field === 'equipment_name') {
+        const equipment = equipmentOptions.find(e => e.value === value);
+        if (equipment) {
+          updateData.equipment_id = equipment.id;
+          updateData.equipment_name = value;
+        } else {
+          updateData.equipment_id = null;
+          updateData.equipment_name = value;
+        }
+      }
+      // 特殊处理业务负责人字段：需要保存current_assignee而不是assignee_name
+      else if (field === 'assignee_name') {
+        const assignee = assigneeOptions.find(a => a.value === value);
+        if (assignee) {
+          updateData.current_assignee = assignee.id;
+          updateData.assignee_name = value;
+        } else {
+          updateData.current_assignee = null;
+          updateData.assignee_name = value;
+        }
+      }
+      // 特殊处理负责人字段：需要保存supervisor_id而不是supervisor_name
+      else if (field === 'supervisor_name') {
+        const supervisor = supervisorOptions.find(s => s.value === value);
+        if (supervisor) {
+          updateData.supervisor_id = supervisor.id;
+          updateData.supervisor_name = value;
+        } else {
+          updateData.supervisor_id = null;
+          updateData.supervisor_name = value;
+        }
+        // 规则：负责人有值 => 已分配；否则 => 新建（但若已有测试人员，则保持进行中）
+        const hasSupervisor = !!(value && value.trim());
+        if (formData.technician_name) {
+          updateData.status = 'running';
+        } else {
+          updateData.status = hasSupervisor ? 'assigned' : 'new';
+        }
+      }
+      // 其他字段直接保存
+      else {
+        updateData[field] = value;
+      }
+      
+      await api.updateTestItem(item.test_item_id, updateData);
+      // 更新 formData 中的其他字段（如状态等自动更新的字段）
+      if (Object.keys(updateData).length > 0) {
+        setFormData(prev => ({ ...prev, ...updateData }));
+      }
+      // 显示保存成功提示
+      setShowToast(true);
       if (onUpdate) onUpdate();
     } catch (error) {
       alert('保存失败: ' + error.message);
@@ -295,9 +573,26 @@ const MobileCommissionDetail = ({ item, onClose, onUpdate }) => {
     }
   };
 
+  // 状态映射函数
+  const getStatusLabel = (status) => {
+    const statusMap = {
+      'new': '新建',
+      'assigned': '已分配',
+      'running': '进行中',
+      'waiting_review': '待审核',
+      'report_uploaded': '待传数据',
+      'completed': '已完成',
+      'cancelled': '已取消'
+    };
+    return statusMap[status] || status || '-';
+  };
+
   const renderField = (label, field, type = 'text', options = null) => {
     const isEditable = canEditField(field);
     const value = formData[field] || '';
+    
+    // 对于状态字段，在只读模式下显示中文标签
+    const displayValue = !isEditable && field === 'status' ? getStatusLabel(value) : value;
 
     return (
       <div className="mobile-form-field">
@@ -332,7 +627,7 @@ const MobileCommissionDetail = ({ item, onClose, onUpdate }) => {
             />
           )
         ) : (
-          <div className="mobile-form-readonly">{value || '-'}</div>
+          <div className="mobile-form-readonly">{displayValue || '-'}</div>
         )}
       </div>
     );
@@ -386,21 +681,24 @@ const MobileCommissionDetail = ({ item, onClose, onUpdate }) => {
               {renderField('委托单位', 'customer_name')}
               {renderField('检测项目', 'detail_name')}
               {renderField('项目编号', 'test_code')}
-              {renderField('负责人', 'supervisor_name')}
-              {renderField('业务负责人', 'assignee_name')}
+              {renderField('负责人', 'supervisor_name', 'select', supervisorOptions)}
+              {renderField('业务负责人', 'assignee_name', 'select', assigneeOptions)}
               {renderField('状态', 'status', 'select', [
                 { value: 'new', label: '新建' },
                 { value: 'assigned', label: '已分配' },
                 { value: 'running', label: '进行中' },
-                { value: 'completed', label: '已完成' }
+                { value: 'waiting_review', label: '待审核' },
+                { value: 'report_uploaded', label: '待传数据' },
+                { value: 'completed', label: '已完成' },
+                { value: 'cancelled', label: '已取消' }
               ])}
             </div>
           )}
 
           {activeTab === 'test' && (
             <div className="mobile-detail-section">
-              {renderField('测试人员', 'technician_name')}
-              {renderField('检测设备', 'equipment_name')}
+              {renderField('测试人员', 'technician_name', 'select', technicianOptions)}
+              {renderField('检测设备', 'equipment_name', 'select', equipmentOptions)}
               {renderField('现场测试时间', 'field_test_time', 'datetime-local')}
               {renderField('计费数量', 'actual_sample_quantity', 'number')}
               {renderField('单位', 'unit')}
@@ -437,10 +735,21 @@ const MobileCommissionDetail = ({ item, onClose, onUpdate }) => {
           )}
         </div>
 
-        {saving && (
-          <div className="mobile-saving-indicator">保存中...</div>
+        {(saving || loadingOptions) && (
+          <div className="mobile-saving-indicator">
+            {loadingOptions ? '加载选项...' : '保存中...'}
+          </div>
         )}
       </div>
+      
+      {/* 保存成功提示 */}
+      {showToast && (
+        <Toast 
+          message="保存成功" 
+          duration={2000}
+          onClose={() => setShowToast(false)}
+        />
+      )}
     </div>
   );
 };
