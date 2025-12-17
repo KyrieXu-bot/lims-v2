@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Capacitor } from '@capacitor/core';
+import { Share } from '@capacitor/share';
+import { Filesystem, Directory } from '@capacitor/filesystem';
 import './MobileFileUpload.css';
 
 // 获取API基础URL（与api.js保持一致）
@@ -311,7 +313,7 @@ const MobileFileUpload = ({
       }
     });
 
-    xhr.addEventListener('load', () => {
+    xhr.addEventListener('load', async () => {
       if (xhr.status >= 200 && xhr.status < 300) {
         try {
           setDownloadProgress(prev => ({
@@ -326,9 +328,6 @@ const MobileFileUpload = ({
           }));
 
           const blob = new Blob([xhr.response], { type: xhr.getResponseHeader('content-type') || 'application/octet-stream' });
-          const url = window.URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
           
           const contentDisposition = xhr.getResponseHeader('content-disposition');
           let downloadFilename = file.filename;
@@ -343,12 +342,70 @@ const MobileFileUpload = ({
               }
             }
           }
-          
-          a.download = downloadFilename;
-          document.body.appendChild(a);
-          a.click();
-          window.URL.revokeObjectURL(url);
-          document.body.removeChild(a);
+
+          // iOS原生平台：使用Share插件分享文件（包含"保存到文件"选项）
+          if (Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'ios') {
+            try {
+              // 将blob转换为base64
+              const reader = new FileReader();
+              const base64Data = await new Promise((resolve, reject) => {
+                reader.onloadend = () => {
+                  const base64String = reader.result.split(',')[1];
+                  resolve(base64String);
+                };
+                reader.onerror = reject;
+                reader.readAsDataURL(blob);
+              });
+
+              // 清理文件名中的特殊字符，确保iOS兼容，保留原始扩展名
+              const fileExt = downloadFilename.split('.').pop();
+              const fileNameWithoutExt = downloadFilename.substring(0, downloadFilename.lastIndexOf('.')) || downloadFilename;
+              const safeName = fileNameWithoutExt.replace(/[^a-zA-Z0-9._-]/g, '_');
+              const safeFilename = `${safeName}.${fileExt}`;
+              
+              // 保存文件到Cache目录（临时目录）
+              const fileResult = await Filesystem.writeFile({
+                path: safeFilename,
+                data: base64Data,
+                directory: Directory.Cache, // 使用Cache目录作为临时存储
+                recursive: true
+              });
+
+              // 使用Share插件分享文件（iOS会自动显示UIActivityViewController）
+              // files参数会触发iOS原生分享菜单，包括"保存到文件"、"AirDrop"等选项
+              await Share.share({
+                title: downloadFilename,
+                text: `文件：${downloadFilename}`,
+                files: [fileResult.uri], // 文件URI，iOS会自动识别并显示分享选项
+                dialogTitle: '保存或分享文件'
+              });
+
+              // 注意：不立即删除文件，因为分享操作是异步的
+              // Cache目录的文件会被iOS系统自动管理，无需手动清理
+
+            } catch (shareError) {
+              console.error('分享文件失败:', shareError);
+              // 如果分享失败，回退到传统下载方式
+              const url = window.URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = downloadFilename;
+              document.body.appendChild(a);
+              a.click();
+              window.URL.revokeObjectURL(url);
+              document.body.removeChild(a);
+            }
+          } else {
+            // Web平台或其他平台：使用传统的下载方式
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = downloadFilename;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+          }
 
           setTimeout(() => {
             setDownloadProgress(prev => {

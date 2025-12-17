@@ -30,6 +30,7 @@
     "@capacitor/local-notifications": "^8.0.0",
     "@capacitor/network": "^8.0.0",
     "@capacitor/push-notifications": "^8.0.0",
+    "@capacitor/share": "^8.0.0",
     "@capacitor/status-bar": "^8.0.0",
     "docxtemplater": "^3.44.0",
     "pizzip": "^3.1.4",
