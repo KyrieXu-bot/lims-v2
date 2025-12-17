@@ -473,6 +473,11 @@ label {
 
 /* 响应式设计 - 移动端 */
 @media (max-width: 767px) {
+  /* 防止iOS Safari自动缩放输入框 - 确保字体大小至少16px */
+  .input, select, textarea {
+    font-size: 16px !important; /* iOS Safari在字体小于16px时会自动缩放，设置为16px可避免此问题 */
+  }
+  
   /* 头部导航优化 */
   header .header-content {
     flex-direction: column;

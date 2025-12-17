@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api.js';
 import { useSocket } from '../../hooks/useSocket.js';
-import SimpleFileUpload from '../../components/SimpleFileUpload.jsx';
+import MobileFileUpload from '../../components/mobile/MobileFileUpload.jsx';
 import Toast from '../../components/Toast.jsx';
 import './MobileCommissionForm.css';
 
@@ -719,7 +719,7 @@ const MobileCommissionDetail = ({ item, onClose, onUpdate }) => {
 
           {activeTab === 'files' && (
             <div className="mobile-detail-section">
-              <SimpleFileUpload
+              <MobileFileUpload
                 testItemId={formData.test_item_id}
                 orderId={formData.order_id}
                 userRole={user?.role}
@@ -755,6 +755,8 @@ const MobileCommissionDetail = ({ item, onClose, onUpdate }) => {
 };
 
 export default MobileCommissionForm;
+
+
 
 
 
