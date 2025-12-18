@@ -16,8 +16,8 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "504EC3031FED79650016851F"
-               BuildableName = "App.app"
-               BlueprintName = "App"
+               BuildableName = "LIMSv2.0.app"
+               BlueprintName = "LIMSv2.0"
                ReferencedContainer = "container:LIMSv2.0.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
@@ -45,8 +45,8 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "504EC3031FED79650016851F"
-            BuildableName = "App.app"
-            BlueprintName = "App"
+            BuildableName = "LIMSv2.0.app"
+            BlueprintName = "LIMSv2.0"
             ReferencedContainer = "container:LIMSv2.0.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
@@ -62,8 +62,8 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "504EC3031FED79650016851F"
-            BuildableName = "App.app"
-            BlueprintName = "App"
+            BuildableName = "LIMSv2.0.app"
+            BlueprintName = "LIMSv2.0"
             ReferencedContainer = "container:LIMSv2.0.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
