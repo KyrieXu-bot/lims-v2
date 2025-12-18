@@ -1,0 +1,22 @@
+{
+	"appId": "com.jitri.lims",
+	"appName": "limsV2.0",
+	"webDir": "dist",
+	"server": {
+		"cleartext": true
+	},
+	"plugins": {
+		"SplashScreen": {
+			"launchShowDuration": 2000
+		}
+	},
+	"packageClassList": [
+		"AppPlugin",
+		"FilesystemPlugin",
+		"LocalNotificationsPlugin",
+		"CAPNetworkPlugin",
+		"PushNotificationsPlugin",
+		"SharePlugin",
+		"StatusBarPlugin"
+	]
+}
