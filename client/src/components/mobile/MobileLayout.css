@@ -63,14 +63,12 @@
 
 .mobile-menu {
   position: fixed;
-  /* 从状态栏下方开始，避免与状态栏重叠。优先使用 safe-area-inset-top，否则使用 28px */
-  top: env(safe-area-inset-top, 28px);
+  top: 0;
   left: 0;
   width: 280px;
   max-width: 85vw;
-  /* 高度减去顶部偏移量 */
-  height: calc(100vh - env(safe-area-inset-top, 28px));
-  max-height: calc(100vh - env(safe-area-inset-top, 28px));
+  height: 100vh;
+  max-height: 100vh;
   background: #fff;
   z-index: 999;
   box-shadow: 2px 0 8px rgba(0, 0, 0, 0.15);
@@ -94,7 +92,12 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  padding: 16px;
+  /* 增加顶部内边距，为状态栏预留更多空间，确保内容不会与状态栏重叠 */
+  /* 直接使用较大的固定值，确保在大多数设备上都有足够的空间 */
+  padding-top: 70px !important;
+  padding-left: 16px;
+  padding-right: 16px;
+  padding-bottom: 16px;
   background: #2c5aa0;
   color: #fff;
   flex-shrink: 0;
