@@ -32,7 +32,7 @@ router.get('/commission-form', async (req, res) => {
       params.push(user.group_id);
     }
   } else if (user.role === 'supervisor') {
-    // 组长：查询负责人是自己的项目（登录用户是组长且负责人=组长）
+    // 组长：只能看到分配给他的检测项目
     filters.push('ti.supervisor_id = ?');
     params.push(user.user_id);
   } else if (user.role === 'employee') {
@@ -165,6 +165,7 @@ router.get('/commission-form', async (req, res) => {
         COALESCE(pf.has_experiment_report, 0) as has_experiment_report,
         ti.actual_delivery_date,
         ti.business_note,
+        ti.invoice_note,
         ti.abnormal_condition,
         ti.status,
         ti.quantity,
@@ -194,7 +195,11 @@ router.get('/commission-form', async (req, res) => {
         -- 其他信息
         o.delivery_days_after_receipt as delivery_days,
         o.remarks as other_requirements,
-        o.total_price
+        o.total_price,
+        -- 开票信息（从settlements表通过test_item_ids关联获取）
+        s.invoice_number,
+        s.invoice_date as settlement_invoice_date,
+        COALESCE(s.customer_name, c_settlement.customer_name) as settlement_customer_name
       FROM test_items ti
       LEFT JOIN orders o ON o.order_id = ti.order_id
       LEFT JOIN customers c ON c.customer_id = o.customer_id
@@ -216,6 +221,8 @@ router.get('/commission-form', async (req, res) => {
         FROM project_files
         GROUP BY test_item_id
       ) pf ON pf.test_item_id = ti.test_item_id
+      LEFT JOIN settlements s ON JSON_CONTAINS(s.test_item_ids, CAST(ti.test_item_id AS JSON), '$')
+      LEFT JOIN customers c_settlement ON c_settlement.customer_id = s.customer_id
       ${where}
       ORDER BY ti.order_id ASC, ti.test_item_id ASC
       LIMIT ? OFFSET ?`,

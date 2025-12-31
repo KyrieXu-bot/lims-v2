@@ -343,51 +343,66 @@ const MobileFileUpload = ({
             }
           }
 
-          // iOS原生平台：使用Share插件分享文件（包含"保存到文件"选项）
-          if (Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'ios') {
-            try {
-              // 将blob转换为base64
-              const reader = new FileReader();
-              const base64Data = await new Promise((resolve, reject) => {
-                reader.onloadend = () => {
-                  const base64String = reader.result.split(',')[1];
-                  resolve(base64String);
-                };
-                reader.onerror = reject;
-                reader.readAsDataURL(blob);
-              });
+          // 原生平台（iOS和Android）：使用Share插件分享文件
+          if (Capacitor.isNativePlatform()) {
+            const platform = Capacitor.getPlatform();
+            const isIOS = platform === 'ios';
+            const isAndroid = platform === 'android';
 
-              // iOS文件系统支持UTF-8文件名（包括中文），只需要移除路径分隔符等非法字符
-              // 保留原始文件名，只移除会导致文件系统问题的字符
-              const safeFilename = downloadFilename
-                .replace(/[\/\\\x00]/g, '_')  // 移除路径分隔符和null字符
-                .replace(/[\x01-\x1f]/g, '_')  // 移除控制字符
-                .trim();  // 移除首尾空白
-              
-              // 保存文件到Cache目录（临时目录）
-              const fileResult = await Filesystem.writeFile({
-                path: safeFilename,
-                data: base64Data,
-                directory: Directory.Cache, // 使用Cache目录作为临时存储
-                recursive: true
-              });
+            if (isIOS || isAndroid) {
+              try {
+                // 将blob转换为base64
+                const reader = new FileReader();
+                const base64Data = await new Promise((resolve, reject) => {
+                  reader.onloadend = () => {
+                    const base64String = reader.result.split(',')[1];
+                    resolve(base64String);
+                  };
+                  reader.onerror = reject;
+                  reader.readAsDataURL(blob);
+                });
 
-              // 使用Share插件分享文件（iOS会自动显示UIActivityViewController）
-              // files参数会触发iOS原生分享菜单，包括"保存到文件"、"AirDrop"等选项
-              // 注意：Share插件的title会作为分享时的文件名，使用原始文件名保持中文显示
-              await Share.share({
-                title: downloadFilename, // 使用原始文件名（包含中文），Share插件会正确显示
-                text: `文件：${downloadFilename}`,
-                files: [fileResult.uri], // 文件URI，iOS会自动识别并显示分享选项
-                dialogTitle: '保存或分享文件'
-              });
+                // 处理文件名：移除非法字符，确保跨平台兼容性
+                const safeFilename = downloadFilename
+                  .replace(/[\/\\\x00]/g, '_')  // 移除路径分隔符和null字符
+                  .replace(/[\x01-\x1f]/g, '_')  // 移除控制字符
+                  .trim();  // 移除首尾空白
+                
+                // 保存文件到Cache目录（临时目录）
+                const fileResult = await Filesystem.writeFile({
+                  path: safeFilename,
+                  data: base64Data,
+                  directory: Directory.Cache, // 使用Cache目录作为临时存储
+                  recursive: true
+                });
 
-              // 注意：不立即删除文件，因为分享操作是异步的
-              // Cache目录的文件会被iOS系统自动管理，无需手动清理
+                // 使用Share插件分享文件
+                // iOS: 会显示UIActivityViewController，包括"保存到文件"、"AirDrop"等选项
+                // Android: 会显示系统分享菜单，可以选择其他应用打开文件（如WPS、微信、QQ等）
+                await Share.share({
+                  title: downloadFilename, // 使用原始文件名（包含中文）
+                  text: `文件：${downloadFilename}`,
+                  files: [fileResult.uri], // iOS和Android都使用files参数
+                  dialogTitle: isAndroid ? '选择应用打开文件' : '保存或分享文件'
+                });
 
-            } catch (shareError) {
-              console.error('分享文件失败:', shareError);
-              // 如果分享失败，回退到传统下载方式
+                // 注意：不立即删除文件，因为分享操作是异步的
+                // Cache目录的文件会被系统自动管理
+
+              } catch (shareError) {
+                console.error('分享文件失败:', shareError);
+                // 如果分享失败，回退到传统下载方式
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = downloadFilename;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+              }
+            } else {
+              // 其他原生平台，使用传统下载方式
               const url = window.URL.createObjectURL(blob);
               const a = document.createElement('a');
               a.href = url;

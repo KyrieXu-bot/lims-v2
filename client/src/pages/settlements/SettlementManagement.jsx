@@ -375,6 +375,7 @@ export default function SettlementManagement() {
         <table className="table">
           <thead>
             <tr>
+              <th>票号</th>
               <th>开票日期</th>
               <th>委托单号组</th>
               <th>客户名称</th>
@@ -391,7 +392,7 @@ export default function SettlementManagement() {
           <tbody>
             {settlements.length === 0 ? (
               <tr>
-                <td colSpan="11" style={{ textAlign: 'center', padding: '20px' }}>
+                <td colSpan="12" style={{ textAlign: 'center', padding: '20px' }}>
                   暂无结算记录
                 </td>
               </tr>
@@ -400,6 +401,7 @@ export default function SettlementManagement() {
                 <tr key={settlement.settlement_id}>
                   {editingSettlement?.settlement_id === settlement.settlement_id ? (
                     <>
+                      <td>{settlement.invoice_number || '-'}</td>
                       <td>{formatDate(settlement.invoice_date)}</td>
                       <td>{settlement.order_ids}</td>
                       <td style={{ position: 'relative', overflow: 'visible' }}>
@@ -526,6 +528,7 @@ export default function SettlementManagement() {
                     </>
                   ) : (
                     <>
+                      <td>{settlement.invoice_number || '-'}</td>
                       <td>{formatDate(settlement.invoice_date)}</td>
                       <td>{settlement.order_ids}</td>
                       <td>{settlement.display_customer_name || settlement.customer_name || '-'}</td>

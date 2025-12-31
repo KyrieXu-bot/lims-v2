@@ -526,5 +526,32 @@ export const api = {
     const r = await fetch(`${API_BASE}/api/statistics/export?${params.toString()}`, { headers: this.authHeaders() });
     if (!r.ok) throw new Error((await r.json()).error || 'Export failed');
     return r.blob();
+  },
+
+  // settlements
+  async getSettlements() {
+    const r = await fetch(`${API_BASE}/api/settlements`, { headers: this.authHeaders() });
+    if (!r.ok) throw new Error((await r.json()).error || '获取结算记录失败');
+    return r.json();
+  },
+  async createSettlement(data) {
+    const r = await fetch(`${API_BASE}/api/settlements`, {
+      method: 'POST',
+      headers: this.authHeaders(),
+      body: JSON.stringify(data)
+    });
+    if (!r.ok) throw new Error((await r.json()).error || '创建结算记录失败');
+    return r.json();
+  },
+  async searchCustomersForSettlement(q) {
+    const params = new URLSearchParams({ q });
+    const r = await fetch(`${API_BASE}/api/settlements/customers/search?${params.toString()}`, { headers: this.authHeaders() });
+    if (!r.ok) throw new Error((await r.json()).error || '搜索客户失败');
+    return r.json();
+  },
+  async getSettlementAssignees() {
+    const r = await fetch(`${API_BASE}/api/settlements/assignees`, { headers: this.authHeaders() });
+    if (!r.ok) throw new Error((await r.json()).error || '获取业务人员列表失败');
+    return r.json();
   }
 }

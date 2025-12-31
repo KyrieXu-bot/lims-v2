@@ -25,8 +25,7 @@ const ADDON_REASON_OPTIONS = [
   { value: '增加测试人员', label: '增加测试人员' },
   { value: '样品评估不足', label: '样品评估不足' },
   { value: '增加测试时段', label: '增加测试时段' },
-  { value: '更换设备', label: '更换设备' },
-  { value: '客户原因', label: '客户原因' }
+  { value: '更换设备', label: '更换设备' }
 ];
 
 const SERVICE_URGENCY_DISPLAY_MAP = {
@@ -116,7 +115,11 @@ const TOGGLEABLE_COLUMNS = [
   { key: 'final_unit_price', label: '测试总价' },
   { key: 'actual_delivery_date', label: '实际交付日期' },
   { key: 'business_note', label: '业务备注' },
+  { key: 'invoice_number', label: '票号' },
+  { key: 'settlement_invoice_date', label: '开票日期' },
+  { key: 'settlement_customer_name', label: '开票客户名称' },
   { key: 'unpaid_amount', label: '开票未到款金额' },
+  { key: 'invoice_note', label: '开票备注' },
   { key: 'status', label: '项目状态' },
   { key: 'abnormal_condition', label: '异常情况' }
 ];
@@ -223,7 +226,7 @@ const CommissionForm = () => {
   const [showFileModal, setShowFileModal] = useState(false);
   const [isOrderPartyModalOpen, setIsOrderPartyModalOpen] = useState(false);
   const [selectedOrderId, setSelectedOrderId] = useState(null);
-  const [activeRowId, setActiveRowId] = useState(null); // 新增：当前选中的行ID
+  const [activeRowIndex, setActiveRowIndex] = useState(null); // 新增：当前选中的行索引
   const [user, setUser] = useState(null);
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
   const statusDropdownRef = useRef(null);
@@ -232,25 +235,26 @@ const CommissionForm = () => {
   const [showBatchUploadModal, setShowBatchUploadModal] = useState(false);
   const [deletingItems, setDeletingItems] = useState(new Set()); // 正在删除的项目ID集合
   const [showExportModal, setShowExportModal] = useState(false); // 导出弹框状态
-  const [showSettlementModal, setShowSettlementModal] = useState(false); // 结算弹框状态
-  const [settlementForm, setSettlementForm] = useState({
-    invoice_date: '',
-    customer_id: '',
-    customer_name: '',
-    customer_nature: '',
-    invoice_amount: '',
-    remarks: '',
-    assignee_id: ''
-  });
-  const [settlementOrderIds, setSettlementOrderIds] = useState(''); // 结算的委托单号组
-  const [customerOptions, setCustomerOptions] = useState([]);
-  const [customerSearchResults, setCustomerSearchResults] = useState([]);
-  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
-  const [customerSearchQuery, setCustomerSearchQuery] = useState('');
-  const [assigneeOptionsForSettlement, setAssigneeOptionsForSettlement] = useState([]);
   const operationColumnRef = useRef(null); // 操作列的引用
   const [selectAllLoading, setSelectAllLoading] = useState(false);
   const [copiedFieldTestTime, setCopiedFieldTestTime] = useState('');
+  // 结算相关状态
+  const [showSettlementModal, setShowSettlementModal] = useState(false);
+  const [settlementForm, setSettlementForm] = useState({
+    invoice_date: '',
+    invoice_amount: '',
+    remarks: '',
+    customer_id: '',
+    customer_name: '',
+    customer_nature: '',
+    assignee_id: '',
+    invoice_number: ''
+  });
+  const [settlementOrderIds, setSettlementOrderIds] = useState('');
+  const [customerSearchQuery, setCustomerSearchQuery] = useState('');
+  const [customerSearchResults, setCustomerSearchResults] = useState([]);
+  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
+  const [settlementAssigneeOptions, setSettlementAssigneeOptions] = useState([]);
   const [columnVisibility, setColumnVisibility] = useState(() => {
     if (typeof window !== 'undefined') {
       try {
@@ -368,13 +372,16 @@ const CommissionForm = () => {
     const result = await response.json();
     const items = Array.isArray(result.data) ? result.data : [];
     // 对每个项目计算测试总价和标准总价
-    // 优先使用数据库中的最终价格，只有当数据库没有值时才前端计算
+    // 如果业务已确认价格，则使用数据库中的值，不重新计算
     const processedItems = items.map(item => {
-      const hasDbFinalPrice = item.final_unit_price !== null && item.final_unit_price !== undefined;
-      const calculatedFinalUnitPrice = hasDbFinalPrice ? null : calculateFinalUnitPrice(item);
-      const finalUnitPrice = hasDbFinalPrice
-        ? item.final_unit_price
-        : (calculatedFinalUnitPrice !== null ? calculatedFinalUnitPrice : item.final_unit_price);
+      const isBusinessConfirmed = item.business_confirmed === 1 || item.business_confirmed === true;
+      let finalUnitPrice = item.final_unit_price;
+      
+      // 只有在未确认的情况下才重新计算
+      if (!isBusinessConfirmed) {
+        const calculatedFinalUnitPrice = calculateFinalUnitPrice(item);
+        finalUnitPrice = calculatedFinalUnitPrice !== null ? calculatedFinalUnitPrice : item.final_unit_price;
+      }
       
       const calculatedLineTotal = calculateStandardLineTotal(
         item.standard_price ?? item.unit_price,
@@ -607,13 +614,16 @@ const CommissionForm = () => {
       
       const data = await response.json();
       // 对每个项目计算测试总价
-      // 优先使用数据库中的最终价格，只有当数据库没有值时才前端计算
+      // 如果业务已确认价格，则使用数据库中的值，不重新计算
       const processedData = data.data.map(item => {
-        const hasDbFinalPrice = item.final_unit_price !== null && item.final_unit_price !== undefined;
-        const calculatedFinalUnitPrice = hasDbFinalPrice ? null : calculateFinalUnitPrice(item);
-        const finalUnitPrice = hasDbFinalPrice
-          ? item.final_unit_price
-          : (calculatedFinalUnitPrice !== null ? calculatedFinalUnitPrice : item.final_unit_price);
+        const isBusinessConfirmed = item.business_confirmed === 1 || item.business_confirmed === true;
+        let finalUnitPrice = item.final_unit_price;
+        
+        // 只有在未确认的情况下才重新计算
+        if (!isBusinessConfirmed) {
+          const calculatedFinalUnitPrice = calculateFinalUnitPrice(item);
+          finalUnitPrice = calculatedFinalUnitPrice !== null ? calculatedFinalUnitPrice : item.final_unit_price;
+        }
         
         return {
           ...item,
@@ -964,223 +974,6 @@ const CommissionForm = () => {
       }
     } catch (error) {
       console.error('获取月份列表失败:', error);
-    }
-  };
-
-  // 客户模糊查询（用于结算）
-  const searchCustomers = async (query) => {
-    if (!query || query.trim() === '') {
-      setCustomerSearchResults([]);
-      setShowCustomerDropdown(false);
-      return;
-    }
-
-    try {
-      const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
-      const headers = {
-        'Authorization': `Bearer ${user.token}`,
-        'Content-Type': 'application/json'
-      };
-
-      const response = await fetch(`/api/settlements/customers/search?q=${encodeURIComponent(query)}`, { headers });
-      if (response.ok) {
-        const data = await response.json();
-        setCustomerSearchResults(data);
-        setShowCustomerDropdown(data.length > 0);
-      }
-    } catch (error) {
-      console.error('搜索客户失败:', error);
-      setCustomerSearchResults([]);
-      setShowCustomerDropdown(false);
-    }
-  };
-
-  // 选择客户
-  const handleSelectCustomer = (customer) => {
-    setSettlementForm({
-      ...settlementForm,
-      customer_id: customer.customer_id,
-      customer_name: customer.customer_name,
-      customer_nature: customer.customer_nature || customer.nature || ''
-    });
-    setCustomerSearchQuery(customer.customer_name);
-    setShowCustomerDropdown(false);
-    setCustomerSearchResults([]);
-  };
-
-  // 处理客户名称输入变化
-  const handleCustomerNameChange = (value) => {
-    setCustomerSearchQuery(value);
-    setSettlementForm({
-      ...settlementForm,
-      customer_name: value,
-      customer_id: '' // 清空customer_id，表示自定义客户
-    });
-    if (value.trim()) {
-      searchCustomers(value);
-    } else {
-      setCustomerSearchResults([]);
-      setShowCustomerDropdown(false);
-    }
-  };
-
-  // 获取业务人员列表（用于结算）
-  const fetchAssigneeOptionsForSettlement = async () => {
-    try {
-      const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
-      const headers = {
-        'Authorization': `Bearer ${user.token}`,
-        'Content-Type': 'application/json'
-      };
-
-      const response = await fetch('/api/settlements/assignees', { headers });
-      if (response.ok) {
-        const data = await response.json();
-        setAssigneeOptionsForSettlement(data);
-      }
-    } catch (error) {
-      console.error('获取业务人员列表失败:', error);
-    }
-  };
-
-  // 打开结算Modal
-  const handleOpenSettlementModal = async () => {
-    if (selectedItems.length === 0) {
-      alert('请先选择要结算的检测项目');
-      return;
-    }
-
-    // 获取选中的项目数据
-    const selectedData = await getSelectedItemsData();
-    if (selectedData.length === 0) {
-      alert('无法获取选中的项目数据');
-      return;
-    }
-
-    // 获取第一个委托单的客户信息
-    const firstItem = selectedData[0];
-    const firstCustomerId = firstItem.customer_id;
-    const firstCustomerName = firstItem.customer_name || '';
-    const firstCustomerNature = firstItem.customer_nature || '';
-    const firstAssigneeId = firstItem.current_assignee;
-
-    // 获取所有唯一的委托单号
-    const orderIds = [...new Set(selectedData.map(item => item.order_id))];
-    const orderIdsStr = orderIds.join('-');
-
-    // 设置表单默认值
-    setSettlementForm({
-      invoice_date: new Date().toISOString().split('T')[0], // 默认今天
-      customer_id: firstCustomerId || '',
-      customer_name: firstCustomerName,
-      customer_nature: firstCustomerNature,
-      invoice_amount: '',
-      remarks: '',
-      assignee_id: firstAssigneeId || ''
-    });
-    setCustomerSearchQuery(firstCustomerName);
-    setSettlementOrderIds(orderIdsStr);
-
-    // 加载业务人员列表
-    await fetchAssigneeOptionsForSettlement();
-
-    setShowSettlementModal(true);
-  };
-
-  // 提交结算
-  const handleSubmitSettlement = async () => {
-    if (!settlementForm.invoice_date || !settlementForm.invoice_amount) {
-      alert('请填写开票日期和开票金额');
-      return;
-    }
-    
-    if (!settlementForm.customer_name && !settlementForm.customer_id) {
-      alert('请填写开票单位');
-      return;
-    }
-
-    // 获取选中的项目数据
-    const selectedData = await getSelectedItemsData();
-    if (selectedData.length === 0) {
-      alert('无法获取选中的项目数据');
-      return;
-    }
-
-    // 获取所有唯一的委托单号
-    const orderIds = [...new Set(selectedData.map(item => item.order_id))];
-    const orderIdsStr = orderIds.join('-');
-
-    // 获取选中项目的ID和金额信息（用于按比例分配）
-    const testItemIds = selectedData.map(item => item.test_item_id);
-    // 使用final_unit_price * actual_sample_quantity，如果没有则使用line_total，再没有则使用standard_price * actual_sample_quantity
-    const testItemAmounts = selectedData.map(item => {
-      const finalPrice = item.final_unit_price || 0;
-      const quantity = item.actual_sample_quantity || item.quantity || 1;
-      const lineTotal = item.line_total || 0;
-      const standardPrice = item.standard_price || 0;
-      
-      // 优先使用 final_unit_price * actual_sample_quantity
-      if (finalPrice && quantity) {
-        return finalPrice * quantity;
-      }
-      // 其次使用 line_total
-      if (lineTotal) {
-        return lineTotal;
-      }
-      // 最后使用 standard_price * actual_sample_quantity
-      if (standardPrice && quantity) {
-        return standardPrice * quantity;
-      }
-      return 0;
-    });
-
-    try {
-      const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
-      const headers = {
-        'Authorization': `Bearer ${user.token}`,
-        'Content-Type': 'application/json'
-      };
-
-      const response = await fetch('/api/settlements', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          invoice_date: settlementForm.invoice_date,
-          order_ids: orderIdsStr,
-          invoice_amount: parseFloat(settlementForm.invoice_amount),
-          remarks: settlementForm.remarks || null,
-          customer_id: settlementForm.customer_id ? parseInt(settlementForm.customer_id) : null,
-          customer_name: settlementForm.customer_name || null,
-          customer_nature: settlementForm.customer_nature || null,
-          assignee_id: settlementForm.assignee_id || null,
-          test_item_ids: testItemIds,
-          test_item_amounts: testItemAmounts
-        })
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || '创建结算记录失败');
-      }
-
-      alert('结算成功！');
-      setShowSettlementModal(false);
-      setSettlementForm({
-        invoice_date: '',
-        customer_id: '',
-        customer_name: '',
-        customer_nature: '',
-        invoice_amount: '',
-        remarks: '',
-        assignee_id: ''
-      });
-      setCustomerSearchQuery('');
-      setSettlementOrderIds('');
-      setCustomerSearchResults([]);
-      setShowCustomerDropdown(false);
-    } catch (error) {
-      alert('结算失败：' + error.message);
-      console.error('结算失败:', error);
     }
   };
 
@@ -2105,6 +1898,150 @@ const CommissionForm = () => {
     }
   };
 
+  // 结算相关函数
+  const handleSettlementClick = async () => {
+    if (selectedItems.length === 0) {
+      alert('请先选择要结算的检测项目');
+      return;
+    }
+
+    const selectedData = data.filter(item => selectedItems.includes(item.test_item_id));
+    if (selectedData.length === 0) {
+      alert('未找到选中的检测项目数据');
+      return;
+    }
+
+    // 获取所有委托单号（去重）
+    const orderIds = [...new Set(selectedData.map(item => item.order_id))];
+    setSettlementOrderIds(orderIds.join('-'));
+
+    // 预填第一个委托单的客户信息
+    const firstItem = selectedData[0];
+    const customerName = firstItem.customer_commissioner_name || firstItem.customer_name || '';
+    setCustomerSearchQuery(customerName);
+    setSettlementForm({
+      invoice_date: '',
+      invoice_amount: '',
+      remarks: '',
+      customer_id: firstItem.customer_id || '',
+      customer_name: customerName,
+      customer_nature: firstItem.customer_nature || '',
+      assignee_id: firstItem.current_assignee || '',
+      invoice_number: ''
+    });
+
+    // 加载业务人员选项
+    try {
+      const assignees = await api.getSettlementAssignees();
+      setSettlementAssigneeOptions(assignees);
+    } catch (e) {
+      console.error('加载业务人员列表失败:', e);
+    }
+
+    setShowSettlementModal(true);
+  };
+
+  const handleCustomerNameChange = async (value) => {
+    setCustomerSearchQuery(value);
+    setSettlementForm({ ...settlementForm, customer_name: value, customer_id: '' });
+
+    if (value && value.length > 0) {
+      try {
+        const results = await api.searchCustomersForSettlement(value);
+        setCustomerSearchResults(results);
+        setShowCustomerDropdown(true);
+      } catch (e) {
+        console.error('搜索客户失败:', e);
+        setCustomerSearchResults([]);
+        setShowCustomerDropdown(false);
+      }
+    } else {
+      setCustomerSearchResults([]);
+      setShowCustomerDropdown(false);
+    }
+  };
+
+  const handleSelectCustomer = (customer) => {
+    setCustomerSearchQuery(customer.customer_name);
+    setSettlementForm({
+      ...settlementForm,
+      customer_id: customer.customer_id,
+      customer_name: customer.customer_name,
+      customer_nature: customer.nature || ''
+    });
+    setShowCustomerDropdown(false);
+  };
+
+  const handleSettlementSubmit = async () => {
+    if (!settlementForm.invoice_number || !settlementForm.invoice_date || !settlementForm.invoice_amount || (!settlementForm.customer_id && !settlementForm.customer_name)) {
+      alert('请填写必填项：票号、开票日期、开票金额和开票单位');
+      return;
+    }
+
+    // 验证票号格式（20-30位数字）
+    if (!/^\d{20,30}$/.test(settlementForm.invoice_number)) {
+      alert('票号必须是20-30位数字');
+      return;
+    }
+
+    if (!settlementOrderIds) {
+      alert('委托单号组不能为空');
+      return;
+    }
+
+    // 获取选中的test_items数据，用于按比例分配unpaid_amount
+    const selectedData = data.filter(item => selectedItems.includes(item.test_item_id));
+    const test_item_ids = selectedData.map(item => item.test_item_id);
+    const test_item_amounts = selectedData.map(item => {
+      // 使用final_unit_price作为分配依据，如果没有则使用0
+      return item.final_unit_price || 0;
+    });
+
+    try {
+      await api.createSettlement({
+        invoice_number: settlementForm.invoice_number || null,
+        invoice_date: settlementForm.invoice_date,
+        order_ids: settlementOrderIds,
+        invoice_amount: parseFloat(settlementForm.invoice_amount),
+        remarks: settlementForm.remarks || null,
+        customer_id: settlementForm.customer_id || null,
+        customer_name: settlementForm.customer_name || null,
+        customer_nature: settlementForm.customer_nature || null,
+        assignee_id: settlementForm.assignee_id || null,
+        test_item_ids: test_item_ids,
+        test_item_amounts: test_item_amounts
+      });
+
+      // 先关闭模态框和重置表单
+      setShowSettlementModal(false);
+      setSettlementForm({
+        invoice_date: '',
+        invoice_amount: '',
+        remarks: '',
+        customer_id: '',
+        customer_name: '',
+        customer_nature: '',
+        assignee_id: '',
+        invoice_number: ''
+      });
+      setCustomerSearchQuery('');
+      setSettlementOrderIds('');
+      
+      // 显示成功消息
+      alert('结算记录创建成功');
+      
+      // 刷新数据（即使失败也不影响成功消息）
+      try {
+        await fetchData();
+      } catch (refreshError) {
+        console.error('刷新数据失败:', refreshError);
+        // 不显示错误消息，因为结算记录已经创建成功
+      }
+    } catch (error) {
+      alert('创建结算记录失败：' + error.message);
+    }
+  };
+
   // 复制检测项目
   const handleCopyTestItem = (item) => {
     saveCurrentViewState();
@@ -2543,8 +2480,7 @@ const CommissionForm = () => {
             }
             
             // 如果更新了业务报价、折扣、计费数量或服务加急，重新计算测试总价（使用最新的值）
-            // 仅在未业务确认时才前端重算，避免覆盖数据库中已确认/手动修改的价格
-            if (!merged.business_confirmed && (field === 'price_note' || field === 'discount_rate' || field === 'actual_sample_quantity' || field === 'service_urgency')) {
+            if (field === 'price_note' || field === 'discount_rate' || field === 'actual_sample_quantity' || field === 'service_urgency') {
               const calculatedFinalUnitPrice = calculateFinalUnitPrice(merged);
               if (calculatedFinalUnitPrice !== null) {
                 merged.final_unit_price = calculatedFinalUnitPrice;
@@ -2628,9 +2564,9 @@ const CommissionForm = () => {
     return '';
   };
 
-  const getRowClassNames = (item) => {
+  const getRowClassNames = (item, index) => {
     const classes = [];
-    if (item.test_item_id === activeRowId) {
+    if (index === activeRowIndex) {
       classes.push('active-row');
     }
     const abnormal = item?.abnormal_condition ? String(item.abnormal_condition) : '';
@@ -2958,17 +2894,18 @@ const CommissionForm = () => {
               onClick={handleExport} 
               className="btn btn-primary"
               disabled={selectedItems.length === 0}
-              style={{backgroundColor: '#007bff', color: 'white'}}
+              style={{backgroundColor: '#007bff', color: 'white', border: 'none'}}
             >
               导出 ({selectedItems.length})
             </button>
             {user?.role === 'admin' && (
               <>
                 <button 
-                  onClick={handleOpenSettlementModal} 
-                  className="btn btn-warning"
+                  onClick={handleSettlementClick} 
+                  className="btn btn-primary"
                   disabled={selectedItems.length === 0}
-                  style={{backgroundColor: '#ffc107', color: '#212529'}}
+                  style={{backgroundColor: '#ffc107', color: '#000', border: 'none'}}
+
                 >
                   结算 ({selectedItems.length})
                 </button>
@@ -3145,7 +3082,11 @@ const CommissionForm = () => {
                     {renderColumnHeader('final_unit_price', '测试总价', 'lab-field narrow-col')}
                     {renderColumnHeader('actual_delivery_date', '实际交付日期', 'lab-field')}
                     {renderColumnHeader('business_note', '业务备注', 'lab-field note-col')}
+                    {renderColumnHeader('invoice_number', '票号', 'lab-field narrow-col')}
+                    {renderColumnHeader('settlement_invoice_date', '开票日期', 'lab-field narrow-col')}
+                    {renderColumnHeader('settlement_customer_name', '开票客户名称', 'lab-field')}
                     {renderColumnHeader('unpaid_amount', '开票未到款金额', 'lab-field')}
+                    {renderColumnHeader('invoice_note', '开票备注', 'lab-field note-col')}
                     {renderColumnHeader('status', '项目状态', 'lab-field narrow-col')}
                     {renderColumnHeader('abnormal_condition', '异常情况', 'lab-field narrow-col')}
                     <th className="lab-field fixed-right narrow-col">文件管理</th>
@@ -3153,11 +3094,11 @@ const CommissionForm = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {data.map((item) => (
+                  {data.map((item, index) => (
                     <tr 
-                      key={item.test_item_id} 
-                      className={getRowClassNames(item)}
-                      onClick={() => setActiveRowId(item.test_item_id)}
+                      key={`${item.test_item_id}-${index}`} 
+                      className={getRowClassNames(item, index)}
+                      onClick={() => setActiveRowIndex(index)}
                     >
                       <td className="fixed-left-checkbox">
                         <input 
@@ -3193,17 +3134,9 @@ const CommissionForm = () => {
                                 fieldName="样品原号"
                               />
                             </div>
-                            <div style={{marginTop: '4px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap'}}>
-                              {/* 加急标签 */}
-                              {item.service_urgency === 'urgent_2x' || item.service_urgency === '特急2倍' ? (
-                                <span className="urgency-badge urgency-2x">2倍加急</span>
-                              ) : item.service_urgency === 'urgent_1_5x' || item.service_urgency === '加急1.5倍' ? (
-                                <span className="urgency-badge urgency-1-5x">1.5倍加急</span>
-                              ) : null}
-                              {/* 加测标签 */}
-                              {item.is_add_on === 1 && (
-                                <>
-                                  <span className="add-on-badge">加测</span>
+                            {item.is_add_on === 1 && (
+                              <div style={{marginTop: '4px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap'}}>
+                                <span className="add-on-badge">加测</span>
                                 {(user?.role === 'admin' || user?.role === 'supervisor' || user?.role === 'leader') ? (
                                   <div style={{display: 'inline-block', minWidth: '120px'}}>
                                     <RealtimeEditableCell
@@ -3226,9 +3159,8 @@ const CommissionForm = () => {
                                     {item.addon_reason || '原因未填写'}
                                   </span>
                                 )}
-                                </>
-                              )}
-                            </div>
+                              </div>
+                            )}
                           </div>
                         </div>
                       </td>
@@ -3485,15 +3417,12 @@ const CommissionForm = () => {
                                     prevData.map(item => {
                                       if (item.test_item_id === testItemId) {
                                         const updatedItem = { ...item, service_urgency: getServiceUrgencyDisplayValue(value) };
-                                        // 重新计算测试总价（仅当未业务确认时才前端重算）
-                                        let calculatedFinalUnitPrice = null;
-                                        if (!updatedItem.business_confirmed) {
-                                          calculatedFinalUnitPrice = calculateFinalUnitPrice(updatedItem);
-                                          if (calculatedFinalUnitPrice !== null) {
-                                            updatedItem.final_unit_price = calculatedFinalUnitPrice;
-                                          } else {
-                                            updatedItem.final_unit_price = null;
-                                          }
+                                        // 重新计算测试总价
+                                        const calculatedFinalUnitPrice = calculateFinalUnitPrice(updatedItem);
+                                        if (calculatedFinalUnitPrice !== null) {
+                                          updatedItem.final_unit_price = calculatedFinalUnitPrice;
+                                        } else {
+                                          updatedItem.final_unit_price = null;
                                         }
                                         // 同步计算标准总价
                                         const calculatedLineTotal = calculateStandardLineTotal(
@@ -3898,7 +3827,53 @@ const CommissionForm = () => {
                           )}
                         </div>
                       </td>
-                      <td className={getColumnCellClass('unpaid_amount', 'lab-field')} data-column-key="unpaid_amount">{item.unpaid_amount || ''}</td>
+                      <td className={getColumnCellClass('invoice_number', 'lab-field narrow-col')} data-column-key="invoice_number">
+                        {item.invoice_number ? (
+                          <DetailViewLink 
+                            text={item.invoice_number} 
+                            maxLength={20} 
+                            fieldName="票号" 
+                          />
+                        ) : (
+                          <span className="readonly-field">-</span>
+                        )}
+                      </td>
+                      <td className={getColumnCellClass('settlement_invoice_date', 'lab-field narrow-col')} data-column-key="settlement_invoice_date">
+                        {item.settlement_invoice_date ? formatDate(item.settlement_invoice_date) : '-'}
+                      </td>
+                      <td className={getColumnCellClass('settlement_customer_name', 'lab-field')} data-column-key="settlement_customer_name">
+                        {item.settlement_customer_name || '-'}
+                      </td>
+                      <td className={getColumnCellClass('unpaid_amount', 'lab-field')} data-column-key="unpaid_amount">
+                        {item.unpaid_amount !== null && item.unpaid_amount !== undefined && item.unpaid_amount !== '' 
+                          ? formatCurrency(item.unpaid_amount) 
+                          : '-'}
+                      </td>
+                      <td className={getColumnCellClass('invoice_note', 'lab-field note-col')} data-column-key="invoice_note">
+                        {user?.role === 'admin' ? (
+                          <div className="editable-field-container">
+                            <RealtimeEditableCell
+                              value={item.invoice_note || ''}
+                              type="textarea"
+                              onSave={handleSaveEdit}
+                              field="invoice_note"
+                              testItemId={item.test_item_id}
+                              placeholder="输入开票备注"
+                              isFieldBeingEdited={isFieldBeingEdited}
+                              getEditingUser={getEditingUser}
+                              emitUserEditing={emitUserEditing}
+                              emitUserStopEditing={emitUserStopEditing}
+                            />
+                            <SavingIndicator testItemId={item.test_item_id} field="invoice_note" />
+                          </div>
+                        ) : (
+                          <DetailViewLink 
+                            text={item.invoice_note || ''} 
+                            maxLength={30} 
+                            fieldName="开票备注" 
+                          />
+                        )}
+                      </td>
                       <td className={getColumnCellClass('status', 'lab-field narrow-col')} data-column-key="status">
                         <span className={`status status-${item.status}`}>
                           {item.status === 'new' && '新建'}
@@ -4235,7 +4210,7 @@ const CommissionForm = () => {
         </div>
       )}
 
-      {/* 结算Modal */}
+      {/* 费用结算模态框 */}
       {showSettlementModal && (
         <div className="file-modal-overlay" onClick={() => setShowSettlementModal(false)}>
           <div className="file-modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '600px' }}>
@@ -4244,165 +4219,168 @@ const CommissionForm = () => {
               <button className="close-button" onClick={() => setShowSettlementModal(false)}>×</button>
             </div>
             <div className="file-modal-body">
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', padding: '20px' }}>
-                <div style={{ padding: '10px', backgroundColor: '#f0f0f0', borderRadius: '4px', marginBottom: '10px' }}>
-                  <strong>委托单号组：</strong>{settlementOrderIds || '无'}
-                </div>
-                <div style={{ position: 'relative' }}>
-                  <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
-                    开票单位 <span style={{ color: 'red' }}>*</span>
-                  </label>
-                  <input
-                    type="text"
-                    className="input"
-                    value={customerSearchQuery}
-                    onChange={(e) => handleCustomerNameChange(e.target.value)}
-                    onFocus={() => {
-                      if (customerSearchQuery && customerSearchResults.length > 0) {
-                        setShowCustomerDropdown(true);
-                      }
-                    }}
-                    onBlur={() => {
-                      // 延迟关闭，以便点击下拉项
-                      setTimeout(() => setShowCustomerDropdown(false), 200);
-                    }}
-                    placeholder="输入客户名称进行搜索，或直接输入新客户名称"
-                    style={{ width: '100%', padding: '8px' }}
-                  />
-                  {showCustomerDropdown && customerSearchResults.length > 0 && (
-                    <div style={{
-                      position: 'absolute',
-                      top: '100%',
-                      left: 0,
-                      right: 0,
-                      backgroundColor: 'white',
-                      border: '1px solid #ccc',
-                      borderRadius: '4px',
-                      maxHeight: '200px',
-                      overflowY: 'auto',
-                      zIndex: 1000,
-                      boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
-                    }}>
-                      {customerSearchResults.map(customer => (
-                        <div
-                          key={customer.customer_id}
-                          onClick={() => handleSelectCustomer(customer)}
-                          style={{
-                            padding: '8px 12px',
-                            cursor: 'pointer',
-                            borderBottom: '1px solid #eee'
-                          }}
-                          onMouseEnter={(e) => e.target.style.backgroundColor = '#f0f0f0'}
-                          onMouseLeave={(e) => e.target.style.backgroundColor = 'white'}
-                        >
-                          <div style={{ fontWeight: 'bold' }}>{customer.customer_name}</div>
-                          {(customer.customer_nature || customer.nature) && (
-                            <div style={{ fontSize: '12px', color: '#666' }}>性质: {customer.customer_nature || customer.nature}</div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <div>
-                  <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
-                    企业性质
-                  </label>
-                  <select
-                    className="input"
-                    value={settlementForm.customer_nature || ''}
-                    onChange={(e) => setSettlementForm({ ...settlementForm, customer_nature: e.target.value })}
-                    style={{ width: '100%', padding: '8px' }}
-                  >
-                    <option value="">请选择</option>
-                    <option value="集萃体系">集萃体系</option>
-                    <option value="高校">高校</option>
-                    <option value="第三方检测机构">第三方检测机构</option>
-                    <option value="其他企业">其他企业</option>
-                    <option value="个人">个人</option>
-                    <option value="研究所">研究所</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
-                    开票时间 <span style={{ color: 'red' }}>*</span>
-                  </label>
-                  <input
-                    type="date"
-                    className="input"
-                    value={settlementForm.invoice_date}
-                    onChange={(e) => setSettlementForm({ ...settlementForm, invoice_date: e.target.value })}
-                    style={{ width: '100%', padding: '8px' }}
-                  />
-                </div>
-
-                <div>
-                  <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
-                    开票金额 <span style={{ color: 'red' }}>*</span>
-                  </label>
-                  <input
-                    type="number"
-                    className="input"
-                    value={settlementForm.invoice_amount}
-                    onChange={(e) => setSettlementForm({ ...settlementForm, invoice_amount: e.target.value })}
-                    placeholder="请输入开票金额"
-                    step="0.01"
-                    min="0"
-                    style={{ width: '100%', padding: '8px' }}
-                  />
-                </div>
-
-                <div>
-                  <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
-                    业务人员
-                  </label>
-                  <select
-                    className="input"
-                    value={settlementForm.assignee_id}
-                    onChange={(e) => setSettlementForm({ ...settlementForm, assignee_id: e.target.value })}
-                    style={{ width: '100%', padding: '8px' }}
-                  >
-                    <option value="">请选择业务人员</option>
-                    {assigneeOptionsForSettlement.map(assignee => (
-                      <option key={assignee.user_id} value={assignee.user_id}>
-                        {assignee.name}
-                      </option>
+              <div style={{ padding: '10px', backgroundColor: '#f0f0f0', borderRadius: '4px', marginBottom: '10px' }}>
+                <strong>委托单号组：</strong>{settlementOrderIds || '无'}
+              </div>
+              <div style={{ position: 'relative', marginBottom: '15px' }}>
+                <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
+                  票号 <span style={{ color: 'red' }}>*</span>
+                </label>
+                <input
+                  type="text"
+                  className="input"
+                  value={settlementForm.invoice_number}
+                  onChange={(e) => setSettlementForm({ ...settlementForm, invoice_number: e.target.value })}
+                  placeholder="输入票号（20-30位数字）"
+                  style={{ width: '100%', padding: '8px' }}
+                  maxLength={30}
+                />
+              </div>
+              <div style={{ position: 'relative', marginBottom: '15px' }}>
+                <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
+                  开票单位 <span style={{ color: 'red' }}>*</span>
+                </label>
+                <input
+                  type="text"
+                  className="input"
+                  value={customerSearchQuery}
+                  onChange={(e) => handleCustomerNameChange(e.target.value)}
+                  onFocus={() => {
+                    if (customerSearchQuery && customerSearchResults.length > 0) {
+                      setShowCustomerDropdown(true);
+                    }
+                  }}
+                  onBlur={() => {
+                    setTimeout(() => setShowCustomerDropdown(false), 200);
+                  }}
+                  placeholder="输入客户名称搜索或直接输入"
+                  style={{ width: '100%', padding: '8px' }}
+                />
+                {showCustomerDropdown && customerSearchResults.length > 0 && (
+                  <div style={{
+                    position: 'absolute',
+                    top: '100%',
+                    left: 0,
+                    right: 0,
+                    backgroundColor: 'white',
+                    border: '1px solid #ccc',
+                    borderRadius: '4px',
+                    maxHeight: '200px',
+                    overflowY: 'auto',
+                    zIndex: 2000,
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+                  }}>
+                    {customerSearchResults.map(customer => (
+                      <div
+                        key={customer.customer_id}
+                        onClick={() => handleSelectCustomer(customer)}
+                        style={{
+                          padding: '8px 12px',
+                          cursor: 'pointer',
+                          borderBottom: '1px solid #eee'
+                        }}
+                        onMouseEnter={(e) => e.target.style.backgroundColor = '#f0f0f0'}
+                        onMouseLeave={(e) => e.target.style.backgroundColor = 'white'}
+                      >
+                        <div style={{ fontWeight: 'bold' }}>{customer.customer_name}</div>
+                        {customer.nature && (
+                          <div style={{ fontSize: '12px', color: '#666' }}>性质: {customer.nature}</div>
+                        )}
+                      </div>
                     ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
-                    备注
-                  </label>
-                  <textarea
-                    className="input"
-                    value={settlementForm.remarks}
-                    onChange={(e) => setSettlementForm({ ...settlementForm, remarks: e.target.value })}
-                    placeholder="请输入备注（选填）"
-                    rows="3"
-                    style={{ width: '100%', padding: '8px', resize: 'vertical' }}
-                  />
-                </div>
-
-                <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '10px' }}>
-                  <button
-                    className="btn btn-secondary"
-                    onClick={() => setShowSettlementModal(false)}
-                    style={{ padding: '10px 20px' }}
-                  >
-                    取消
-                  </button>
-                  <button
-                    className="btn btn-primary"
-                    onClick={handleSubmitSettlement}
-                    style={{ padding: '10px 20px', backgroundColor: '#007bff', color: 'white' }}
-                  >
-                    确认结算
-                  </button>
-                </div>
+                  </div>
+                )}
+              </div>
+              <div style={{ marginBottom: '15px' }}>
+                <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
+                  企业性质
+                </label>
+                <select
+                  className="input"
+                  value={settlementForm.customer_nature || ''}
+                  onChange={(e) => setSettlementForm({ ...settlementForm, customer_nature: e.target.value })}
+                  style={{ width: '100%', padding: '8px' }}
+                >
+                  <option value="">请选择</option>
+                  <option value="集萃体系">集萃体系</option>
+                  <option value="高校">高校</option>
+                  <option value="第三方检测机构">第三方检测机构</option>
+                  <option value="其他企业">其他企业</option>
+                  <option value="个人">个人</option>
+                  <option value="研究所">研究所</option>
+                </select>
+              </div>
+              <div style={{ marginBottom: '15px' }}>
+                <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
+                  开票日期 <span style={{ color: 'red' }}>*</span>
+                </label>
+                <input
+                  type="date"
+                  className="input"
+                  value={settlementForm.invoice_date}
+                  onChange={(e) => setSettlementForm({ ...settlementForm, invoice_date: e.target.value })}
+                  style={{ width: '100%', padding: '8px' }}
+                />
+              </div>
+              <div style={{ marginBottom: '15px' }}>
+                <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
+                  开票金额 <span style={{ color: 'red' }}>*</span>
+                </label>
+                <input
+                  type="number"
+                  className="input"
+                  value={settlementForm.invoice_amount}
+                  onChange={(e) => setSettlementForm({ ...settlementForm, invoice_amount: e.target.value })}
+                  placeholder="输入开票金额"
+                  step="0.01"
+                  min="0"
+                  style={{ width: '100%', padding: '8px' }}
+                />
+              </div>
+              <div style={{ marginBottom: '15px' }}>
+                <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
+                  业务人员
+                </label>
+                <select
+                  className="input"
+                  value={settlementForm.assignee_id || ''}
+                  onChange={(e) => setSettlementForm({ ...settlementForm, assignee_id: e.target.value })}
+                  style={{ width: '100%', padding: '8px' }}
+                >
+                  <option value="">请选择</option>
+                  {settlementAssigneeOptions.map(assignee => (
+                    <option key={assignee.user_id} value={assignee.user_id}>
+                      {assignee.name} ({assignee.account})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div style={{ marginBottom: '15px' }}>
+                <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
+                  备注
+                </label>
+                <textarea
+                  className="input"
+                  value={settlementForm.remarks || ''}
+                  onChange={(e) => setSettlementForm({ ...settlementForm, remarks: e.target.value })}
+                  placeholder="输入备注（选填）"
+                  rows="3"
+                  style={{ width: '100%', padding: '8px', resize: 'vertical' }}
+                />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px' }}>
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => setShowSettlementModal(false)}
+                >
+                  取消
+                </button>
+                <button
+                  className="btn btn-primary"
+                  onClick={handleSettlementSubmit}
+                >
+                  确认结算
+                </button>
               </div>
             </div>
           </div>

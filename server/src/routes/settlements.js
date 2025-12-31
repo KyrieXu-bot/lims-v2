@@ -11,6 +11,7 @@ router.get('/', requireAuth, async (req, res) => {
     const [rows] = await pool.query(`
       SELECT 
         s.settlement_id,
+        s.invoice_number,
         s.invoice_date,
         s.order_ids,
         s.invoice_amount,
@@ -49,6 +50,7 @@ router.post('/', requireAuth, async (req, res) => {
   }
   
   const { 
+    invoice_number,
     invoice_date, 
     order_ids, 
     invoice_amount, 
@@ -95,12 +97,14 @@ router.post('/', requireAuth, async (req, res) => {
       }
     }
     
-    // 插入结算记录
+    // 插入结算记录，包含test_item_ids
+    const test_item_ids_json = test_item_ids && Array.isArray(test_item_ids) ? JSON.stringify(test_item_ids) : null;
+    
     const [result] = await connection.query(
       `INSERT INTO settlements 
-       (invoice_date, order_ids, invoice_amount, remarks, customer_id, customer_name, assignee_id, customer_nature, payment_status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, '未到款')`,
-      [invoice_date, order_ids, invoice_amount, remarks || null, final_customer_id, final_customer_name, assignee_id || null, final_customer_nature]
+       (invoice_number, invoice_date, order_ids, test_item_ids, invoice_amount, remarks, customer_id, customer_name, assignee_id, customer_nature, payment_status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '未到款')`,
+      [invoice_number || null, invoice_date, order_ids, test_item_ids_json, invoice_amount, remarks || null, final_customer_id, final_customer_name, assignee_id || null, final_customer_nature]
     );
     
     // 如果有test_item_ids和test_item_amounts，按比例分配开票金额
@@ -133,7 +137,9 @@ router.post('/', requireAuth, async (req, res) => {
         // 批量更新test_items表的unpaid_amount
         for (const allocation of allocations) {
           await connection.query(
-            'UPDATE test_items SET unpaid_amount = ? WHERE test_item_id = ?',
+            `UPDATE test_items 
+             SET unpaid_amount = ?
+             WHERE test_item_id = ?`,
             [allocation.unpaid_amount, allocation.test_item_id]
           );
         }
@@ -289,9 +295,9 @@ router.put('/:id', requireAuth, async (req, res) => {
       try {
         await connection.beginTransaction();
         
-        // 先获取当前结算记录的order_ids
+        // 先获取当前结算记录的order_ids和test_item_ids
         const [currentSettlement] = await connection.query(
-          'SELECT order_ids FROM settlements WHERE settlement_id = ?',
+          'SELECT order_ids, test_item_ids FROM settlements WHERE settlement_id = ?',
           [req.params.id]
         );
         
@@ -301,6 +307,7 @@ router.put('/:id', requireAuth, async (req, res) => {
         }
         
         const orderIds = currentSettlement[0].order_ids;
+        const test_item_ids_str = currentSettlement[0].test_item_ids;
         
         // 更新settlements表
         await connection.query(
@@ -309,58 +316,60 @@ router.put('/:id', requireAuth, async (req, res) => {
         );
         
         // 重新计算并分配test_items的unpaid_amount
-        if (orderIds) {
-          // 解析order_ids（用"-"分隔）
-          const orderIdArray = orderIds.split('-').filter(id => id.trim());
-          
-          if (orderIdArray.length > 0) {
-            // 获取这些委托单下的所有test_items及其金额
-            const placeholders = orderIdArray.map(() => '?').join(',');
-            const [testItems] = await connection.query(
-              `SELECT test_item_id, 
-                      COALESCE(final_unit_price * actual_sample_quantity, 
-                               line_total, 
-                               unit_price * actual_sample_quantity, 
-                               0) as item_amount
-               FROM test_items 
-               WHERE order_id IN (${placeholders}) 
-               AND status != 'cancelled'`,
-              orderIdArray
-            );
-            
-            if (testItems.length > 0) {
-              // 计算总金额
-              const totalAmount = testItems.reduce((sum, item) => sum + (parseFloat(item.item_amount) || 0), 0);
+        if (test_item_ids_str) {
+          try {
+            const testItemIds = JSON.parse(test_item_ids_str);
+            if (Array.isArray(testItemIds) && testItemIds.length > 0) {
+              // 获取这些test_items的金额
+              const placeholders = testItemIds.map(() => '?').join(',');
+              const [testItems] = await connection.query(
+                `SELECT test_item_id, 
+                        COALESCE(final_unit_price * actual_sample_quantity, 
+                                 line_total, 
+                                 unit_price * actual_sample_quantity, 
+                                 0) as item_amount
+                 FROM test_items 
+                 WHERE test_item_id IN (${placeholders}) 
+                 AND status != 'cancelled'`,
+                testItemIds
+              );
               
-              if (totalAmount > 0) {
-                // 按比例分配开票金额
-                const allocations = testItems.map((item) => {
-                  const itemAmount = parseFloat(item.item_amount) || 0;
-                  const proportion = itemAmount / totalAmount;
-                  const allocatedAmount = parseFloat((newInvoiceAmount * proportion).toFixed(2));
-                  return {
-                    test_item_id: item.test_item_id,
-                    unpaid_amount: allocatedAmount
-                  };
-                });
+              if (testItems.length > 0) {
+                // 计算总金额
+                const totalAmount = testItems.reduce((sum, item) => sum + (parseFloat(item.item_amount) || 0), 0);
                 
-                // 处理精度问题：确保总和等于开票金额
-                const allocatedTotal = allocations.reduce((sum, item) => sum + item.unpaid_amount, 0);
-                const difference = newInvoiceAmount - allocatedTotal;
-                if (Math.abs(difference) > 0.01) {
-                  // 将差额加到最后一个项目
-                  allocations[allocations.length - 1].unpaid_amount = parseFloat((allocations[allocations.length - 1].unpaid_amount + difference).toFixed(2));
-                }
-                
-                // 更新test_items的unpaid_amount
-                for (const allocation of allocations) {
-                  await connection.query(
-                    'UPDATE test_items SET unpaid_amount = ? WHERE test_item_id = ?',
-                    [allocation.unpaid_amount, allocation.test_item_id]
-                  );
+                if (totalAmount > 0) {
+                  // 按比例分配开票金额
+                  const allocations = testItems.map((item) => {
+                    const itemAmount = parseFloat(item.item_amount) || 0;
+                    const proportion = itemAmount / totalAmount;
+                    const allocatedAmount = parseFloat((newInvoiceAmount * proportion).toFixed(2));
+                    return {
+                      test_item_id: item.test_item_id,
+                      unpaid_amount: allocatedAmount
+                    };
+                  });
+                  
+                  // 处理精度问题：确保总和等于开票金额
+                  const allocatedTotal = allocations.reduce((sum, item) => sum + item.unpaid_amount, 0);
+                  const difference = newInvoiceAmount - allocatedTotal;
+                  if (Math.abs(difference) > 0.01) {
+                    // 将差额加到最后一个项目
+                    allocations[allocations.length - 1].unpaid_amount = parseFloat((allocations[allocations.length - 1].unpaid_amount + difference).toFixed(2));
+                  }
+                  
+                  // 更新test_items的unpaid_amount
+                  for (const allocation of allocations) {
+                    await connection.query(
+                      'UPDATE test_items SET unpaid_amount = ? WHERE test_item_id = ?',
+                      [allocation.unpaid_amount, allocation.test_item_id]
+                    );
+                  }
                 }
               }
             }
+          } catch (parseErr) {
+            console.error('Failed to parse test_item_ids:', parseErr);
           }
         }
         
@@ -461,20 +470,67 @@ router.delete('/:id', requireAuth, async (req, res) => {
   }
   
   const pool = await getPool();
+  const connection = await pool.getConnection();
   
   try {
-    const [result] = await pool.query(
+    await connection.beginTransaction();
+    
+    // 先获取要删除的结算记录信息，特别是order_ids
+    const [settlementRows] = await connection.query(
+      'SELECT order_ids FROM settlements WHERE settlement_id = ?',
+      [req.params.id]
+    );
+    
+    if (settlementRows.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({ error: '结算记录不存在' });
+    }
+    
+    const orderIds = settlementRows[0].order_ids;
+    
+    // 将order_ids字符串转换为数组（支持"-"分隔）
+    const orderIdArray = orderIds ? orderIds.split('-').filter(id => id.trim()) : [];
+    
+    // 找到所有相关的test_items，将它们的unpaid_amount清零
+    if (orderIdArray.length > 0) {
+      // 构建查询条件：匹配order_id在orderIds中的test_items
+      const placeholders = orderIdArray.map(() => '?').join(',');
+      const [testItems] = await connection.query(
+        `SELECT test_item_id FROM test_items WHERE order_id IN (${placeholders})`,
+        orderIdArray
+      );
+      
+      // 将所有相关test_items的unpaid_amount清零
+      if (testItems.length > 0) {
+        const testItemIds = testItems.map(item => item.test_item_id);
+        const testItemPlaceholders = testItemIds.map(() => '?').join(',');
+        await connection.query(
+          `UPDATE test_items 
+           SET unpaid_amount = 0
+           WHERE test_item_id IN (${testItemPlaceholders})`,
+          testItemIds
+        );
+      }
+    }
+    
+    // 删除结算记录
+    const [result] = await connection.query(
       'DELETE FROM settlements WHERE settlement_id = ?',
       [req.params.id]
     );
     
     if (result.affectedRows === 0) {
+      await connection.rollback();
       return res.status(404).json({ error: '结算记录不存在' });
     }
     
+    await connection.commit();
     res.json({ ok: true, message: '删除成功' });
   } catch (e) {
+    await connection.rollback();
     return res.status(500).json({ error: e.message });
+  } finally {
+    connection.release();
   }
 });
 
@@ -483,7 +539,7 @@ router.get('/assignees', requireAuth, async (req, res) => {
   const pool = await getPool();
   try {
     const [rows] = await pool.query(
-      `SELECT u.user_id, u.name 
+      `SELECT u.user_id, u.name, u.account 
        FROM users u
        JOIN user_roles ur ON ur.user_id = u.user_id
        JOIN roles r ON r.role_id = ur.role_id
