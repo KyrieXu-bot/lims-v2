@@ -353,7 +353,7 @@ router.put('/:id', requireRole(EDIT_ROLES), async (req, res) => {
     seq_no, sample_preparation, note, status, current_assignee, supervisor_id, technician_id,
     arrival_mode, sample_arrival_status, equipment_id, check_notes, test_notes, unit,
     actual_sample_quantity, actual_delivery_date, field_test_time, price_note,
-    assignment_note, business_note, abnormal_condition, service_urgency, business_confirmed,
+    assignment_note, business_note, invoice_note, abnormal_condition, service_urgency, business_confirmed,
     addon_reason
   } = req.body || {};
 
@@ -465,6 +465,7 @@ router.put('/:id', requireRole(EDIT_ROLES), async (req, res) => {
       addUpdate('price_note', price_note);
       addUpdate('assignment_note', assignment_note);
       addUpdate('business_note', business_note);
+      addUpdate('invoice_note', invoice_note);
       addUpdate('abnormal_condition', abnormal_condition);
       addUpdate('service_urgency', service_urgency);
       addUpdate('business_confirmed', business_confirmed);
