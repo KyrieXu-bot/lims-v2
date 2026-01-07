@@ -57,8 +57,10 @@ export default function CustomerEdit() {
     e.preventDefault();
     if (!it.customer_name) return alert('Name is required');
     if (!it.tax_id) return alert('Tax ID is required');
-    if (isNew) await api.createCustomer(it);
-    else await api.updateCustomer(id, it);
+    // 确保提交时税号也去除前后空格
+    const customerData = { ...it, tax_id: it.tax_id.trim() };
+    if (isNew) await api.createCustomer(customerData);
+    else await api.updateCustomer(id, customerData);
     navigate('/customers');
   }
 
@@ -89,7 +91,7 @@ export default function CustomerEdit() {
       <form onSubmit={onSubmit}>
         <div className="grid-3">
           <Field label="姓名 *" value={it.customer_name} onChange={v=>setIt({...it, customer_name:v})} />
-          <Field label="税号 *" value={it.tax_id} onChange={v=>setIt({...it, tax_id:v})} />
+          <Field label="税号 *" value={it.tax_id} onChange={v=>setIt({...it, tax_id:v.trim()})} />
           <div className="grid-3">
       {/* 省 */}
       <div>

@@ -159,9 +159,9 @@ router.post('/generate-process-template', requireAnyRole(['admin']), async (req,
     const report = doc.getZip().generate({ type: 'nodebuffer' });
     console.log('流转单文档生成成功，大小:', report.length);
 
-    // 设置响应头（命名：{委托单号}_流转单.docx）
+    // 设置响应头（命名：{委托单号}-{客户名称}-{联系人}.docx，与委托单命名规则一致）
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-    const fileName = `${flowData.order_num}_流转单.docx`;
+    const fileName = `${flowData.order_num}-${flowData.customer_name || ''}-${flowData.customer_contactName || ''}.docx`;
     const encodedFileName = encodeURIComponent(fileName);
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodedFileName}`);
     
@@ -518,13 +518,13 @@ router.post('/generate-bills-template', requireAnyRole(['admin', 'sales']), asyn
     const placeholders = test_item_ids.map(() => '?').join(',');
     const [testItemRows] = await pool.query(
       `SELECT ti.created_at, ti.order_id, ti.price_note, ti.unit, 
-              ti.quantity, ti.final_unit_price, ti.category_name, ti.detail_name,
+              ti.actual_sample_quantity, ti.final_unit_price, ti.category_name, ti.detail_name,
               comm.contact_name
        FROM test_items ti
        LEFT JOIN orders o ON o.order_id = ti.order_id
        LEFT JOIN commissioners comm ON o.commissioner_id = comm.commissioner_id
        WHERE ti.test_item_id IN (${placeholders})
-       ORDER BY ti.order，_id, ti.test_item_id`,
+       ORDER BY ti.order_id, ti.test_item_id`,
       test_item_ids
     );
 
@@ -733,7 +733,7 @@ router.post('/generate-bills-template', requireAnyRole(['admin', 'sales']), asyn
       order_id: item.order_id || '',
       price_note: item.price_note || '',
       unit: convertUnit(item.unit),
-      quantity: item.quantity || 0,
+      quantity: item.actual_sample_quantity || 0,
       final_unit_price: item.final_unit_price || 0,
       category_name: item.category_name || '',
       detail_name: item.detail_name || '',

@@ -21,8 +21,14 @@ export const useSocket = (room) => {
         // 开发环境使用本地服务器
         socketUrl = 'http://localhost:3001';
       } else {
-        // 生产环境使用 HTTPS 域名
-        socketUrl = 'https://jicuijiance.mat-jitri.cn';
+        // 生产环境：根据当前页面协议自动判断
+        if (typeof window !== 'undefined' && window.location) {
+          // 使用当前页面的协议和主机
+          socketUrl = `${window.location.protocol}//${window.location.host}`;
+        } else {
+          // 兜底：使用 HTTP
+          socketUrl = 'http://192.168.9.46:3004';
+        }
       }
     }
     

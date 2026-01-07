@@ -1,17 +1,28 @@
-import { LocalNotifications } from '@capacitor/local-notifications';
-import { Capacitor } from '@capacitor/core';
+/**
+ * 获取 Capacitor 相关模块（仅在原生环境中可用）
+ */
+const getCapacitorModules = () => {
+  if (typeof window !== 'undefined' && window.Capacitor) {
+    return {
+      Capacitor: window.Capacitor,
+      LocalNotifications: window.Capacitor?.Plugins?.LocalNotifications
+    };
+  }
+  return null;
+};
 
 /**
  * 初始化通知权限
  */
 export async function requestNotificationPermission() {
-  if (!Capacitor.isNativePlatform()) {
+  const capModules = getCapacitorModules();
+  if (!capModules || !capModules.Capacitor.isNativePlatform()) {
     // Web 环境不支持本地通知
     return false;
   }
 
   try {
-    const result = await LocalNotifications.requestPermissions();
+    const result = await capModules.LocalNotifications.requestPermissions();
     return result.display === 'granted';
   } catch (error) {
     console.error('请求通知权限失败:', error);
@@ -23,12 +34,13 @@ export async function requestNotificationPermission() {
  * 检查通知权限状态
  */
 export async function checkNotificationPermission() {
-  if (!Capacitor.isNativePlatform()) {
+  const capModules = getCapacitorModules();
+  if (!capModules || !capModules.Capacitor.isNativePlatform()) {
     return false;
   }
 
   try {
-    const result = await LocalNotifications.checkPermissions();
+    const result = await capModules.LocalNotifications.checkPermissions();
     return result.display === 'granted';
   } catch (error) {
     console.error('检查通知权限失败:', error);
@@ -44,7 +56,8 @@ export async function checkNotificationPermission() {
  * @param {number} notification.id - 通知ID（可选，默认使用时间戳）
  */
 export async function showLocalNotification({ title, body, id = null }) {
-  if (!Capacitor.isNativePlatform()) {
+  const capModules = getCapacitorModules();
+  if (!capModules || !capModules.Capacitor.isNativePlatform()) {
     console.log('Web 环境，跳过本地通知:', { title, body });
     return;
   }
@@ -65,7 +78,7 @@ export async function showLocalNotification({ title, body, id = null }) {
     const notificationId = id || Date.now();
 
     // 显示通知
-    await LocalNotifications.schedule({
+    await capModules.LocalNotifications.schedule({
       notifications: [
         {
           title: title || '新通知',
@@ -93,12 +106,13 @@ export async function showLocalNotification({ title, body, id = null }) {
  * 取消所有通知
  */
 export async function cancelAllNotifications() {
-  if (!Capacitor.isNativePlatform()) {
+  const capModules = getCapacitorModules();
+  if (!capModules || !capModules.Capacitor.isNativePlatform()) {
     return;
   }
 
   try {
-    await LocalNotifications.cancel({
+    await capModules.LocalNotifications.cancel({
       notifications: []
     });
   } catch (error) {
@@ -110,7 +124,8 @@ export async function cancelAllNotifications() {
  * 获取未读通知数量（用于设置角标）
  */
 export async function setBadgeCount(count) {
-  if (!Capacitor.isNativePlatform()) {
+  const capModules = getCapacitorModules();
+  if (!capModules || !capModules.Capacitor.isNativePlatform()) {
     return;
   }
 

@@ -1,5 +1,16 @@
-import { Capacitor } from '@capacitor/core';
-import { Filesystem, Directory } from '@capacitor/filesystem';
+/**
+ * 获取 Capacitor 相关模块（仅在原生环境中可用）
+ */
+const getCapacitorModules = () => {
+  if (typeof window !== 'undefined' && window.Capacitor) {
+    return {
+      Capacitor: window.Capacitor,
+      Filesystem: window.Capacitor?.Plugins?.Filesystem,
+      Directory: window.Capacitor?.Plugins?.Filesystem?.Directory
+    };
+  }
+  return null;
+};
 
 /**
  * 下载文件（支持 Web 和原生平台）
@@ -41,7 +52,8 @@ export const downloadFile = async (fileId, filename = null) => {
     const actualFilename = filename || fileInfo.filename || `file_${fileId}`;
 
     // 如果是原生平台，使用 Capacitor Filesystem API
-    if (Capacitor.isNativePlatform()) {
+    const capModules = getCapacitorModules();
+    if (capModules && capModules.Capacitor.isNativePlatform()) {
       // 将 blob 转换为 base64
       const reader = new FileReader();
       const base64Data = await new Promise((resolve, reject) => {
@@ -54,10 +66,10 @@ export const downloadFile = async (fileId, filename = null) => {
       });
 
       // 保存到设备
-      const result = await Filesystem.writeFile({
+      const result = await capModules.Filesystem.writeFile({
         path: actualFilename,
         data: base64Data,
-        directory: Directory.Documents,
+        directory: capModules.Directory.Documents,
         recursive: true
       });
 

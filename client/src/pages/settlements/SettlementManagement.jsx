@@ -315,12 +315,12 @@ export default function SettlementManagement() {
 
   // 检查用户权限
   const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
-  if (user?.role !== 'admin') {
+  if (user?.role !== 'admin' && !(user?.department_id === 5 && user?.role === 'leader')) {
     return (
       <div>
         <h2>费用结算</h2>
         <div style={{ padding: '20px', textAlign: 'center', color: '#dc3545' }}>
-          您没有权限访问此页面，仅管理员可以使用。
+          您没有权限访问此页面，仅管理员和特定部门领导可以使用。
         </div>
       </div>
     );

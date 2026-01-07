@@ -510,12 +510,14 @@ export default function CustomerIntegratedAdd() {
     
     try {
       // 1. 创建或更新客户
+      // 确保提交时税号去除前后空格
+      const customerData = { ...customer, tax_id: customer.tax_id.trim() };
       let customerId;
-      if (customer.customer_id) {
-        await api.updateCustomer(customer.customer_id, customer);
-        customerId = customer.customer_id;
+      if (customerData.customer_id) {
+        await api.updateCustomer(customerData.customer_id, customerData);
+        customerId = customerData.customer_id;
       } else {
-        const newCustomer = await api.createCustomer(customer);
+        const newCustomer = await api.createCustomer(customerData);
         customerId = newCustomer.customer_id;
       }
 
@@ -585,7 +587,7 @@ export default function CustomerIntegratedAdd() {
             <Field
               label="税号"
               value={customer.tax_id}
-              onChange={(val) => setCustomer({...customer, tax_id: val})}
+              onChange={(val) => setCustomer({...customer, tax_id: val.trim()})}
               required
               placeholder="输入税号"
             />

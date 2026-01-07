@@ -28,7 +28,11 @@ export default defineConfig({
     sourcemap: false,
     minify: 'esbuild', // 使用 esbuild（Vite 默认，更快）
     rollupOptions: {
-      external: [],
+      // 将 Capacitor 相关模块标记为 external
+      // 这些模块只在原生环境中需要，Web 构建时不需要打包
+      external: (id) => {
+        return id.startsWith('@capacitor/');
+      },
       output: {
         manualChunks: {
           vendor: ['react', 'react-dom', 'react-router-dom'],

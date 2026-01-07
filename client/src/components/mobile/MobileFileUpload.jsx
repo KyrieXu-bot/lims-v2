@@ -1,25 +1,47 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Capacitor } from '@capacitor/core';
-import { Share } from '@capacitor/share';
-import { Filesystem, Directory } from '@capacitor/filesystem';
 import './MobileFileUpload.css';
+
+// 获取 Capacitor 相关模块（仅在原生环境中可用）
+const getCapacitorModules = () => {
+  if (typeof window !== 'undefined' && window.Capacitor) {
+    return {
+      Capacitor: window.Capacitor,
+      Share: window.Capacitor?.Plugins?.Share,
+      Filesystem: window.Capacitor?.Plugins?.Filesystem,
+      Directory: window.Capacitor?.Plugins?.Filesystem?.Directory
+    };
+  }
+  return null;
+};
 
 // 获取API基础URL（与api.js保持一致）
 function getApiBase() {
-  // 1. 优先使用环境变量
+  // 1. 优先使用环境变量（支持 VITE_API_BASE 和 VITE_API_BASE_URL）
   if (import.meta.env.VITE_API_BASE) {
     return import.meta.env.VITE_API_BASE;
   }
+  if (import.meta.env.VITE_API_BASE_URL) {
+    return import.meta.env.VITE_API_BASE_URL;
+  }
   
-  // 2. 在 Capacitor 原生环境中，使用 HTTPS 域名
-  if (Capacitor.isNativePlatform()) {
+  // 2. 检测是否是原生环境
+  const isNative = typeof window !== 'undefined' && window.Capacitor && window.Capacitor.isNativePlatform();
+  if (isNative) {
     return 'https://jicuijiance.mat-jitri.cn';
   }
   
-  // 3. Web 环境：开发环境使用本地，生产环境使用 HTTPS 域名
-  return import.meta.env.DEV
-    ? 'http://localhost:3001'
-    : 'https://jicuijiance.mat-jitri.cn';
+  // 3. Web 环境
+  if (import.meta.env.DEV) {
+    return 'http://localhost:3001';
+  }
+  
+  // 4. 生产环境 Web：使用相对路径
+  if (typeof window !== 'undefined' && window.location) {
+    return '';
+  }
+  
+  // 5. 兜底
+  return 'http://192.168.9.46:3004';
 }
 
 const API_BASE = getApiBase();
@@ -344,8 +366,9 @@ const MobileFileUpload = ({
           }
 
           // 原生平台（iOS和Android）：使用Share插件分享文件
-          if (Capacitor.isNativePlatform()) {
-            const platform = Capacitor.getPlatform();
+          const capModules = getCapacitorModules();
+          if (capModules && capModules.Capacitor.isNativePlatform()) {
+            const platform = capModules.Capacitor.getPlatform();
             const isIOS = platform === 'ios';
             const isAndroid = platform === 'android';
 
@@ -369,17 +392,17 @@ const MobileFileUpload = ({
                   .trim();  // 移除首尾空白
                 
                 // 保存文件到Cache目录（临时目录）
-                const fileResult = await Filesystem.writeFile({
+                const fileResult = await capModules.Filesystem.writeFile({
                   path: safeFilename,
                   data: base64Data,
-                  directory: Directory.Cache, // 使用Cache目录作为临时存储
+                  directory: capModules.Directory.Cache, // 使用Cache目录作为临时存储
                   recursive: true
                 });
 
                 // 使用Share插件分享文件
                 // iOS: 会显示UIActivityViewController，包括"保存到文件"、"AirDrop"等选项
                 // Android: 会显示系统分享菜单，可以选择其他应用打开文件（如WPS、微信、QQ等）
-                await Share.share({
+                await capModules.Share.share({
                   title: downloadFilename, // 使用原始文件名（包含中文）
                   text: `文件：${downloadFilename}`,
                   files: [fileResult.uri], // iOS和Android都使用files参数

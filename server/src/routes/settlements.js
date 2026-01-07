@@ -44,9 +44,9 @@ router.get('/', requireAuth, async (req, res) => {
 router.post('/', requireAuth, async (req, res) => {
   const user = req.user;
   
-  // 只有管理员可以创建结算记录
-  if (user.role !== 'admin') {
-    return res.status(403).json({ error: '只有管理员可以创建结算记录' });
+  // 只有管理员和特定部门领导可以创建结算记录
+  if (user.role !== 'admin' && !(user.department_id === 5 && user.role === 'leader')) {
+    return res.status(403).json({ error: '只有管理员和特定部门领导可以创建结算记录' });
   }
   
   const { 
@@ -97,9 +97,34 @@ router.post('/', requireAuth, async (req, res) => {
       }
     }
     
-    // 插入结算记录，包含test_item_ids
+    // 如果有test_item_ids，需要进行验证和处理
     const test_item_ids_json = test_item_ids && Array.isArray(test_item_ids) ? JSON.stringify(test_item_ids) : null;
     
+    // 验证逻辑：检查开票预填价和开票状态
+    if (test_item_ids && Array.isArray(test_item_ids) && test_item_ids.length > 0) {
+      // 获取所有选中的test_items
+      const placeholders = test_item_ids.map(() => '?').join(',');
+      const [testItems] = await connection.query(
+        `SELECT test_item_id, invoice_prefill_price, invoice_status FROM test_items WHERE test_item_id IN (${placeholders})`,
+        test_item_ids
+      );
+      
+      // 检查是否有开票预填价为空的项目
+      const emptyPrefillItems = testItems.filter(item => item.invoice_prefill_price === null || item.invoice_prefill_price === undefined);
+      if (emptyPrefillItems.length > 0) {
+        await connection.rollback();
+        return res.status(400).json({ error: '有检测项目的开票预填价为空，无法结算' });
+      }
+      
+      // 检查是否有已结算的项目
+      const settledItems = testItems.filter(item => item.invoice_status === '已结算' || item.invoice_status === '已到账');
+      if (settledItems.length > 0) {
+        await connection.rollback();
+        return res.status(400).json({ error: '有检测项目已经结算过，不能进行二次结算' });
+      }
+    }
+    
+    // 插入结算记录，包含test_item_ids
     const [result] = await connection.query(
       `INSERT INTO settlements 
        (invoice_number, invoice_date, order_ids, test_item_ids, invoice_amount, remarks, customer_id, customer_name, assignee_id, customer_nature, payment_status)
@@ -107,21 +132,26 @@ router.post('/', requireAuth, async (req, res) => {
       [invoice_number || null, invoice_date, order_ids, test_item_ids_json, invoice_amount, remarks || null, final_customer_id, final_customer_name, assignee_id || null, final_customer_nature]
     );
     
-    // 如果有test_item_ids和test_item_amounts，按比例分配开票金额
-    if (test_item_ids && Array.isArray(test_item_ids) && test_item_ids.length > 0 && 
-        test_item_amounts && Array.isArray(test_item_amounts) && test_item_amounts.length > 0) {
+    // 如果有test_item_ids，按开票预填价比例分配开票金额，并更新开票状态
+    if (test_item_ids && Array.isArray(test_item_ids) && test_item_ids.length > 0) {
+      // 获取所有test_items的开票预填价
+      const placeholders = test_item_ids.map(() => '?').join(',');
+      const [testItems] = await connection.query(
+        `SELECT test_item_id, invoice_prefill_price FROM test_items WHERE test_item_id IN (${placeholders})`,
+        test_item_ids
+      );
       
-      // 计算总金额
-      const totalAmount = test_item_amounts.reduce((sum, amount) => sum + (parseFloat(amount) || 0), 0);
+      // 计算总开票预填价
+      const totalPrefillPrice = testItems.reduce((sum, item) => sum + (parseFloat(item.invoice_prefill_price) || 0), 0);
       
-      if (totalAmount > 0) {
-        // 按比例分配开票金额
-        const allocations = test_item_ids.map((testItemId, index) => {
-          const itemAmount = parseFloat(test_item_amounts[index]) || 0;
-          const proportion = itemAmount / totalAmount;
+      if (totalPrefillPrice > 0) {
+        // 按开票预填价比例分配开票金额
+        const allocations = testItems.map((item) => {
+          const prefillPrice = parseFloat(item.invoice_prefill_price) || 0;
+          const proportion = prefillPrice / totalPrefillPrice;
           const allocatedAmount = parseFloat((invoice_amount * proportion).toFixed(2));
           return {
-            test_item_id: testItemId,
+            test_item_id: item.test_item_id,
             unpaid_amount: allocatedAmount
           };
         });
@@ -134,11 +164,11 @@ router.post('/', requireAuth, async (req, res) => {
           allocations[allocations.length - 1].unpaid_amount = parseFloat((allocations[allocations.length - 1].unpaid_amount + difference).toFixed(2));
         }
         
-        // 批量更新test_items表的unpaid_amount
+        // 批量更新test_items表的unpaid_amount和invoice_status
         for (const allocation of allocations) {
           await connection.query(
             `UPDATE test_items 
-             SET unpaid_amount = ?
+             SET unpaid_amount = ?, invoice_status = '已结算'
              WHERE test_item_id = ?`,
             [allocation.unpaid_amount, allocation.test_item_id]
           );
@@ -186,9 +216,9 @@ router.post('/', requireAuth, async (req, res) => {
 router.put('/:id', requireAuth, async (req, res) => {
   const user = req.user;
   
-  // 只有管理员可以更新结算记录
-  if (user.role !== 'admin') {
-    return res.status(403).json({ error: '只有管理员可以更新结算记录' });
+  // 只有管理员和特定部门领导可以更新结算记录
+  if (user.role !== 'admin' && !(user.department_id === 5 && user.role === 'leader')) {
+    return res.status(403).json({ error: '只有管理员和特定部门领导可以更新结算记录' });
   }
   
   const { 
@@ -464,9 +494,9 @@ router.get('/customers/search', requireAuth, async (req, res) => {
 router.delete('/:id', requireAuth, async (req, res) => {
   const user = req.user;
   
-  // 只有管理员可以删除结算记录
-  if (user.role !== 'admin') {
-    return res.status(403).json({ error: '只有管理员可以删除结算记录' });
+  // 只有管理员和特定部门领导可以删除结算记录
+  if (user.role !== 'admin' && !(user.department_id === 5 && user.role === 'leader')) {
+    return res.status(403).json({ error: '只有管理员和特定部门领导可以删除结算记录' });
   }
   
   const pool = await getPool();

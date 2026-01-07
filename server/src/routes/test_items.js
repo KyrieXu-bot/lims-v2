@@ -354,7 +354,7 @@ router.put('/:id', requireRole(EDIT_ROLES), async (req, res) => {
     arrival_mode, sample_arrival_status, equipment_id, check_notes, test_notes, unit,
     actual_sample_quantity, actual_delivery_date, field_test_time, price_note,
     assignment_note, business_note, invoice_note, abnormal_condition, service_urgency, business_confirmed,
-    addon_reason
+    addon_reason, invoice_prefill_price, invoice_prefill_confirmed, invoice_status
   } = req.body || {};
 
   // 处理空字符串，将其转换为null，这样数据库可以接受空值
@@ -470,6 +470,10 @@ router.put('/:id', requireRole(EDIT_ROLES), async (req, res) => {
       addUpdate('service_urgency', service_urgency);
       addUpdate('business_confirmed', business_confirmed);
       addUpdate('addon_reason', addon_reason);
+      // 添加开票相关字段
+      addUpdate('invoice_prefill_price', invoice_prefill_price);
+      addUpdate('invoice_prefill_confirmed', invoice_prefill_confirmed);
+      addUpdate('invoice_status', invoice_status);
       
       // 如果没有要更新的字段，直接返回
       if (updateFields.length === 0) {

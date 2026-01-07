@@ -1,27 +1,44 @@
 // 统一的后端 API 根地址
-// 优先级：环境变量 > Capacitor 配置 > 默认值
-import { Capacitor } from '@capacitor/core';
+// 优先级：环境变量 > 原生环境检测 > 根据当前页面协议 > 默认值
 
 function getApiBase() {
-  // 1. 优先使用环境变量
+  // 1. 优先使用环境变量（支持 VITE_API_BASE 和 VITE_API_BASE_URL）
   if (import.meta.env.VITE_API_BASE) {
     return import.meta.env.VITE_API_BASE;
   }
+  if (import.meta.env.VITE_API_BASE_URL) {
+    return import.meta.env.VITE_API_BASE_URL;
+  }
   
-  // 2. 在 Capacitor 原生环境中，使用 HTTPS 域名
-  if (Capacitor.isNativePlatform()) {
+  // 2. 检测是否是原生环境（通过检查全局对象）
+  const isNative = typeof window !== 'undefined' && window.Capacitor && window.Capacitor.isNativePlatform();
+  if (isNative) {
     // 原生应用使用 HTTPS 域名（支持外网访问）
     return 'https://jicuijiance.mat-jitri.cn';
   }
   
-  // 3. Web 环境：开发环境使用本地，生产环境使用 HTTPS 域名
-  return import.meta.env.DEV
-    ? 'http://localhost:3001'
-    : 'https://jicuijiance.mat-jitri.cn';
+  // 3. Web 环境
+  if (import.meta.env.DEV) {
+    // 开发环境使用本地
+    return 'http://localhost:3001';
+  }
+  
+  // 4. 生产环境 Web：使用相对路径，让浏览器自动处理协议和主机
+  // 这样如果前端通过 HTTP 访问，API 也会使用 HTTP；如果通过 HTTPS 访问，API 也会使用 HTTPS
+  if (typeof window !== 'undefined' && window.location) {
+    // 使用相对路径，浏览器会自动使用当前页面的协议和主机
+    return '';
+  }
+  
+  // 5. 兜底：如果无法检测，使用 HTTP（生产环境后端通常是 HTTP）
+  return 'http://192.168.9.46:3004';
 }
 
 const API_BASE = getApiBase();
-console.log('API Base URL:', API_BASE, 'Platform:', Capacitor.getPlatform());
+const platform = typeof window !== 'undefined' && window.Capacitor 
+  ? window.Capacitor.getPlatform() 
+  : 'web';
+console.log('API Base URL:', API_BASE, 'Platform:', platform);
 
 export const api = {
   // auth
@@ -511,18 +528,25 @@ export const api = {
   },
 
   // statistics
-  async getStatisticsSummary({ from, to }) {
+  async getStatisticsSummary({ from, to, jc_prefix } = {}) {
     const params = new URLSearchParams();
     if (from) params.set('from', from);
     if (to) params.set('to', to);
+    if (jc_prefix) params.set('jc_prefix', jc_prefix);
     const r = await fetch(`${API_BASE}/api/statistics/summary?${params.toString()}`, { headers: this.authHeaders() });
     if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
     return r.json();
   },
-  async exportStatistics({ from, to }) {
+  async getJCPrefixes() {
+    const r = await fetch(`${API_BASE}/api/statistics/jc-prefixes`, { headers: this.authHeaders() });
+    if (!r.ok) throw new Error((await r.json()).error || '获取JC号前缀列表失败');
+    return r.json();
+  },
+  async exportStatistics({ from, to, jc_prefix } = {}) {
     const params = new URLSearchParams();
     if (from) params.set('from', from);
     if (to) params.set('to', to);
+    if (jc_prefix) params.set('jc_prefix', jc_prefix);
     const r = await fetch(`${API_BASE}/api/statistics/export?${params.toString()}`, { headers: this.authHeaders() });
     if (!r.ok) throw new Error((await r.json()).error || 'Export failed');
     return r.blob();

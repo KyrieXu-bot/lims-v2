@@ -127,6 +127,9 @@ router.get('/commission-form', async (req, res) => {
         u.account as assignee_account,
         ti.current_assignee,
         ti.unpaid_amount, -- 开票未到款金额
+        ti.invoice_prefill_price, -- 开票预填价
+        ti.invoice_prefill_confirmed, -- 开票预填价是否已确认
+        ti.invoice_status, -- 开票状态
         CONCAT(ti.category_name, ' - ', ti.detail_name) as test_item_name,
         ti.category_name,
         ti.detail_name,

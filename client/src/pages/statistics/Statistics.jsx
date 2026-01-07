@@ -110,6 +110,8 @@ export default function Statistics() {
   const initialRangeRef = useRef(getDefaultRange());
   const [fromDate, setFromDate] = useState(initialRangeRef.current.from);
   const [toDate, setToDate] = useState(initialRangeRef.current.to);
+  const [jcPrefix, setJcPrefix] = useState('');
+  const [jcPrefixOptions, setJcPrefixOptions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState('');
@@ -124,18 +126,25 @@ export default function Statistics() {
   }, []);
 
   const isRangeValid = useMemo(() => {
+    // 如果选择了JC号，日期验证通过（因为日期会被禁用）
+    if (jcPrefix) return true;
     if (!fromDate || !toDate) return false;
     return new Date(fromDate) <= new Date(toDate);
-  }, [fromDate, toDate]);
+  }, [fromDate, toDate, jcPrefix]);
 
   const loadData = useCallback(
     async ({ from, to } = {}) => {
-      const targetFrom = from || fromDate;
-      const targetTo = to || toDate;
+      // 如果选择了JC号，不使用日期范围
+      const targetFrom = jcPrefix ? undefined : (from || fromDate);
+      const targetTo = jcPrefix ? undefined : (to || toDate);
       setLoading(true);
       setError('');
       try {
-        const result = await api.getStatisticsSummary({ from: targetFrom, to: targetTo });
+        const result = await api.getStatisticsSummary({ 
+          from: targetFrom, 
+          to: targetTo,
+          jc_prefix: jcPrefix || undefined
+        });
         setData(result);
       } catch (err) {
         setData(null);
@@ -144,39 +153,87 @@ export default function Statistics() {
         setLoading(false);
       }
     },
-    [fromDate, toDate]
+    [fromDate, toDate, jcPrefix]
   );
 
   useEffect(() => {
     loadData(initialRangeRef.current);
   }, [loadData]);
 
+  // 加载JC号前缀列表
+  useEffect(() => {
+    const loadJCPrefixes = async () => {
+      try {
+        const prefixes = await api.getJCPrefixes();
+        setJcPrefixOptions(prefixes);
+      } catch (err) {
+        console.error('获取JC号前缀列表失败:', err);
+      }
+    };
+    loadJCPrefixes();
+  }, []);
+
   const handleSubmit = (event) => {
     event.preventDefault();
-    if (!isRangeValid) {
-      setError('开始日期不能晚于结束日期');
-      return;
+    // 如果选择了JC号，不需要验证日期范围
+    if (!jcPrefix) {
+      if (!isRangeValid) {
+        setError('开始日期不能晚于结束日期');
+        return;
+      }
     }
     loadData();
   };
 
   const handleQuickRange = (key) => {
+    // 如果选择了JC号，先清空
+    if (jcPrefix) {
+      setJcPrefix('');
+    }
     const range = computeQuickRange(key);
     setFromDate(range.from);
     setToDate(range.to);
     loadData(range);
   };
 
+  const handleJcPrefixChange = (value) => {
+    setJcPrefix(value);
+    // 如果选择了JC号，清空日期范围
+    if (value) {
+      setFromDate('');
+      setToDate('');
+    }
+  };
+
+  const handleDateChange = (type, value) => {
+    if (type === 'from') {
+      setFromDate(value);
+    } else {
+      setToDate(value);
+    }
+    // 如果手动输入了日期，清空JC号选择
+    if (jcPrefix) {
+      setJcPrefix('');
+    }
+  };
+
   const handleExport = async () => {
-    if (!isRangeValid || exporting) return;
+    if ((!jcPrefix && !isRangeValid) || exporting) return;
     setExporting(true);
     setError('');
     try {
-      const blob = await api.exportStatistics({ from: fromDate, to: toDate });
+      const blob = await api.exportStatistics({ 
+        from: jcPrefix ? undefined : fromDate, 
+        to: jcPrefix ? undefined : toDate,
+        jc_prefix: jcPrefix || undefined
+      });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `统计数据_${fromDate}_${toDate}.xlsx`;
+      const filename = jcPrefix 
+        ? `统计数据_${jcPrefix}.xlsx`
+        : `统计数据_${fromDate}_${toDate}.xlsx`;
+      a.download = filename;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -243,8 +300,9 @@ export default function Statistics() {
               type="date"
               value={fromDate}
               max={toDate}
-              onChange={(e) => setFromDate(e.target.value)}
-              required
+              onChange={(e) => handleDateChange('from', e.target.value)}
+              disabled={!!jcPrefix}
+              required={!jcPrefix}
             />
           </label>
           <label>
@@ -253,13 +311,34 @@ export default function Statistics() {
               type="date"
               value={toDate}
               min={fromDate}
-              onChange={(e) => setToDate(e.target.value)}
-              required
+              onChange={(e) => handleDateChange('to', e.target.value)}
+              disabled={!!jcPrefix}
+              required={!jcPrefix}
             />
+          </label>
+          <label>
+            JC号
+            <select
+              value={jcPrefix}
+              onChange={(e) => handleJcPrefixChange(e.target.value)}
+              style={{ minWidth: '120px' }}
+            >
+              <option value="">全部</option>
+              {jcPrefixOptions.map((prefix) => (
+                <option key={prefix} value={prefix}>
+                  {prefix}
+                </option>
+              ))}
+            </select>
           </label>
           <div className="stats-quick-buttons">
             {QUICK_RANGE_OPTIONS.map((item) => (
-              <button type="button" key={item.key} onClick={() => handleQuickRange(item.key)}>
+              <button 
+                type="button" 
+                key={item.key} 
+                onClick={() => handleQuickRange(item.key)}
+                disabled={!!jcPrefix}
+              >
                 {item.label}
               </button>
             ))}
@@ -272,8 +351,13 @@ export default function Statistics() {
         </div>
       </form>
 
-      {!isRangeValid && (
+      {!isRangeValid && !jcPrefix && (
         <div className="stats-error">请选择正确的时间范围，开始日期不能晚于结束日期。</div>
+      )}
+      {jcPrefix && (
+        <div className="stats-info" style={{ color: '#666', fontSize: '14px', marginBottom: '16px' }}>
+          当前筛选：JC号 {jcPrefix}（已禁用日期筛选）
+        </div>
       )}
       {error && <div className="stats-error">{error}</div>}
 

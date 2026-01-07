@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { api } from '../../api.js';
 import CustomerDetailModal from './CustomerDetailModal.jsx';
 import OrderPartyDetailModal from './OrderPartyDetailModal.jsx';
@@ -115,13 +115,15 @@ const TOGGLEABLE_COLUMNS = [
   { key: 'final_unit_price', label: '测试总价' },
   { key: 'actual_delivery_date', label: '实际交付日期' },
   { key: 'business_note', label: '业务备注' },
+  { key: 'status', label: '项目状态' },
+  { key: 'abnormal_condition', label: '异常情况' },
   { key: 'invoice_number', label: '票号' },
   { key: 'settlement_invoice_date', label: '开票日期' },
   { key: 'settlement_customer_name', label: '开票客户名称' },
+  { key: 'invoice_prefill_price', label: '开票预填价' },
   { key: 'unpaid_amount', label: '开票未到款金额' },
   { key: 'invoice_note', label: '开票备注' },
-  { key: 'status', label: '项目状态' },
-  { key: 'abnormal_condition', label: '异常情况' }
+  { key: 'invoice_status', label: '开票状态' }
 ];
 
 const DEFAULT_COLUMN_VISIBILITY = TOGGLEABLE_COLUMNS.reduce((acc, col) => {
@@ -189,6 +191,7 @@ const CommissionForm = () => {
   };
 
   const navigate = useNavigate();
+  const location = useLocation();
 
   const getSavedViewState = () => {
     if (typeof window === 'undefined') return null;
@@ -313,9 +316,30 @@ const CommissionForm = () => {
 
   const isColumnVisible = (key) => columnVisibility[key] !== false;
 
+  // 检查用户是否有权限访问结算相关功能
+  // 管理员或部门ID为5的室主任可以访问
+  const canAccessSettlement = () => {
+    if (user?.role === 'admin') return true;
+    if (user?.role === 'leader' && Number(user?.department_id) === 5) return true;
+    return false;
+  };
+
   const isColumnApplicable = (key) => {
     if (key === 'department') {
       return user?.role === 'admin';
+    }
+    // 开票相关列对管理员和部门ID为5的室主任可见
+    const invoiceColumns = [
+      'invoice_number', 
+      'settlement_invoice_date', 
+      'settlement_customer_name', 
+      'invoice_prefill_price', 
+      'unpaid_amount', 
+      'invoice_note', 
+      'invoice_status'
+    ];
+    if (invoiceColumns.includes(key)) {
+      return canAccessSettlement();
     }
     return true;
   };
@@ -486,6 +510,28 @@ const CommissionForm = () => {
     return Math.round(result * 100) / 100; // 保留两位小数
   };
 
+  // 计算开票预填价：invoice_prefill_price = standard_price * actual_sample_quantity * (discount_rate / 100) * 加急倍数
+  const calculateInvoicePrefillPrice = (item) => {
+    const standardPrice = item.standard_price !== null && item.standard_price !== undefined ? Number(item.standard_price) : 
+                         (item.unit_price !== null && item.unit_price !== undefined ? Number(item.unit_price) : null);
+    const actualSampleQuantity = item.actual_sample_quantity !== null && item.actual_sample_quantity !== undefined ? Number(item.actual_sample_quantity) : null;
+    const discountRate = item.discount_rate !== null && item.discount_rate !== undefined ? Number(item.discount_rate) : null;
+    
+    // 获取加急系数
+    const urgencyMultiplier = getServiceUrgencyMultiplier(item.service_urgency);
+    
+    // 如果任一值为空或无效，返回null
+    if (standardPrice === null || isNaN(standardPrice) || standardPrice < 0 ||
+        actualSampleQuantity === null || isNaN(actualSampleQuantity) || actualSampleQuantity < 0 ||
+        discountRate === null || isNaN(discountRate) || discountRate < 0 || discountRate > 100) {
+      return null;
+    }
+    
+    // 计算：标准单价 * 计费数量 * (折扣/100) * 加急倍数
+    const result = standardPrice * actualSampleQuantity * (discountRate / 100) * urgencyMultiplier;
+    return Math.round(result * 100) / 100; // 保留两位小数
+  };
+
   const renderColumnHeader = (key, label, baseClass) => {
     if (!isColumnApplicable(key)) return null;
     const isVisible = isColumnVisible(key);
@@ -640,6 +686,30 @@ const CommissionForm = () => {
       setLoading(false);
     }
   };
+
+  // 处理从通知跳转过来的情况 - 自动查询对应的委托单号
+  useEffect(() => {
+    if (location.state?.highlightOrderId) {
+      const orderId = location.state.highlightOrderId;
+      
+      // 清除保存的视图状态，避免冲突
+      sessionStorage.removeItem(RETURN_STATE_SHOULD_RESTORE_KEY);
+      sessionStorage.removeItem(RETURN_STATE_STORAGE_KEY);
+      
+      // 设置搜索查询为委托单号，自动查询并只展示这个order_id的内容
+      setSearchQuery(orderId);
+      setPage(1);
+      
+      // 清除其他筛选条件，确保能显示该委托单
+      setStatusFilter([]);
+      setDepartmentFilter('');
+      setMonthFilter('');
+      setMyItemsFilter(false);
+      
+      // 清除 location.state，避免重复触发
+      navigate(location.pathname, { replace: true });
+    }
+  }, [location.state]);
 
   useEffect(() => {
     fetchData();
@@ -1325,15 +1395,24 @@ const CommissionForm = () => {
         '测试工时': item.work_hours || '',
         '测试机时': item.machine_hours || '',
         '实际交付日期': formatDate(item.actual_delivery_date),
-        '业务备注': item.business_note || '',
         '指派备注': item.assignment_note || '',
-        '开票未到款金额': formatCurrency(item.unpaid_amount),
+        '业务备注': item.business_note || '',
         '项目状态': item.status === 'new' ? '新建' : 
                    item.status === 'assigned' ? '已分配' : 
                    item.status === 'running' ? '进行中' : 
                    item.status === 'completed' ? '已完成' : 
                    item.status === 'cancelled' ? '已取消' : 
-                   item.status === 'outsource' ? '委外' : ''
+                   item.status === 'outsource' ? '委外' : '',
+        '异常情况': item.abnormal_condition || '',
+        '票号': item.invoice_number || '',
+        '开票日期': item.settlement_invoice_date ? formatDate(item.settlement_invoice_date) : '',
+        '开票客户名称': item.settlement_customer_name || '',
+        '开票预填价': item.invoice_prefill_price !== null && item.invoice_prefill_price !== undefined 
+          ? formatCurrency(item.invoice_prefill_price)
+          : (calculateInvoicePrefillPrice(item) !== null ? formatCurrency(calculateInvoicePrefillPrice(item)) : ''),
+        '开票未到款金额': formatCurrency(item.unpaid_amount),
+        '开票备注': item.invoice_note || '',
+        '开票状态': item.invoice_status || '未结算'
       }));
 
       // 创建工作簿
@@ -1382,10 +1461,17 @@ const CommissionForm = () => {
         { wch: 10 },  // 测试工时
         { wch: 10 },  // 测试机时
         { wch: 12 },  // 实际交付日期
-        { wch: 20 },  // 业务备注
         { wch: 20 },  // 指派备注
+        { wch: 20 },  // 业务备注
+        { wch: 10 },  // 项目状态
+        { wch: 15 },  // 异常情况
+        { wch: 20 },  // 票号
+        { wch: 12 },  // 开票日期
+        { wch: 20 },  // 开票客户名称
+        { wch: 15 },  // 开票预填价
         { wch: 15 },  // 开票未到款金额
-        { wch: 10 }   // 项目状态
+        { wch: 20 },  // 开票备注
+        { wch: 10 }   // 开票状态
       ];
       ws['!cols'] = colWidths;
 
@@ -1661,6 +1747,8 @@ const CommissionForm = () => {
       // 构建完整的流转单数据
       const flowData = {
         order_num: firstItem.order_id,
+        customer_name: firstItem.commissioner_name || firstItem.customer_commissioner_name || '',
+        customer_contactName: firstItem.customer_contact_name || '',
         
         // 部门标识
         machiningCenterSymbol: machiningItems.length > 0 ? '☑' : '☐',
@@ -1765,7 +1853,7 @@ const CommissionForm = () => {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${flowData.order_num}_流转单.docx`;
+      a.download = `${flowData.order_num}-${flowData.customer_name}-${flowData.customer_contactName}.docx`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -1991,10 +2079,36 @@ const CommissionForm = () => {
 
     // 获取选中的test_items数据，用于按比例分配unpaid_amount
     const selectedData = data.filter(item => selectedItems.includes(item.test_item_id));
+    
+    // 验证：检查是否有开票预填价为空的项目
+    const emptyPrefillItems = selectedData.filter(item => {
+      const prefillPrice = item.invoice_prefill_price !== null && item.invoice_prefill_price !== undefined
+        ? item.invoice_prefill_price
+        : calculateInvoicePrefillPrice(item);
+      return prefillPrice === null;
+    });
+    
+    if (emptyPrefillItems.length > 0) {
+      alert('有检测项目的开票预填价为空，无法结算。请确保所有项目都已填写必需的字段（标准单价、计费数量、折扣）。');
+      return;
+    }
+    
+    // 验证：检查是否有已结算的项目
+    const settledItems = selectedData.filter(item => 
+      item.invoice_status === '已结算' || item.invoice_status === '已到账'
+    );
+    
+    if (settledItems.length > 0) {
+      alert('有检测项目已经结算过，不能进行二次结算');
+      return;
+    }
+    
     const test_item_ids = selectedData.map(item => item.test_item_id);
+    // 使用开票预填价作为分配依据
     const test_item_amounts = selectedData.map(item => {
-      // 使用final_unit_price作为分配依据，如果没有则使用0
-      return item.final_unit_price || 0;
+      return item.invoice_prefill_price !== null && item.invoice_prefill_price !== undefined
+        ? item.invoice_prefill_price
+        : calculateInvoicePrefillPrice(item);
     });
 
     try {
@@ -2898,7 +3012,7 @@ const CommissionForm = () => {
             >
               导出 ({selectedItems.length})
             </button>
-            {user?.role === 'admin' && (
+            {canAccessSettlement() && (
               <>
                 <button 
                   onClick={handleSettlementClick} 
@@ -3082,13 +3196,15 @@ const CommissionForm = () => {
                     {renderColumnHeader('final_unit_price', '测试总价', 'lab-field narrow-col')}
                     {renderColumnHeader('actual_delivery_date', '实际交付日期', 'lab-field')}
                     {renderColumnHeader('business_note', '业务备注', 'lab-field note-col')}
-                    {renderColumnHeader('invoice_number', '票号', 'lab-field narrow-col')}
-                    {renderColumnHeader('settlement_invoice_date', '开票日期', 'lab-field narrow-col')}
-                    {renderColumnHeader('settlement_customer_name', '开票客户名称', 'lab-field')}
-                    {renderColumnHeader('unpaid_amount', '开票未到款金额', 'lab-field')}
-                    {renderColumnHeader('invoice_note', '开票备注', 'lab-field note-col')}
                     {renderColumnHeader('status', '项目状态', 'lab-field narrow-col')}
                     {renderColumnHeader('abnormal_condition', '异常情况', 'lab-field narrow-col')}
+                    {canAccessSettlement() && renderColumnHeader('invoice_number', '票号', 'invoice-field narrow-col')}
+                    {canAccessSettlement() && renderColumnHeader('settlement_invoice_date', '开票日期', 'invoice-field narrow-col')}
+                    {canAccessSettlement() && renderColumnHeader('settlement_customer_name', '开票客户名称', 'invoice-field')}
+                    {canAccessSettlement() && renderColumnHeader('invoice_prefill_price', '开票预填价', 'invoice-field')}
+                    {canAccessSettlement() && renderColumnHeader('unpaid_amount', '开票未到款金额', 'invoice-field')}
+                    {canAccessSettlement() && renderColumnHeader('invoice_note', '开票备注', 'invoice-field note-col')}
+                    {canAccessSettlement() && renderColumnHeader('invoice_status', '开票状态', 'invoice-field narrow-col')}
                     <th className="lab-field fixed-right narrow-col">文件管理</th>
                     <th className="fixed-right" ref={operationColumnRef}>操作</th>
                   </tr>
@@ -3806,10 +3922,10 @@ const CommissionForm = () => {
                       </td>
                       <td className={getColumnCellClass('business_note', 'lab-field note-col')} data-column-key="business_note">
                         <div className="editable-field-container">
-                          {canEditField('business_note', item) ? (
+                          {(user?.role === 'admin' || user?.role === 'sales' || user?.role === 'leader') ? (
                             <>
                               <RealtimeEditableCell
-                                value={item.business_note}
+                                value={item.business_note || ''}
                                 type="textarea"
                                 onSave={handleSaveEdit}
                                 field="business_note"
@@ -3827,53 +3943,6 @@ const CommissionForm = () => {
                           )}
                         </div>
                       </td>
-                      <td className={getColumnCellClass('invoice_number', 'lab-field narrow-col')} data-column-key="invoice_number">
-                        {item.invoice_number ? (
-                          <DetailViewLink 
-                            text={item.invoice_number} 
-                            maxLength={20} 
-                            fieldName="票号" 
-                          />
-                        ) : (
-                          <span className="readonly-field">-</span>
-                        )}
-                      </td>
-                      <td className={getColumnCellClass('settlement_invoice_date', 'lab-field narrow-col')} data-column-key="settlement_invoice_date">
-                        {item.settlement_invoice_date ? formatDate(item.settlement_invoice_date) : '-'}
-                      </td>
-                      <td className={getColumnCellClass('settlement_customer_name', 'lab-field')} data-column-key="settlement_customer_name">
-                        {item.settlement_customer_name || '-'}
-                      </td>
-                      <td className={getColumnCellClass('unpaid_amount', 'lab-field')} data-column-key="unpaid_amount">
-                        {item.unpaid_amount !== null && item.unpaid_amount !== undefined && item.unpaid_amount !== '' 
-                          ? formatCurrency(item.unpaid_amount) 
-                          : '-'}
-                      </td>
-                      <td className={getColumnCellClass('invoice_note', 'lab-field note-col')} data-column-key="invoice_note">
-                        {user?.role === 'admin' ? (
-                          <div className="editable-field-container">
-                            <RealtimeEditableCell
-                              value={item.invoice_note || ''}
-                              type="textarea"
-                              onSave={handleSaveEdit}
-                              field="invoice_note"
-                              testItemId={item.test_item_id}
-                              placeholder="输入开票备注"
-                              isFieldBeingEdited={isFieldBeingEdited}
-                              getEditingUser={getEditingUser}
-                              emitUserEditing={emitUserEditing}
-                              emitUserStopEditing={emitUserStopEditing}
-                            />
-                            <SavingIndicator testItemId={item.test_item_id} field="invoice_note" />
-                          </div>
-                        ) : (
-                          <DetailViewLink 
-                            text={item.invoice_note || ''} 
-                            maxLength={30} 
-                            fieldName="开票备注" 
-                          />
-                        )}
-                      </td>
                       <td className={getColumnCellClass('status', 'lab-field narrow-col')} data-column-key="status">
                         <span className={`status status-${item.status}`}>
                           {item.status === 'new' && '新建'}
@@ -3887,6 +3956,135 @@ const CommissionForm = () => {
                       <td className={getColumnCellClass('abnormal_condition', 'lab-field narrow-col')} data-column-key="abnormal_condition">
                         <span className="readonly-field">{item.abnormal_condition || ''}</span>
                       </td>
+                      {canAccessSettlement() && (
+                        <>
+                          <td className={getColumnCellClass('invoice_number', 'invoice-field narrow-col')} data-column-key="invoice_number">
+                            {item.invoice_number ? (
+                              <DetailViewLink 
+                                text={item.invoice_number} 
+                                maxLength={20} 
+                                fieldName="票号" 
+                              />
+                            ) : (
+                              <span className="readonly-field">-</span>
+                            )}
+                          </td>
+                          <td className={getColumnCellClass('settlement_invoice_date', 'invoice-field narrow-col')} data-column-key="settlement_invoice_date">
+                            {item.settlement_invoice_date ? formatDate(item.settlement_invoice_date) : '-'}
+                          </td>
+                          <td className={getColumnCellClass('settlement_customer_name', 'invoice-field')} data-column-key="settlement_customer_name">
+                            {item.settlement_customer_name || '-'}
+                          </td>
+                          <td className={getColumnCellClass('invoice_prefill_price', 'invoice-field')} data-column-key="invoice_prefill_price">
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                              {item.invoice_prefill_confirmed === 1 ? (
+                                // 已确认，显示为只读
+                                <span>{item.invoice_prefill_price !== null && item.invoice_prefill_price !== undefined 
+                                  ? formatCurrency(item.invoice_prefill_price) 
+                                  : '-'}</span>
+                              ) : (
+                                <>
+                                  {/* 未确认，显示可编辑的input输入框 */}
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    value={item.invoice_prefill_price !== null && item.invoice_prefill_price !== undefined 
+                                      ? item.invoice_prefill_price
+                                      : (calculateInvoicePrefillPrice(item) || '')}
+                                    onChange={(e) => {
+                                      const newValue = e.target.value === '' ? null : parseFloat(e.target.value);
+                                      // 实时更新本地数据
+                                      setData(prev => prev.map(x => 
+                                        x.test_item_id === item.test_item_id 
+                                          ? { ...x, invoice_prefill_price: newValue } 
+                                          : x
+                                      ));
+                                    }}
+                                    onBlur={async (e) => {
+                                      // 失焦时保存到数据库
+                                      const newValue = e.target.value === '' ? null : parseFloat(e.target.value);
+                                      if (newValue !== null && !isNaN(newValue) && newValue >= 0) {
+                                        try {
+                                          await handleSaveEdit('invoice_prefill_price', newValue, item.test_item_id);
+                                        } catch (error) {
+                                          alert('保存失败：' + error.message);
+                                        }
+                                      }
+                                    }}
+                                    onClick={(e) => e.stopPropagation()}
+                                    style={{
+                                      width: '100px',
+                                      padding: '4px 8px',
+                                      fontSize: '13px',
+                                      border: '1px solid #ddd',
+                                      borderRadius: '3px'
+                                    }}
+                                    placeholder="输入价格"
+                                  />
+                                  {/* 确认按钮 */}
+                                  <button
+                                    className="btn btn-sm"
+                                    style={{
+                                      padding: '2px 8px',
+                                      fontSize: '11px',
+                                      backgroundColor: '#28a745',
+                                      color: 'white',
+                                      border: 'none',
+                                      borderRadius: '3px',
+                                      cursor: 'pointer',
+                                      whiteSpace: 'nowrap'
+                                    }}
+                                    onClick={async (e) => {
+                                      e.stopPropagation();
+                                      const priceToSave = item.invoice_prefill_price !== null && item.invoice_prefill_price !== undefined
+                                        ? item.invoice_prefill_price
+                                        : calculateInvoicePrefillPrice(item);
+                                      if (priceToSave === null || priceToSave === '' || isNaN(priceToSave)) {
+                                        alert('请输入有效的开票预填价');
+                                        return;
+                                      }
+                                      try {
+                                        await handleSaveEdit('invoice_prefill_price', priceToSave, item.test_item_id);
+                                        await handleSaveEdit('invoice_prefill_confirmed', 1, item.test_item_id);
+                                      } catch (error) {
+                                        alert('保存失败：' + error.message);
+                                      }
+                                    }}
+                                  >
+                                    确认
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </td>
+                          <td className={getColumnCellClass('unpaid_amount', 'invoice-field')} data-column-key="unpaid_amount">
+                            {item.unpaid_amount !== null && item.unpaid_amount !== undefined && item.unpaid_amount !== '' 
+                              ? formatCurrency(item.unpaid_amount) 
+                              : '-'}
+                          </td>
+                          <td className={getColumnCellClass('invoice_note', 'invoice-field note-col')} data-column-key="invoice_note">
+                            <div className="editable-field-container">
+                              <RealtimeEditableCell
+                                value={item.invoice_note || ''}
+                                type="textarea"
+                                onSave={handleSaveEdit}
+                                field="invoice_note"
+                                testItemId={item.test_item_id}
+                                placeholder="输入开票备注"
+                                isFieldBeingEdited={isFieldBeingEdited}
+                                getEditingUser={getEditingUser}
+                                emitUserEditing={emitUserEditing}
+                                emitUserStopEditing={emitUserStopEditing}
+                              />
+                              <SavingIndicator testItemId={item.test_item_id} field="invoice_note" />
+                            </div>
+                          </td>
+                          <td className={getColumnCellClass('invoice_status', 'invoice-field narrow-col')} data-column-key="invoice_status">
+                            <span className="readonly-field">{item.invoice_status || '未结算'}</span>
+                          </td>
+                        </>
+                      )}
                       <td className="lab-field fixed-right narrow-col file-management-cell">
                         <button 
                           className="btn-file" 

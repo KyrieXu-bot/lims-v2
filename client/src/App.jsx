@@ -77,8 +77,8 @@ function Layout({ children }) {
               {user.role === 'admin' && (
                 <NavLink to="/price" className={({isActive})=>isActive?'active':''}>价目表</NavLink>
               )}
-              {/* 费用结算 - 仅管理员可以使用 */}
-              {user.role === 'admin' && (
+              {/* 费用结算 - 管理员和特定部门领导可以使用 */}
+              {(user.role === 'admin' || (user.department_id === 5 && user.role === 'leader')) && (
                 <NavLink to="/settlements" className={({isActive})=>isActive?'active':''}>费用结算</NavLink>
               )}
               <div className="hstack" style={{marginLeft: 16, paddingLeft: 16, borderLeft: '1px solid var(--gray-300)', flexShrink: 0}}>
