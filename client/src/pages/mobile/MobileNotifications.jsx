@@ -2,9 +2,41 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSocket } from '../../hooks/useSocket.js';
 import AddonRequestModal from '../../components/AddonRequestModal.jsx';
-import { downloadFile } from '../../utils/fileDownload.js';
 import { requestNotificationPermission, showLocalNotification, checkNotificationPermission } from '../../utils/notificationService.js';
 import './MobileNotifications.css';
+
+// 获取API基础URL（与api.js中的逻辑一致）
+function getApiBase() {
+  if (import.meta.env.VITE_API_BASE) {
+    return import.meta.env.VITE_API_BASE;
+  }
+  if (import.meta.env.VITE_API_BASE_URL) {
+    return import.meta.env.VITE_API_BASE_URL;
+  }
+  
+  const isNative = typeof window !== 'undefined' 
+    && window.Capacitor 
+    && typeof window.Capacitor.isNativePlatform === 'function'
+    && window.Capacitor.isNativePlatform();
+  
+  if (isNative) {
+    return 'https://jicuijiance.mat-jitri.cn';
+  }
+  
+  if (typeof window !== 'undefined' && window.location && window.location.host === 'localhost' && window.Capacitor) {
+    return 'https://jicuijiance.mat-jitri.cn';
+  }
+  
+  if (import.meta.env.DEV) {
+    return 'http://localhost:3001';
+  }
+  
+  if (typeof window !== 'undefined' && window.location && !window.Capacitor) {
+    return '';
+  }
+  
+  return 'http://192.168.9.46:3004';
+}
 
 const MobileNotifications = () => {
   const [notifications, setNotifications] = useState([]);
@@ -26,7 +58,9 @@ const MobileNotifications = () => {
         return;
       }
 
-      let url = `/api/notifications?page=1&pageSize=50`;
+      // 使用api.js中的getApiBase逻辑，确保在Capacitor中使用完整URL
+      const apiBase = getApiBase();
+      let url = `${apiBase}/api/notifications?page=1&pageSize=50`;
       if (filter === 'unread') {
         url += '&is_read=0';
       } else if (filter === 'read') {
@@ -113,7 +147,8 @@ const MobileNotifications = () => {
       const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
       if (!user || !user.token) return;
 
-      const response = await fetch(`/api/notifications/${notificationId}/read`, {
+      const apiBase = getApiBase();
+      const response = await fetch(`${apiBase}/api/notifications/${notificationId}/read`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${user.token}`
@@ -140,7 +175,8 @@ const MobileNotifications = () => {
       const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
       if (!user || !user.token) return;
 
-      const response = await fetch('/api/notifications/read-all', {
+      const apiBase = getApiBase();
+      const response = await fetch(`${apiBase}/api/notifications/read-all`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${user.token}`
@@ -155,30 +191,31 @@ const MobileNotifications = () => {
     }
   };
 
-  // 处理通知点击
+  // 处理通知点击（移动端逻辑：统一跳转到委托单页面并搜索）
   const handleNotificationClick = async (notification) => {
     if (!notification.is_read) {
       markAsRead(notification.notification_id);
     }
 
-    // 如果是原始数据上传通知，尝试下载文件
-    if (notification.type === 'raw_data_upload' && notification.related_file_id) {
-      try {
-        await downloadFile(notification.related_file_id, notification.title);
-      } catch (error) {
-        alert('下载文件失败: ' + error.message);
-      }
-    }
-
     // 如果是加测申请，打开申请详情
     if (notification.type === 'addon_request') {
       handleViewRequest(notification);
+      return;
     }
 
-    // 如果有关联的委托单，跳转到委托单页面
-    if (notification.related_order_id) {
-      navigate('/mobile/commission-form', {
+    // 统一处理：如果有关联的委托单，跳转到委托单页面并自动搜索
+    // 使用 order_id_display（委托单号）进行搜索，和网页端保持一致
+    // 在Android环境中，使用URL参数和sessionStorage双重保障，确保搜索关键词不会丢失
+    if (notification.related_order_id || notification.order_id_display) {
+      const orderIdToSearch = notification.order_id_display || notification.related_order_id;
+      
+      // 保存到sessionStorage（在Android环境中更可靠）
+      sessionStorage.setItem('mobile_commission_notification_search', orderIdToSearch);
+      
+      // 使用URL参数传递搜索关键词（在Android环境中更可靠）
+      navigate(`/mobile/commission-form?q=${encodeURIComponent(orderIdToSearch)}`, {
         state: {
+          searchQuery: orderIdToSearch, // 同时传递state作为备用
           highlightOrderId: notification.related_order_id,
           highlightTestItemId: notification.related_test_item_id
         }
@@ -289,6 +326,14 @@ const MobileNotifications = () => {
         </button>
       </div>
 
+      {/* 提示说明 */}
+      {!loading && notifications.length > 0 && (
+        <div className="mobile-notifications-tip">
+          <span className="mobile-tip-icon">💡</span>
+          <span className="mobile-tip-text">点击通知卡片可跳转到委托单详情</span>
+        </div>
+      )}
+
       {/* 通知列表 */}
       {loading ? (
         <div className="mobile-loading">加载中...</div>
@@ -312,6 +357,13 @@ const MobileNotifications = () => {
                     <span>{notification.title}</span>
                     <span className="mobile-notification-type">{getTypeLabel(notification.type)}</span>
                   </div>
+                  {/* 点击提示 - 仅在非加测申请类型显示 */}
+                  {notification.type !== 'addon_request' && (notification.related_order_id || notification.order_id_display) && (
+                    <div className="mobile-notification-hint">
+                      <span className="mobile-hint-text">点击查看</span>
+                      <span className="mobile-hint-arrow">→</span>
+                    </div>
+                  )}
                 </div>
                 <div className="mobile-notification-body">
                   <p>{notification.content}</p>
@@ -322,19 +374,6 @@ const MobileNotifications = () => {
                   )}
                   <div className="mobile-notification-time">{formatTime(notification.created_at)}</div>
                 </div>
-                {notification.type === 'raw_data_upload' && (
-                  <div className="mobile-notification-action">
-                    <button
-                      className="mobile-download-btn"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        downloadFile(notification.related_file_id, notification.title);
-                      }}
-                    >
-                      下载文件
-                    </button>
-                  </div>
-                )}
                 {notification.type === 'addon_request' && (
                   <div className="mobile-notification-action">
                     <button

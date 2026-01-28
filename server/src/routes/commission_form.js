@@ -141,6 +141,8 @@ router.get('/commission-form', async (req, res) => {
         ti.department_id,
         d.department_name,
         ti.group_id,
+        lg.group_name,
+        ti.seq_no,
         ti.unit_price as standard_price,
         p.unit_price as original_unit_price,
         p.minimum_price,
@@ -163,6 +165,7 @@ router.get('/commission-form', async (req, res) => {
         ti.unit,
         ti.line_total,
         ti.final_unit_price,
+        ti.lab_price,
         COALESCE(pf.has_order_attachment, 0) as has_order_attachment,
         COALESCE(pf.has_raw_data, 0) as has_raw_data,
         COALESCE(pf.has_experiment_report, 0) as has_experiment_report,
@@ -213,6 +216,7 @@ router.get('/commission-form', async (req, res) => {
       LEFT JOIN payers pay ON pay.payer_id = o.payer_id
       LEFT JOIN users sales ON sales.user_id = pay.owner_user_id
       LEFT JOIN departments d ON d.department_id = ti.department_id
+      LEFT JOIN lab_groups lg ON lg.group_id = ti.group_id
       LEFT JOIN price p ON p.price_id = ti.price_id
       LEFT JOIN equipment e ON e.equipment_id = ti.equipment_id
       LEFT JOIN (

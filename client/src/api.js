@@ -11,29 +11,42 @@ function getApiBase() {
   }
   
   // 2. 检测是否是原生环境（通过检查全局对象）
-  const isNative = typeof window !== 'undefined' && window.Capacitor && window.Capacitor.isNativePlatform();
+  // 注意：在Capacitor中，window.location.host是localhost，所以需要检测Capacitor对象
+  const isNative = typeof window !== 'undefined' 
+    && window.Capacitor 
+    && typeof window.Capacitor.isNativePlatform === 'function'
+    && window.Capacitor.isNativePlatform();
+  
   if (isNative) {
     // 原生应用使用 HTTPS 域名（支持外网访问）
     return 'https://jicuijiance.mat-jitri.cn';
   }
   
-  // 3. Web 环境
+  // 3. 额外检查：如果host是localhost但存在Capacitor，说明是Capacitor环境但检测失败
+  if (typeof window !== 'undefined' && window.location && window.location.host === 'localhost' && window.Capacitor) {
+    return 'https://jicuijiance.mat-jitri.cn';
+  }
+  
+  // 4. Web 环境
   if (import.meta.env.DEV) {
     // 开发环境使用本地
     return 'http://localhost:3001';
   }
   
-  // 4. 生产环境 Web：使用相对路径，让浏览器自动处理协议和主机
-  // 这样如果前端通过 HTTP 访问，API 也会使用 HTTP；如果通过 HTTPS 访问，API 也会使用 HTTPS
-  if (typeof window !== 'undefined' && window.location) {
+  // 5. 生产环境 Web：使用相对路径，让浏览器自动处理协议和主机
+  // 注意：只有在非Capacitor环境中才使用相对路径
+  if (typeof window !== 'undefined' && window.location && !window.Capacitor) {
     // 使用相对路径，浏览器会自动使用当前页面的协议和主机
     return '';
   }
   
-  // 5. 兜底：如果无法检测，使用 HTTP（生产环境后端通常是 HTTP）
+  // 6. 兜底：如果无法检测，使用 HTTP（生产环境后端通常是 HTTP）
   return 'http://192.168.9.46:3004';
 }
 
+// 注意：API_BASE在模块顶层计算，但getApiBase函数内部会进行运行时检测
+// 如果Capacitor在模块加载时还未初始化，可能需要延迟初始化
+// 但通常Capacitor会在应用启动时立即初始化，所以这里应该没问题
 const API_BASE = getApiBase();
 const platform = typeof window !== 'undefined' && window.Capacitor 
   ? window.Capacitor.getPlatform() 

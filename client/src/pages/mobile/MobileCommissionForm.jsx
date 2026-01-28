@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { api } from '../../api.js';
 import { useSocket } from '../../hooks/useSocket.js';
 import MobileFileUpload from '../../components/mobile/MobileFileUpload.jsx';
@@ -8,13 +8,43 @@ import './MobileCommissionForm.css';
 
 const MobileCommissionForm = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  
+  // 初始化searchQuery：优先从URL参数、location.state或sessionStorage获取
+  // 使用函数形式初始化，确保在组件挂载时执行
+  const getInitialSearchQuery = () => {
+    try {
+      // 检查URL参数
+      const urlParams = new URLSearchParams(location.search);
+      const urlSearchQuery = urlParams.get('q') || urlParams.get('search');
+      
+      // 检查location.state
+      const stateSearchQuery = location.state?.searchQuery;
+      
+      // 检查sessionStorage
+      const savedSearchQuery = sessionStorage.getItem('mobile_commission_notification_search');
+      
+      // 优先使用URL参数，其次使用location.state，最后使用sessionStorage
+      const initialQuery = urlSearchQuery || stateSearchQuery || savedSearchQuery || '';
+      
+      if (initialQuery) {
+        console.log('初始化searchQuery:', initialQuery, '来源:', urlSearchQuery ? 'URL' : stateSearchQuery ? 'state' : 'sessionStorage');
+      }
+      
+      return initialQuery;
+    } catch (error) {
+      console.error('获取初始searchQuery失败:', error);
+      return '';
+    }
+  };
+  
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [hasMore, setHasMore] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState(getInitialSearchQuery);
   const [statusFilter, setStatusFilter] = useState([]);
   const [selectedItem, setSelectedItem] = useState(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
@@ -24,6 +54,9 @@ const MobileCommissionForm = () => {
   const loadingMoreRef = useRef(false);
   const hasMoreRef = useRef(true);
   const loadingRef = useRef(false);
+  const initialSearchQuery = getInitialSearchQuery();
+  const hasInitializedFromState = useRef(!!initialSearchQuery); // 如果初始值不为空，标记为已初始化
+  const NOTIFICATION_SEARCH_KEY = 'mobile_commission_notification_search';
 
   // 获取委托单数据（初始加载或重置）
   const fetchData = async (reset = true) => {
@@ -139,9 +172,48 @@ const MobileCommissionForm = () => {
     return () => window.removeEventListener('scroll', handleScroll);
   }, [loadMore]);
 
+  // 处理从通知跳转过来的情况：清理URL参数和sessionStorage
+  // 注意：searchQuery已经在初始化时从URL参数/sessionStorage设置了，这里只需要清理
+  useEffect(() => {
+    // 检查URL参数
+    const urlParams = new URLSearchParams(location.search);
+    const urlSearchQuery = urlParams.get('q') || urlParams.get('search');
+    
+    // 检查location.state
+    const stateSearchQuery = location.state?.searchQuery;
+    
+    // 检查sessionStorage
+    const savedSearchQuery = sessionStorage.getItem(NOTIFICATION_SEARCH_KEY);
+    
+    // 如果URL参数存在，清除它（searchQuery已经在初始化时设置了）
+    if (urlSearchQuery && hasInitializedFromState.current) {
+      console.log('清除URL参数，searchQuery已设置:', urlSearchQuery);
+      // 延迟清除，确保fetchData已经执行
+      setTimeout(() => {
+        navigate(location.pathname, { replace: true });
+      }, 500);
+    }
+    
+    // 如果location.state存在，清除它
+    if (stateSearchQuery && hasInitializedFromState.current) {
+      setTimeout(() => {
+        navigate(location.pathname, { replace: true, state: null });
+      }, 1000);
+    }
+    
+    // 清除sessionStorage（延迟清除，确保fetchData已经执行）
+    if (savedSearchQuery && hasInitializedFromState.current) {
+      setTimeout(() => {
+        sessionStorage.removeItem(NOTIFICATION_SEARCH_KEY);
+      }, 2000);
+    }
+  }, [location.search, location.state, navigate, location.pathname]);
+
   // 初始加载或搜索/筛选变化时重置数据
   useEffect(() => {
     if (user?.token) {
+      // 添加调试日志，帮助排查问题
+      console.log('触发fetchData，searchQuery:', searchQuery, 'statusFilter:', statusFilter);
       fetchData(true);
     }
   }, [searchQuery, statusFilter]);
@@ -725,7 +797,7 @@ const MobileCommissionDetail = ({ item, onClose, onUpdate }) => {
                 userRole={user?.role}
                 businessConfirmed={formData.business_confirmed}
                 currentAssignee={formData.current_assignee}
-                enableUpload={false}
+                enableUpload={true}
                 onFileUploaded={() => {
                   // 文件上传后可以刷新数据
                   if (onUpdate) onUpdate();

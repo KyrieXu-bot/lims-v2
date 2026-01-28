@@ -1,4 +1,47 @@
 /**
+ * 获取API基础URL（与api.js中的逻辑一致）
+ */
+function getApiBase() {
+  // 1. 优先使用环境变量
+  if (import.meta.env.VITE_API_BASE) {
+    return import.meta.env.VITE_API_BASE;
+  }
+  if (import.meta.env.VITE_API_BASE_URL) {
+    return import.meta.env.VITE_API_BASE_URL;
+  }
+  
+  // 2. 检测是否是原生环境（Capacitor）
+  const isNative = typeof window !== 'undefined' 
+    && window.Capacitor 
+    && typeof window.Capacitor.isNativePlatform === 'function'
+    && window.Capacitor.isNativePlatform();
+  
+  if (isNative) {
+    return 'https://jicuijiance.mat-jitri.cn';
+  }
+  
+  // 3. 兜底检测：如果host是localhost但存在Capacitor，说明是Capacitor环境但检测失败
+  if (typeof window !== 'undefined' && window.location && window.location.host === 'localhost' && window.Capacitor) {
+    return 'https://jicuijiance.mat-jitri.cn';
+  }
+  
+  // 4. 开发环境
+  if (import.meta.env.DEV) {
+    return 'http://localhost:3001';
+  }
+  
+  // 5. 生产环境Web：使用相对路径（浏览器会自动使用当前页面的协议和主机）
+  // 注意：只有在非Capacitor环境中才使用相对路径
+  if (typeof window !== 'undefined' && window.location && !window.Capacitor) {
+    // 使用相对路径，浏览器会自动使用当前页面的协议和主机
+    return '';
+  }
+  
+  // 6. 兜底
+  return 'http://192.168.9.46:3004';
+}
+
+/**
  * 获取 Capacitor 相关模块（仅在原生环境中可用）
  */
 const getCapacitorModules = () => {
@@ -24,8 +67,11 @@ export const downloadFile = async (fileId, filename = null) => {
   }
 
   try {
+    // 获取API基础URL
+    const apiBase = getApiBase();
+    
     // 获取文件信息
-    const fileInfoResponse = await fetch(`/api/files/${fileId}`, {
+    const fileInfoResponse = await fetch(`${apiBase}/api/files/${fileId}`, {
       headers: {
         'Authorization': `Bearer ${user.token}`
       }
@@ -38,7 +84,7 @@ export const downloadFile = async (fileId, filename = null) => {
     const fileInfo = await fileInfoResponse.json();
 
     // 下载文件
-    const downloadResponse = await fetch(`/api/files/${fileId}/download`, {
+    const downloadResponse = await fetch(`${apiBase}/api/files/${fileId}/download`, {
       headers: {
         'Authorization': `Bearer ${user.token}`
       }
@@ -104,7 +150,9 @@ export const openFile = async (fileId) => {
     throw new Error('未登录');
   }
 
-  const url = `/api/files/${fileId}/download`;
+  // 获取API基础URL
+  const apiBase = getApiBase();
+  const url = `${apiBase}/api/files/${fileId}/download`;
   
   // Web 平台：在新窗口打开
   window.open(url, '_blank');

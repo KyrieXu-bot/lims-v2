@@ -8,10 +8,17 @@ const getCapacitorModules = () => {
       Capacitor: window.Capacitor,
       Share: window.Capacitor?.Plugins?.Share,
       Filesystem: window.Capacitor?.Plugins?.Filesystem,
-      Directory: window.Capacitor?.Plugins?.Filesystem?.Directory
+      Directory: window.Capacitor?.Plugins?.Filesystem?.Directory,
+      FilePicker: window.Capacitor?.Plugins?.FilePicker
     };
   }
   return null;
+};
+
+// 检查是否是原生环境
+const isNativePlatform = () => {
+  const capModules = getCapacitorModules();
+  return capModules && capModules.Capacitor && capModules.Capacitor.isNativePlatform();
 };
 
 // 获取API基础URL（与api.js保持一致）
@@ -117,8 +124,146 @@ const MobileFileUpload = ({
     }
   };
 
+  // 处理Web环境的文件选择（input元素）
   const handleFileSelect = async (e) => {
     const selectedFiles = Array.from(e.target.files);
+    if (selectedFiles.length === 0) return;
+
+    await handleFilesUpload(selectedFiles);
+    
+    // 清空input值，以便可以重复选择相同文件
+    e.target.value = '';
+  };
+
+  // 处理原生环境的文件选择（File Picker）
+  const handleNativeFileSelect = async () => {
+    const capModules = getCapacitorModules();
+    if (!capModules || !capModules.FilePicker) {
+      alert('文件选择功能不可用，请确保已安装文件选择插件（如 @capawesome/capacitor-file-picker）');
+      return;
+    }
+
+    try {
+      let result;
+      const FilePicker = capModules.FilePicker;
+
+      // 尝试不同的API调用方式，以兼容不同的插件
+      // 方式1: pickFiles (支持多选，如 @capawesome/capacitor-file-picker)
+      if (FilePicker.pickFiles) {
+        // @capawesome/capacitor-file-picker 的 API
+        result = await FilePicker.pickFiles({
+          multiple: true,
+          // types 参数可选，不传则支持所有类型
+          // types: ['*/*'] // 如果需要限制类型，可以取消注释并设置
+        });
+      }
+      // 方式2: pickFile (单选，如某些旧版本插件)
+      else if (FilePicker.pickFile) {
+        // 如果只支持单选，先选一个文件
+        result = await FilePicker.pickFile({
+          // 不限制文件类型
+        });
+        // 转换为多文件格式
+        if (result && result.file) {
+          result = { files: [result.file] };
+        } else if (result) {
+          result = { files: [result] };
+        }
+      }
+      // 方式3: 其他可能的API
+      else {
+        throw new Error('文件选择插件API不兼容，请检查插件版本');
+      }
+
+      if (!result || !result.files || result.files.length === 0) {
+        return; // 用户取消了选择
+      }
+
+      // 将 File Picker 返回的文件转换为 File 对象
+      // @capawesome/capacitor-file-picker 通常返回: { files: [{ path, name, mimeType, size }] }
+      const selectedFiles = await Promise.all(
+        result.files.map(async (fileData) => {
+          // File Picker 返回的数据结构可能是多种格式：
+          // @capawesome/capacitor-file-picker: { path, name, mimeType, size }
+          // 其他插件可能: { path, name, mimeType, size, data (base64) } 或 { uri, name, mimeType, size }
+          
+          let file;
+          let base64String;
+          let fileName = fileData.name || fileData.filename || 'file';
+          let mimeType = fileData.mimeType || fileData.type || 'application/octet-stream';
+          
+          // 情况1: 如果返回的是 base64 数据（某些插件直接返回）
+          if (fileData.data) {
+            base64String = fileData.data;
+          }
+          // 情况2: 如果返回的是文件路径（@capawesome/capacitor-file-picker 通常返回这种方式）
+          else if (fileData.path || fileData.uri) {
+            const filePath = fileData.path || fileData.uri;
+            
+            try {
+              // 使用 Filesystem 读取文件
+              // @capawesome/capacitor-file-picker 返回的 path 可能需要特殊处理
+              const fileContent = await capModules.Filesystem.readFile({
+                path: filePath,
+              });
+              
+              base64String = typeof fileContent.data === 'string' 
+                ? fileContent.data 
+                : fileContent.data.toString();
+            } catch (fsError) {
+              console.error('读取文件失败:', fsError);
+              // 如果读取失败，尝试使用原始路径（某些情况下路径可能需要特殊处理）
+              throw new Error(`无法读取文件: ${fileName}。路径: ${filePath}`);
+            }
+          } 
+          // 情况3: 如果已经是 File 对象（某些插件可能直接返回）
+          else if (fileData instanceof File) {
+            return fileData;
+          }
+          else {
+            throw new Error('无法读取文件数据，文件格式不支持。请检查插件返回的数据结构。');
+          }
+          
+          // 处理 base64 字符串
+          // 移除 data:type;base64, 前缀（如果存在）
+          const actualBase64 = base64String.startsWith('data:') 
+            ? base64String.split(',')[1] 
+            : base64String;
+          
+          // 将 base64 转换为 Blob，再转换为 File
+          try {
+            const byteCharacters = atob(actualBase64);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+              byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }
+            const byteArray = new Uint8Array(byteNumbers);
+            const blob = new Blob([byteArray], { type: mimeType });
+            file = new File([blob], fileName, { type: mimeType });
+          } catch (convertError) {
+            console.error('文件转换失败:', convertError);
+            throw new Error(`文件转换失败: ${fileName}`);
+          }
+          
+          return file;
+        })
+      );
+
+      await handleFilesUpload(selectedFiles);
+    } catch (error) {
+      console.error('文件选择失败:', error);
+      // 如果用户取消选择，某些插件可能会抛出错误，这里不显示错误提示
+      const errorMessage = error.message || String(error);
+      if (!errorMessage.toLowerCase().includes('cancel') && 
+          !errorMessage.toLowerCase().includes('取消') &&
+          !errorMessage.toLowerCase().includes('user cancelled')) {
+        alert('文件选择失败: ' + errorMessage);
+      }
+    }
+  };
+
+  // 统一的文件上传处理函数
+  const handleFilesUpload = async (selectedFiles) => {
     if (selectedFiles.length === 0) return;
 
     setUploading(true);
@@ -141,7 +286,20 @@ const MobileFileUpload = ({
     } finally {
       setUploading(false);
       setUploadProgress({});
-      e.target.value = '';
+    }
+  };
+
+  // 处理上传按钮点击（根据环境选择不同的文件选择方式）
+  const handleUploadClick = () => {
+    if (isNativePlatform()) {
+      // 原生环境：使用 File Picker
+      handleNativeFileSelect();
+    } else {
+      // Web环境：使用传统的 input 元素
+      const fileInput = document.getElementById('mobile-file-input');
+      if (fileInput) {
+        fileInput.click();
+      }
     }
   };
 
@@ -644,24 +802,16 @@ const MobileFileUpload = ({
           ))}
         </div>
         
-        {canUpload && (
-          <div className="mobile-upload-controls">
-            <input
-              type="file"
-              id="mobile-file-input"
-              multiple
-              onChange={handleFileSelect}
-              style={{ display: 'none' }}
-              disabled={uploading}
-            />
-            <button
-              className="mobile-btn-upload"
-              onClick={() => document.getElementById('mobile-file-input').click()}
-              disabled={uploading}
-            >
-              {uploading ? '上传中...' : '选择文件'}
-            </button>
-          </div>
+        {/* Web环境保留隐藏的input元素 */}
+        {!isNativePlatform() && canUpload && (
+          <input
+            type="file"
+            id="mobile-file-input"
+            multiple
+            onChange={handleFileSelect}
+            style={{ display: 'none' }}
+            disabled={uploading}
+          />
         )}
       </div>
 
@@ -792,6 +942,19 @@ const MobileFileUpload = ({
           ))
         )}
       </div>
+
+      {/* 上传附件按钮 - 显示在文件列表底部 */}
+      {canUpload && (
+        <div className="mobile-upload-button-container">
+          <button
+            className="mobile-btn-upload-primary"
+            onClick={handleUploadClick}
+            disabled={uploading}
+          >
+            {uploading ? '上传中...' : '上传附件'}
+          </button>
+        </div>
+      )}
     </div>
   );
 };

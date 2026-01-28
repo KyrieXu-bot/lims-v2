@@ -79,6 +79,37 @@ const calculateStandardLineTotal = (unitPrice, quantity, serviceUrgency) => {
   return Number.isFinite(result) ? result : null;
 };
 
+// 计算实验室报价
+const calculateLabPrice = (finalUnitPrice, lineTotal) => {
+  // 如果测试总价和标准总价有一个为空，则不进行计算
+  if (
+    finalUnitPrice === null || finalUnitPrice === undefined ||
+    lineTotal === null || lineTotal === undefined
+  ) {
+    return null;
+  }
+  
+  const finalPriceNum = Number(finalUnitPrice);
+  const lineTotalNum = Number(lineTotal);
+  
+  // 检查是否为有效数字
+  if (
+    Number.isNaN(finalPriceNum) || Number.isNaN(lineTotalNum) ||
+    finalPriceNum < 0 || lineTotalNum <= 0
+  ) {
+    return null;
+  }
+  
+  // 如果测试总价/标准总价 > 0.7，那么实验室报价 = 测试总价
+  // 如果测试总价/标准总价 < 0.7，那么实验室报价 = 标准总价 * 0.7
+  const ratio = finalPriceNum / lineTotalNum;
+  if (ratio > 0.7) {
+    return Number(finalPriceNum.toFixed(2));
+  } else {
+    return Number((lineTotalNum * 0.7).toFixed(2));
+  }
+};
+
 const hasUploadedFile = (value) => value === true || value === 1 || value === '1';
 
 const COLUMN_VISIBILITY_STORAGE_KEY = 'commission_form_column_visibility';
@@ -113,6 +144,7 @@ const TOGGLEABLE_COLUMNS = [
   { key: 'test_notes', label: '实验备注' },
   { key: 'line_total', label: '标准总价' },
   { key: 'final_unit_price', label: '测试总价' },
+  { key: 'lab_price', label: '实验室报价' },
   { key: 'actual_delivery_date', label: '实际交付日期' },
   { key: 'business_note', label: '业务备注' },
   { key: 'status', label: '项目状态' },
@@ -363,6 +395,42 @@ const CommissionForm = () => {
     return classes.filter(Boolean).join(' ').trim();
   };
 
+  // 计算流转顺序信息
+  const getFlowSequenceInfo = (currentItem) => {
+    if (!currentItem.seq_no || !currentItem.order_id) {
+      return null;
+    }
+
+    // 获取同一委托单的所有项目，按seq_no排序
+    const sameOrderItems = data
+      .filter(item => item.order_id === currentItem.order_id && item.seq_no)
+      .sort((a, b) => Number(a.seq_no) - Number(b.seq_no));
+
+    if (sameOrderItems.length <= 1) {
+      return null;
+    }
+
+    const currentIndex = sameOrderItems.findIndex(item => item.test_item_id === currentItem.test_item_id);
+    if (currentIndex === -1) {
+      return null;
+    }
+
+    const prevItem = currentIndex > 0 ? sameOrderItems[currentIndex - 1] : null;
+    const nextItem = currentIndex < sameOrderItems.length - 1 ? sameOrderItems[currentIndex + 1] : null;
+
+    const result = {
+      prevGroupName: prevItem?.group_name || null,
+      nextGroupName: nextItem?.group_name || null
+    };
+
+    // 如果前后都没有，返回null
+    if (!result.prevGroupName && !result.nextGroupName) {
+      return null;
+    }
+
+    return result;
+  };
+
   const fullSelectionCacheRef = useRef(null);
 
   const fetchAllMatchingItems = async () => {
@@ -412,10 +480,15 @@ const CommissionForm = () => {
         item.actual_sample_quantity,
         item.service_urgency
       );
+      
+      // 计算实验室报价
+      const calculatedLabPrice = calculateLabPrice(finalUnitPrice, calculatedLineTotal !== null ? calculatedLineTotal : item.line_total);
+      
       return {
         ...item,
         final_unit_price: finalUnitPrice,
-        line_total: calculatedLineTotal !== null ? calculatedLineTotal : item.line_total
+        line_total: calculatedLineTotal !== null ? calculatedLineTotal : item.line_total,
+        lab_price: calculatedLabPrice !== null ? calculatedLabPrice : item.lab_price
       };
     });
     const eligibleItems = user?.role === 'leader'
@@ -564,11 +637,13 @@ const CommissionForm = () => {
 
   const canLeaderEditItem = (item) => {
     if (!item) {
+      // 对于 department_id=5 的 leader，允许选择所有项目
       return leaderDepartmentId === 5;
     }
     const itemDept = Number(item.department_id);
     if (leaderDepartmentId === 5) {
-      return itemDept === 5;
+      // 委外室主任可以查看和选择所有部门的项目（与后端权限一致）
+      return true;
     }
     if (leaderDepartmentId !== null) {
       return itemDept === leaderDepartmentId;
@@ -659,7 +734,7 @@ const CommissionForm = () => {
       }
       
       const data = await response.json();
-      // 对每个项目计算测试总价
+      // 对每个项目计算测试总价和实验室报价
       // 如果业务已确认价格，则使用数据库中的值，不重新计算
       const processedData = data.data.map(item => {
         const isBusinessConfirmed = item.business_confirmed === 1 || item.business_confirmed === true;
@@ -671,9 +746,21 @@ const CommissionForm = () => {
           finalUnitPrice = calculatedFinalUnitPrice !== null ? calculatedFinalUnitPrice : item.final_unit_price;
         }
         
+        // 计算标准总价（用于计算实验室报价）
+        const calculatedLineTotal = calculateStandardLineTotal(
+          item.standard_price ?? item.unit_price,
+          item.actual_sample_quantity,
+          item.service_urgency
+        );
+        const lineTotal = calculatedLineTotal !== null ? calculatedLineTotal : item.line_total;
+        
+        // 计算实验室报价
+        const calculatedLabPrice = calculateLabPrice(finalUnitPrice, lineTotal);
+        
         return {
           ...item,
-          final_unit_price: finalUnitPrice
+          final_unit_price: finalUnitPrice,
+          lab_price: calculatedLabPrice !== null ? calculatedLabPrice : item.lab_price
         };
       });
       setData(processedData);
@@ -1380,6 +1467,7 @@ const CommissionForm = () => {
         '标准单价': formatCurrency(item.standard_price),
         '标准总价': formatCurrency(item.line_total),
         '业务总价': formatCurrency(item.final_unit_price),
+        '实验室报价': formatCurrency(item.lab_price),
         '折扣': formatPercentage(item.discount_rate),
         '客户备注': item.note || '',
         '样品到达方式': item.arrival_mode === 'on_site' ? '现场' : item.arrival_mode === 'delivery' ? '寄样' : '',
@@ -1446,6 +1534,7 @@ const CommissionForm = () => {
         { wch: 12 },  // 标准单价
         { wch: 12 },  // 标准总价
         { wch: 12 },  // 业务总价
+        { wch: 12 },  // 实验室报价
         { wch: 8 },   // 折扣
         { wch: 20 },  // 客户备注
         { wch: 12 },  // 样品到达方式
@@ -2270,15 +2359,32 @@ const CommissionForm = () => {
     if (window.confirm('是否确认？确认后不可更改')) {
       try {
         const userLocal = JSON.parse(localStorage.getItem('lims_user') || 'null');
+        
+        // 确认价格时，同时计算并保存lab_price
+        const calculatedLabPrice = calculateLabPrice(item.final_unit_price, item.line_total);
+        const updatePayload = { business_confirmed: 1 };
+        if (calculatedLabPrice !== null) {
+          updatePayload.lab_price = calculatedLabPrice;
+        }
+        
         const r = await fetch(`/api/test-items/${item.test_item_id}`, {
           method: 'PUT',
           headers: { 'Authorization': `Bearer ${userLocal.token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ business_confirmed: 1 })
+          body: JSON.stringify(updatePayload)
         });
         if (!r.ok) throw new Error('确认失败');
         
         // Update local state
-        setData(prev => prev.map(x => x.test_item_id === item.test_item_id ? { ...x, business_confirmed: 1 } : x));
+        setData(prev => prev.map(x => {
+          if (x.test_item_id === item.test_item_id) {
+            const updated = { ...x, business_confirmed: 1 };
+            if (calculatedLabPrice !== null) {
+              updated.lab_price = calculatedLabPrice;
+            }
+            return updated;
+          }
+          return x;
+        }));
       } catch (e) {
         alert(e.message || '确认失败');
       }
@@ -2519,6 +2625,52 @@ const CommissionForm = () => {
         }
       }
       
+      // 计算实验室报价：当修改final_unit_price、line_total或影响它们的字段时，自动计算lab_price
+      // 需要获取最新的final_unit_price和line_total值
+      let finalPriceForLabCalc = currentItem.final_unit_price;
+      let lineTotalForLabCalc = currentItem.line_total;
+      
+      // 如果当前修改的是final_unit_price，使用新值
+      if (field === 'final_unit_price') {
+        finalPriceForLabCalc = value === '' || value === undefined || value === null ? null : Number(value);
+      }
+      // 如果当前修改的是line_total，使用新值
+      else if (field === 'line_total') {
+        lineTotalForLabCalc = value === '' || value === undefined || value === null ? null : Number(value);
+      }
+      // 如果当前修改的是影响line_total的字段（unit_price、actual_sample_quantity、service_urgency）
+      else if (field === 'unit_price' || field === 'actual_sample_quantity' || field === 'service_urgency') {
+        // 使用updateData中已计算的line_total值
+        if (updateData.line_total !== undefined) {
+          lineTotalForLabCalc = updateData.line_total;
+        }
+      }
+      // 如果当前修改的是影响final_unit_price的字段（price_note、discount_rate、actual_sample_quantity、service_urgency）
+      else if (field === 'price_note' || field === 'discount_rate') {
+        // 使用updateData中已计算的final_unit_price值
+        if (updateData.final_unit_price !== undefined) {
+          finalPriceForLabCalc = updateData.final_unit_price;
+        }
+      }
+      // 如果修改的是actual_sample_quantity或service_urgency，这两个字段可能同时影响final_unit_price和line_total
+      else if (field === 'actual_sample_quantity' || field === 'service_urgency') {
+        // 使用updateData中已计算的值
+        if (updateData.final_unit_price !== undefined) {
+          finalPriceForLabCalc = updateData.final_unit_price;
+        }
+        if (updateData.line_total !== undefined) {
+          lineTotalForLabCalc = updateData.line_total;
+        }
+      }
+      
+      // 计算实验室报价（只要final_unit_price和line_total都有值，就计算）
+      const calculatedLabPrice = calculateLabPrice(finalPriceForLabCalc, lineTotalForLabCalc);
+      if (calculatedLabPrice !== null) {
+        updateData.lab_price = calculatedLabPrice;
+      } else {
+        updateData.lab_price = null;
+      }
+      
       const response = await fetch(`/api/test-items/${testItemId}`, {
         method: 'PUT',
         headers,
@@ -2602,6 +2754,19 @@ const CommissionForm = () => {
                 merged.final_unit_price = null;
               }
             }
+            
+            // 重新计算实验室报价（当final_unit_price或line_total变化时，或影响它们的字段变化时）
+            // 确保使用最新的merged值进行计算
+            if (field === 'final_unit_price' || field === 'line_total' || 
+                field === 'unit_price' || field === 'actual_sample_quantity' || field === 'service_urgency' ||
+                field === 'price_note' || field === 'discount_rate') {
+              // 使用merged中已更新的最新值
+              const finalPrice = merged.final_unit_price !== undefined ? merged.final_unit_price : currentItem.final_unit_price;
+              const lineTotal = merged.line_total !== undefined ? merged.line_total : currentItem.line_total;
+              const recalculatedLabPrice = calculateLabPrice(finalPrice, lineTotal);
+              merged.lab_price = recalculatedLabPrice !== null ? recalculatedLabPrice : null;
+            }
+            
             return merged;
           }
           return item;
@@ -3194,6 +3359,7 @@ const CommissionForm = () => {
                     {renderColumnHeader('test_notes', '实验备注', 'lab-field note-col')}
                     {renderColumnHeader('line_total', '标准总价', 'lab-field narrow-col')}
                     {renderColumnHeader('final_unit_price', '测试总价', 'lab-field narrow-col')}
+                    {renderColumnHeader('lab_price', '实验室报价', 'lab-field narrow-col')}
                     {renderColumnHeader('actual_delivery_date', '实际交付日期', 'lab-field')}
                     {renderColumnHeader('business_note', '业务备注', 'lab-field note-col')}
                     {renderColumnHeader('status', '项目状态', 'lab-field narrow-col')}
@@ -3226,10 +3392,21 @@ const CommissionForm = () => {
                       </td>
                       <td className="pre-urgent-field fixed-left">
                         <div className="order-id-wrapper">
-                          <span className="order-id-text">{item.order_id}</span>
-                          {item.status === 'completed' && (
-                            <span className="status-icon status-icon-completed" title="已完成">&#10003;</span>
-                          )}
+                          <div style={{display: 'flex', alignItems: 'center', gap: '6px'}}>
+                            <span className="order-id-text">{item.order_id}</span>
+                            {item.status === 'completed' && (
+                              <span className="status-icon status-icon-completed" title="已完成">&#10003;</span>
+                            )}
+                          </div>
+                          {(() => {
+                            const urgency = item.service_urgency;
+                            if (urgency === 'urgent_2x' || urgency === '特急2倍') {
+                              return <span className="urgency-badge urgency-2x">特急</span>;
+                            } else if (urgency === 'urgent_1_5x' || urgency === '加急1.5倍') {
+                              return <span className="urgency-badge urgency-1-5x">加急</span>;
+                            }
+                            return null;
+                          })()}
                         </div>
                       </td>
                       <td className="pre-urgent-field fixed-left">
@@ -3277,6 +3454,26 @@ const CommissionForm = () => {
                                 )}
                               </div>
                             )}
+                            {(() => {
+                              const flowInfo = getFlowSequenceInfo(item);
+                              if (!flowInfo) return null;
+                              const parts = [];
+                              if (flowInfo.prevGroupName) {
+                                parts.push(`前：${flowInfo.prevGroupName}`);
+                              }
+                              if (flowInfo.nextGroupName) {
+                                parts.push(`后：${flowInfo.nextGroupName}`);
+                              }
+                              if (parts.length === 0) return null;
+                              return (
+                                <div style={{marginTop: '4px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap'}}>
+                                  <span className="add-on-badge" style={{backgroundColor: '#17a2b8', color: '#fff'}}>流转</span>
+                                  <span style={{fontSize: '12px', color: '#666'}}>
+                                    {parts.join('，')}
+                                  </span>
+                                </div>
+                              );
+                            })()}
                           </div>
                         </div>
                       </td>
@@ -3909,13 +4106,16 @@ const CommissionForm = () => {
                             <span 
                               className={`readonly-field ${shouldHighlightPrice(item.final_unit_price, item.line_total) ? 'price-highlight-red' : ''}`}
                             >
-                                {formatCurrency(item.final_unit_price)}
-                                {(item.business_confirmed === 1 || item.business_confirmed === true) && (
-                                  <span style={{marginLeft: '4px', color: '#28a745', fontWeight: 'bold'}}>✓</span>
-                                )}
+                              {formatCurrency(item.final_unit_price)}
+                              {(item.business_confirmed === 1 || item.business_confirmed === true) && (
+                                <span style={{marginLeft: '4px', color: '#28a745', fontWeight: 'bold'}}>✓</span>
+                              )}
                             </span>
                           )}
                         </div>
+                      </td>
+                      <td className={getColumnCellClass('lab_price', 'lab-field narrow-col')} data-column-key="lab_price">
+                        <span className="readonly-field">{formatCurrency(item.lab_price)}</span>
                       </td>
                       <td className={getColumnCellClass('actual_delivery_date', 'lab-field')} data-column-key="actual_delivery_date">
                         <span className="readonly-field">{formatDate(item.actual_delivery_date)}</span>

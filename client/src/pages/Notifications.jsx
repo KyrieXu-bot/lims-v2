@@ -4,6 +4,50 @@ import { useSocket } from '../hooks/useSocket.js';
 import AddonRequestModal from '../components/AddonRequestModal.jsx';
 import './Notifications.css';
 
+// 获取API基础URL（与api.js中的逻辑一致）
+// 注意：必须在函数内部调用，不能在模块顶层，因为window.Capacitor可能还未初始化
+function getApiBase() {
+  // 1. 优先使用环境变量
+  if (import.meta.env.VITE_API_BASE) {
+    return import.meta.env.VITE_API_BASE;
+  }
+  if (import.meta.env.VITE_API_BASE_URL) {
+    return import.meta.env.VITE_API_BASE_URL;
+  }
+  
+  // 2. 检查是否是原生环境（运行时检查）
+  // 在Capacitor中，window.location.host是localhost，所以需要检测Capacitor对象
+  const isNative = typeof window !== 'undefined' 
+    && window.Capacitor 
+    && typeof window.Capacitor.isNativePlatform === 'function'
+    && window.Capacitor.isNativePlatform();
+  
+  if (isNative) {
+    console.log('检测到原生环境，使用生产域名');
+    return 'https://jicuijiance.mat-jitri.cn';
+  }
+  
+  // 3. 开发环境
+  if (import.meta.env.DEV) {
+    return 'http://localhost:3001';
+  }
+  
+  // 4. 生产环境Web：使用相对路径
+  // 注意：在Capacitor中window.location.host是localhost，所以上面的检测应该已经处理了
+  if (typeof window !== 'undefined' && window.location) {
+    // 额外检查：如果host是localhost但存在Capacitor，说明是Capacitor环境但检测失败
+    if (window.location.host === 'localhost' && window.Capacitor) {
+      console.log('检测到Capacitor但isNativePlatform失败，使用生产域名');
+      return 'https://jicuijiance.mat-jitri.cn';
+    }
+    // 普通Web环境使用相对路径
+    return '';
+  }
+  
+  // 5. 兜底
+  return 'http://192.168.9.46:3004';
+}
+
 const Notifications = () => {
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -27,7 +71,9 @@ const Notifications = () => {
         return;
       }
 
-      let url = `/api/notifications?page=${page}&pageSize=${pageSize}`;
+      // 每次调用时动态获取API_BASE，确保Capacitor已初始化
+      const apiBase = getApiBase();
+      let url = `${apiBase}/api/notifications?page=${page}&pageSize=${pageSize}`;
       if (filter === 'unread') {
         url += '&is_read=0';
       } else if (filter === 'read') {
@@ -87,7 +133,8 @@ const Notifications = () => {
       const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
       if (!user || !user.token) return;
 
-      const response = await fetch(`/api/notifications/${notificationId}/read`, {
+      const apiBase = getApiBase();
+      const response = await fetch(`${apiBase}/api/notifications/${notificationId}/read`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${user.token}`
@@ -114,7 +161,8 @@ const Notifications = () => {
       const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
       if (!user || !user.token) return;
 
-      const response = await fetch('/api/notifications/read-all', {
+      const apiBase = getApiBase();
+      const response = await fetch(`${apiBase}/api/notifications/read-all`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${user.token}`
@@ -137,7 +185,8 @@ const Notifications = () => {
       const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
       if (!user || !user.token) return;
 
-      const response = await fetch(`/api/notifications/${notificationId}`, {
+      const apiBase = getApiBase();
+      const response = await fetch(`${apiBase}/api/notifications/${notificationId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${user.token}`

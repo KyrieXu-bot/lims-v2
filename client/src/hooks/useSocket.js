@@ -13,15 +13,20 @@ export const useSocket = (room) => {
     if (!user || !user.token) return;
 
     // 获取Socket.IO服务器地址
-    // 使用环境变量或根据环境选择
+    // 优先级：环境变量 > 原生环境检测 > 开发环境 > 生产环境Web > 兜底
     let socketUrl = import.meta.env.VITE_SOCKET_URL;
     
     if (!socketUrl) {
-      if (import.meta.env.DEV) {
+      // 检测是否是原生环境（Capacitor Android/iOS）
+      const isNative = typeof window !== 'undefined' && window.Capacitor && window.Capacitor.isNativePlatform();
+      if (isNative) {
+        // 原生应用使用 HTTPS 域名（支持外网访问）
+        socketUrl = 'https://jicuijiance.mat-jitri.cn';
+      } else if (import.meta.env.DEV) {
         // 开发环境使用本地服务器
         socketUrl = 'http://localhost:3001';
       } else {
-        // 生产环境：根据当前页面协议自动判断
+        // 生产环境Web：根据当前页面协议自动判断
         if (typeof window !== 'undefined' && window.location) {
           // 使用当前页面的协议和主机
           socketUrl = `${window.location.protocol}//${window.location.host}`;

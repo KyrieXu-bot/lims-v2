@@ -24,6 +24,7 @@ const isValidDate = (value) => {
 const normalizeTotals = (row = {}) => ({
   line_total: Number(row.total_line_total || 0),
   final_unit_price: Number(row.total_final_unit_price || 0),
+  lab_price: Number(row.total_lab_price || 0),
   work_hours: Number(row.total_work_hours || 0),
   machine_hours: Number(row.total_machine_hours || 0)
 });
@@ -77,6 +78,7 @@ async function buildLeaderData(pool, user, from, to, jcPrefix = null) {
     `SELECT 
         SUM(COALESCE(ti.line_total, 0)) AS total_line_total,
         SUM(COALESCE(ti.final_unit_price, 0)) AS total_final_unit_price,
+        SUM(COALESCE(ti.lab_price, 0)) AS total_lab_price,
         SUM(COALESCE(ti.work_hours, 0)) AS total_work_hours,
         SUM(COALESCE(ti.machine_hours, 0)) AS total_machine_hours
      FROM test_items ti
@@ -92,6 +94,7 @@ async function buildLeaderData(pool, user, from, to, jcPrefix = null) {
         lg.group_name,
         SUM(COALESCE(ti.line_total, 0)) AS total_line_total,
         SUM(COALESCE(ti.final_unit_price, 0)) AS total_final_unit_price,
+        SUM(COALESCE(ti.lab_price, 0)) AS total_lab_price,
         SUM(COALESCE(ti.work_hours, 0)) AS total_work_hours
      FROM test_items ti
      JOIN users u ON u.user_id = ti.supervisor_id
@@ -110,6 +113,7 @@ async function buildLeaderData(pool, user, from, to, jcPrefix = null) {
         lg.group_name,
         SUM(COALESCE(ti.line_total, 0)) AS total_line_total,
         SUM(COALESCE(ti.final_unit_price, 0)) AS total_final_unit_price,
+        SUM(COALESCE(ti.lab_price, 0)) AS total_lab_price,
         SUM(COALESCE(ti.work_hours, 0)) AS total_work_hours,
         SUM(COALESCE(ti.machine_hours, 0)) AS total_machine_hours
      FROM test_items ti
@@ -145,6 +149,7 @@ async function buildLeaderData(pool, user, from, to, jcPrefix = null) {
       group_name: row.group_name,
       line_total: Number(row.total_line_total || 0),
       final_unit_price: Number(row.total_final_unit_price || 0),
+      lab_price: Number(row.total_lab_price || 0),
       work_hours: Number(row.total_work_hours || 0)
     })),
     employees: employeeRows.map((row) => ({
@@ -154,6 +159,7 @@ async function buildLeaderData(pool, user, from, to, jcPrefix = null) {
       group_name: row.group_name,
       line_total: Number(row.total_line_total || 0),
       final_unit_price: Number(row.total_final_unit_price || 0),
+      lab_price: Number(row.total_lab_price || 0),
       work_hours: Number(row.total_work_hours || 0),
       machine_hours: Number(row.total_machine_hours || 0)
     })),
@@ -187,9 +193,10 @@ async function buildSupervisorData(pool, user, from, to, jcPrefix = null) {
     params.push(`${jcPrefix}%`);
   }
   
-  // 修改逻辑：根据组长的group_id筛选该组的所有项目，而不是根据supervisor_id
-  // 筛选条件：统计该组的所有项目（ti.group_id = ?），这样组长可以看到组内所有成员的单子
-  const scopeWhere = 'ti.group_id = ?';
+  // 修改逻辑：根据组长的group_id筛选该组的员工，统计这些员工做的所有项目
+  // 筛选条件：统计该组员工（u.group_id = ?）做的所有项目，不论项目属于哪个组
+  // 这样即使员工去做别的组的项目，数据也会统计到自己组里
+  const scopeWhere = 'u.group_id = ?';
   const scopeParams = [groupId];
   
   const jcFilter = jcPrefix ? 'AND ti.order_id LIKE ?' : '';
@@ -198,19 +205,22 @@ async function buildSupervisorData(pool, user, from, to, jcPrefix = null) {
     `SELECT 
         SUM(COALESCE(ti.line_total, 0)) AS total_line_total,
         SUM(COALESCE(ti.final_unit_price, 0)) AS total_final_unit_price,
+        SUM(COALESCE(ti.lab_price, 0)) AS total_lab_price,
         SUM(COALESCE(ti.work_hours, 0)) AS total_work_hours
      FROM test_items ti
-     WHERE ${baseWhere} ${jcFilter} AND ${scopeWhere}`,
+     JOIN users u ON u.user_id = ti.technician_id
+     WHERE ${baseWhere} ${jcFilter} AND ${scopeWhere} AND ti.technician_id IS NOT NULL`,
     [...params, ...scopeParams]
   );
 
-  // 组员统计：统计该组所有项目中的组员
+  // 组员统计：统计该组员工做的所有项目，按员工分组
   const [memberRows] = await pool.query(
     `SELECT 
         ti.technician_id AS user_id,
         u.name,
         SUM(COALESCE(ti.line_total, 0)) AS total_line_total,
         SUM(COALESCE(ti.final_unit_price, 0)) AS total_final_unit_price,
+        SUM(COALESCE(ti.lab_price, 0)) AS total_lab_price,
         SUM(COALESCE(ti.work_hours, 0)) AS total_work_hours
      FROM test_items ti
      JOIN users u ON u.user_id = ti.technician_id
@@ -225,6 +235,7 @@ async function buildSupervisorData(pool, user, from, to, jcPrefix = null) {
     summary: {
       line_total: Number(summaryRows[0]?.total_line_total || 0),
       final_unit_price: Number(summaryRows[0]?.total_final_unit_price || 0),
+      lab_price: Number(summaryRows[0]?.total_lab_price || 0),
       work_hours: Number(summaryRows[0]?.total_work_hours || 0)
     },
     members: memberRows.map((row) => ({
@@ -232,6 +243,7 @@ async function buildSupervisorData(pool, user, from, to, jcPrefix = null) {
       name: row.name,
       line_total: Number(row.total_line_total || 0),
       final_unit_price: Number(row.total_final_unit_price || 0),
+      lab_price: Number(row.total_lab_price || 0),
       work_hours: Number(row.total_work_hours || 0)
     }))
   };
@@ -262,6 +274,7 @@ async function buildEmployeeData(pool, user, from, to, jcPrefix = null) {
     `SELECT 
         SUM(COALESCE(ti.line_total, 0)) AS total_line_total,
         SUM(COALESCE(ti.final_unit_price, 0)) AS total_final_unit_price,
+        SUM(COALESCE(ti.lab_price, 0)) AS total_lab_price,
         SUM(COALESCE(ti.machine_hours, 0)) AS total_machine_hours
      FROM test_items ti
      WHERE ${baseWhere} ${jcFilter} AND ti.technician_id = ?`,
@@ -273,6 +286,7 @@ async function buildEmployeeData(pool, user, from, to, jcPrefix = null) {
         DATE(ti.actual_delivery_date) AS stat_date,
         SUM(COALESCE(ti.line_total, 0)) AS total_line_total,
         SUM(COALESCE(ti.final_unit_price, 0)) AS total_final_unit_price,
+        SUM(COALESCE(ti.lab_price, 0)) AS total_lab_price,
         SUM(COALESCE(ti.machine_hours, 0)) AS total_machine_hours
      FROM test_items ti
      WHERE ${baseWhere} ${jcFilter} AND ti.technician_id = ?
@@ -286,12 +300,14 @@ async function buildEmployeeData(pool, user, from, to, jcPrefix = null) {
     summary: {
       line_total: Number(summaryRows[0]?.total_line_total || 0),
       final_unit_price: Number(summaryRows[0]?.total_final_unit_price || 0),
+      lab_price: Number(summaryRows[0]?.total_lab_price || 0),
       machine_hours: Number(summaryRows[0]?.total_machine_hours || 0)
     },
     daily: dailyRows.map((row) => ({
       date: row.stat_date,
       line_total: Number(row.total_line_total || 0),
       final_unit_price: Number(row.total_final_unit_price || 0),
+      lab_price: Number(row.total_lab_price || 0),
       machine_hours: Number(row.total_machine_hours || 0)
     }))
   };
@@ -354,6 +370,7 @@ function appendLeaderSheets(workbook, payload) {
   summarySheet.addRow({ label: '部门ID', value: detail.scope.department_id });
   summarySheet.addRow({ label: '总委托额', value: detail.summary.line_total });
   summarySheet.addRow({ label: '总合同额', value: detail.summary.final_unit_price });
+  summarySheet.addRow({ label: '实验室报价', value: detail.summary.lab_price });
   summarySheet.addRow({ label: '总工时', value: detail.summary.work_hours });
   summarySheet.addRow({ label: '总机时', value: detail.summary.machine_hours });
 
@@ -365,6 +382,7 @@ function appendLeaderSheets(workbook, payload) {
     { header: '组ID', key: 'group_id', width: 12 },
     { header: '总委托额', key: 'line_total', width: 18 },
     { header: '总合同额', key: 'final_unit_price', width: 18 },
+    { header: '实验室报价', key: 'lab_price', width: 18 },
     { header: '总工时', key: 'work_hours', width: 18 }
   ];
   detail.supervisors.forEach((item) => supervisorSheet.addRow(item));
@@ -377,6 +395,7 @@ function appendLeaderSheets(workbook, payload) {
     { header: '组ID', key: 'group_id', width: 12 },
     { header: '总委托额', key: 'line_total', width: 18 },
     { header: '总合同额', key: 'final_unit_price', width: 18 },
+    { header: '实验室报价', key: 'lab_price', width: 18 },
     { header: '总工时', key: 'work_hours', width: 18 },
     { header: '总机时', key: 'machine_hours', width: 18 }
   ];
@@ -403,6 +422,7 @@ function appendSupervisorSheets(workbook, payload) {
   summarySheet.addRow({ label: '组长ID', value: detail.scope.supervisor_id });
   summarySheet.addRow({ label: '总委托额', value: detail.summary.line_total });
   summarySheet.addRow({ label: '总合同额', value: detail.summary.final_unit_price });
+  summarySheet.addRow({ label: '实验室报价', value: detail.summary.lab_price });
   summarySheet.addRow({ label: '总工时', value: detail.summary.work_hours });
 
   const memberSheet = workbook.addWorksheet('组员明细');
@@ -411,10 +431,11 @@ function appendSupervisorSheets(workbook, payload) {
     { header: '姓名', key: 'name', width: 18 },
     { header: '总委托额', key: 'line_total', width: 18 },
     { header: '总合同额', key: 'final_unit_price', width: 18 },
+    { header: '实验室报价', key: 'lab_price', width: 18 },
     { header: '总工时', key: 'work_hours', width: 18 }
   ];
   detail.members.forEach((item) => memberSheet.addRow(item));
-}
+} 
 
 function appendEmployeeSheets(workbook, payload) {
   const { period, detail } = payload;
@@ -427,6 +448,7 @@ function appendEmployeeSheets(workbook, payload) {
   summarySheet.addRow({ label: '实验员ID', value: detail.scope.user_id });
   summarySheet.addRow({ label: '总委托额', value: detail.summary.line_total });
   summarySheet.addRow({ label: '总合同额', value: detail.summary.final_unit_price });
+  summarySheet.addRow({ label: '实验室报价', value: detail.summary.lab_price });
   summarySheet.addRow({ label: '总机时', value: detail.summary.machine_hours });
 
   const dailySheet = workbook.addWorksheet('每日明细');
@@ -434,6 +456,7 @@ function appendEmployeeSheets(workbook, payload) {
     { header: '日期', key: 'date', width: 16 },
     { header: '总委托额', key: 'line_total', width: 18 },
     { header: '总合同额', key: 'final_unit_price', width: 18 },
+    { header: '实验室报价', key: 'lab_price', width: 18 },
     { header: '总机时', key: 'machine_hours', width: 18 }
   ];
   detail.daily.forEach((item) => dailySheet.addRow(item));

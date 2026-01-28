@@ -349,7 +349,7 @@ router.put('/:id', requireRole(EDIT_ROLES), async (req, res) => {
   const {
     order_id, price_id, category_name, detail_name, sample_name, material, sample_type, original_no,
     test_code, standard_code, department_id, group_id, quantity, unit_price, discount_rate,
-    final_unit_price, line_total, machine_hours, work_hours, is_add_on, is_outsourced,
+    final_unit_price, line_total, lab_price, machine_hours, work_hours, is_add_on, is_outsourced,
     seq_no, sample_preparation, note, status, current_assignee, supervisor_id, technician_id,
     arrival_mode, sample_arrival_status, equipment_id, check_notes, test_notes, unit,
     actual_sample_quantity, actual_delivery_date, field_test_time, price_note,
@@ -441,6 +441,7 @@ router.put('/:id', requireRole(EDIT_ROLES), async (req, res) => {
       addUpdate('discount_rate', discount_rate);
       addUpdate('final_unit_price', final_unit_price);
       addUpdate('line_total', line_total);
+      addUpdate('lab_price', lab_price);
       addUpdate('machine_hours', machine_hours);
       addUpdate('work_hours', work_hours);
       addUpdate('is_add_on', is_add_on);
