@@ -70,6 +70,14 @@ export default function SettlementManagement() {
   }
 
   function handleEdit(settlement) {
+    // 检查编辑权限
+    const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
+    const canEdit = user?.role === 'admin' || (user?.role === 'leader' && Number(user?.department_id) === 5);
+    if (!canEdit) {
+      alert('您没有权限编辑结算记录');
+      return;
+    }
+    
     setEditingSettlement(settlement);
     setEditForm({
       invoice_amount: settlement.invoice_amount || '',
@@ -179,6 +187,14 @@ export default function SettlementManagement() {
   async function handleSaveEdit() {
     if (!editingSettlement) return;
 
+    // 检查编辑权限
+    const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
+    const canEdit = user?.role === 'admin' || (user?.role === 'leader' && Number(user?.department_id) === 5);
+    if (!canEdit) {
+      alert('您没有权限编辑结算记录');
+      return;
+    }
+
     try {
       const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
       const headers = {
@@ -285,6 +301,14 @@ export default function SettlementManagement() {
   }
 
   async function handleDelete(settlementId) {
+    // 检查删除权限
+    const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
+    const canEdit = user?.role === 'admin' || (user?.role === 'leader' && Number(user?.department_id) === 5);
+    if (!canEdit) {
+      alert('您没有权限删除结算记录');
+      return;
+    }
+
     if (!window.confirm('确定要删除这条结算记录吗？此操作不可恢复。')) {
       return;
     }
@@ -315,12 +339,27 @@ export default function SettlementManagement() {
 
   // 检查用户权限
   const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
-  if (user?.role !== 'admin' && !(user?.department_id === 5 && user?.role === 'leader')) {
+  // 管理员、部门ID为5的室主任或业务员可以访问
+  const canAccessSettlement = () => {
+    if (user?.role === 'admin') return true;
+    if (user?.role === 'leader' && Number(user?.department_id) === 5) return true;
+    if (user?.role === 'sales') return true;
+    return false;
+  };
+
+  // 检查用户是否有权限编辑结算相关功能（业务员只能查看，不能编辑）
+  const canEditSettlement = () => {
+    if (user?.role === 'admin') return true;
+    if (user?.role === 'leader' && Number(user?.department_id) === 5) return true;
+    return false;
+  };
+
+  if (!canAccessSettlement()) {
     return (
       <div>
         <h2>费用结算</h2>
         <div style={{ padding: '20px', textAlign: 'center', color: '#dc3545' }}>
-          您没有权限访问此页面，仅管理员和特定部门领导可以使用。
+          您没有权限访问此页面，仅管理员、特定部门领导和业务员可以使用。
         </div>
       </div>
     );
@@ -549,19 +588,26 @@ export default function SettlementManagement() {
                         </span>
                       </td>
                       <td>
-                        <button
-                          className="btn btn-primary btn-sm"
-                          onClick={() => handleEdit(settlement)}
-                          style={{ marginRight: '5px' }}
-                        >
-                          编辑
-                        </button>
-                        <button
-                          className="btn btn-danger btn-sm"
-                          onClick={() => handleDelete(settlement.settlement_id)}
-                        >
-                          删除
-                        </button>
+                        {canEditSettlement() && (
+                          <>
+                            <button
+                              className="btn btn-primary btn-sm"
+                              onClick={() => handleEdit(settlement)}
+                              style={{ marginRight: '5px' }}
+                            >
+                              编辑
+                            </button>
+                            <button
+                              className="btn btn-danger btn-sm"
+                              onClick={() => handleDelete(settlement.settlement_id)}
+                            >
+                              删除
+                            </button>
+                          </>
+                        )}
+                        {!canEditSettlement() && (
+                          <span style={{ color: '#999' }}>仅查看</span>
+                        )}
                       </td>
                     </>
                   )}

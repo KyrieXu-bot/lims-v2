@@ -273,6 +273,12 @@ const CommissionForm = () => {
   const operationColumnRef = useRef(null); // 操作列的引用
   const [selectAllLoading, setSelectAllLoading] = useState(false);
   const [copiedFieldTestTime, setCopiedFieldTestTime] = useState('');
+  // 流转顺序信息缓存：{orderId: [{test_item_id, seq_no, group_name}, ...]}
+  const [flowSequenceCache, setFlowSequenceCache] = useState({});
+  // 正在请求的orderId集合，避免重复请求
+  const fetchingOrderIdsRef = useRef(new Set());
+  // 正在编辑顺序号的test_item_id
+  const [editingSeqNoItemId, setEditingSeqNoItemId] = useState(null);
   // 结算相关状态
   const [showSettlementModal, setShowSettlementModal] = useState(false);
   const [settlementForm, setSettlementForm] = useState({
@@ -349,8 +355,22 @@ const CommissionForm = () => {
   const isColumnVisible = (key) => columnVisibility[key] !== false;
 
   // 检查用户是否有权限访问结算相关功能
-  // 管理员或部门ID为5的室主任可以访问
+  // 管理员、部门ID为5的室主任或业务员可以访问
   const canAccessSettlement = () => {
+    if (user?.role === 'admin') return true;
+    if (user?.role === 'leader' && Number(user?.department_id) === 5) return true;
+    if (user?.role === 'sales') return true;
+    return false;
+  };
+
+  // 检查用户是否有权限编辑顺序号
+  const canEditSeqNo = () => {
+    if (user?.role === 'admin') return true;
+    return false;
+  };
+
+  // 检查用户是否有权限编辑结算相关功能（业务员只能查看，不能编辑）
+  const canEditSettlement = () => {
     if (user?.role === 'admin') return true;
     if (user?.role === 'leader' && Number(user?.department_id) === 5) return true;
     return false;
@@ -395,35 +415,104 @@ const CommissionForm = () => {
     return classes.filter(Boolean).join(' ').trim();
   };
 
+  // 获取指定委托单的流转顺序信息（从API）
+  const fetchFlowSequence = async (orderId, currentCache) => {
+    if (!orderId) return;
+    
+    // 检查缓存（通过参数传入，避免闭包问题）
+    if (currentCache && currentCache[orderId]) {
+      return; // 已缓存，无需重复请求
+    }
+    
+    // 检查是否正在请求
+    if (fetchingOrderIdsRef.current.has(orderId)) {
+      return; // 正在请求中，避免重复请求
+    }
+
+    // 标记为正在请求
+    fetchingOrderIdsRef.current.add(orderId);
+
+    try {
+      const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
+      const headers = {
+        'Authorization': `Bearer ${user.token}`,
+        'Content-Type': 'application/json'
+      };
+
+      const response = await fetch(`/api/commission-form/flow-sequence/${orderId}`, { headers });
+      if (response.ok) {
+        const flowData = await response.json();
+        setFlowSequenceCache(prev => ({
+          ...prev,
+          [orderId]: flowData
+        }));
+      }
+    } catch (error) {
+      console.error('获取流转顺序信息失败:', error);
+    } finally {
+      // 移除请求标记
+      fetchingOrderIdsRef.current.delete(orderId);
+    }
+  };
+
   // 计算流转顺序信息
   const getFlowSequenceInfo = (currentItem) => {
     if (!currentItem.seq_no || !currentItem.order_id) {
       return null;
     }
 
-    // 获取同一委托单的所有项目，按seq_no排序
-    const sameOrderItems = data
-      .filter(item => item.order_id === currentItem.order_id && item.seq_no)
-      .sort((a, b) => Number(a.seq_no) - Number(b.seq_no));
+    // 从缓存中获取同一委托单的所有项目
+    const cachedItems = flowSequenceCache[currentItem.order_id];
+    if (!cachedItems || cachedItems.length === 0) {
+      // 如果缓存中没有，尝试从当前data中获取（向后兼容）
+      const sameOrderItems = data
+        .filter(item => item.order_id === currentItem.order_id && item.seq_no)
+        .sort((a, b) => Number(a.seq_no) - Number(b.seq_no));
 
-    if (sameOrderItems.length <= 1) {
+      if (sameOrderItems.length <= 1) {
+        return null;
+      }
+
+      const currentIndex = sameOrderItems.findIndex(item => item.test_item_id === currentItem.test_item_id);
+      if (currentIndex === -1) {
+        return null;
+      }
+
+      const prevItem = currentIndex > 0 ? sameOrderItems[currentIndex - 1] : null;
+      const nextItem = currentIndex < sameOrderItems.length - 1 ? sameOrderItems[currentIndex + 1] : null;
+
+      const result = {
+        prevGroupName: prevItem?.group_name || null,
+        nextGroupName: nextItem?.group_name || null
+      };
+
+      if (!result.prevGroupName && !result.nextGroupName) {
+        return null;
+      }
+
+      return result;
+    }
+
+    // 使用缓存的数据计算流转顺序
+    const sortedItems = [...cachedItems].sort((a, b) => Number(a.seq_no) - Number(b.seq_no));
+    
+    if (sortedItems.length <= 1) {
       return null;
     }
 
-    const currentIndex = sameOrderItems.findIndex(item => item.test_item_id === currentItem.test_item_id);
+    const currentIndex = sortedItems.findIndex(item => item.test_item_id === currentItem.test_item_id);
     if (currentIndex === -1) {
       return null;
     }
 
-    const prevItem = currentIndex > 0 ? sameOrderItems[currentIndex - 1] : null;
-    const nextItem = currentIndex < sameOrderItems.length - 1 ? sameOrderItems[currentIndex + 1] : null;
+    const prevItem = currentIndex > 0 ? sortedItems[currentIndex - 1] : null;
+    const nextItem = currentIndex < sortedItems.length - 1 ? sortedItems[currentIndex + 1] : null;
 
     const result = {
       prevGroupName: prevItem?.group_name || null,
       nextGroupName: nextItem?.group_name || null
     };
 
-    // 如果前后都没有，返回null
     if (!result.prevGroupName && !result.nextGroupName) {
       return null;
     }
@@ -809,6 +898,25 @@ const CommissionForm = () => {
     const currentUser = JSON.parse(localStorage.getItem('lims_user') || 'null');
     setUser(currentUser);
   }, [page, searchQuery, statusFilter, departmentFilter, monthFilter, myItemsFilter]);
+
+  // 当data变化时，批量获取所有委托单的流转顺序信息
+  useEffect(() => {
+    if (!data || data.length === 0) return;
+
+    // 收集所有有seq_no的项目的唯一order_id
+    const orderIds = [...new Set(
+      data
+        .filter(item => item.order_id && item.seq_no)
+        .map(item => item.order_id)
+    )];
+
+    // 批量获取流转顺序信息（只获取缓存中没有的）
+    orderIds.forEach(orderId => {
+      if (!flowSequenceCache[orderId]) {
+        fetchFlowSequence(orderId, flowSequenceCache);
+      }
+    });
+  }, [data, flowSequenceCache]);
 
   // 监听实时数据更新
   useEffect(() => {
@@ -2806,6 +2914,41 @@ const CommissionForm = () => {
     }
   };
 
+  // 处理顺序号保存的特殊逻辑
+  const handleSaveSeqNo = async (value, testItemId) => {
+    const currentItem = data.find(x => x.test_item_id === testItemId);
+    if (!currentItem || !currentItem.order_id) {
+      throw new Error('无法找到对应的委托单信息');
+    }
+
+    // 验证顺序号
+    const seqNo = value === '' || value === undefined || value === null ? null : Number(value);
+    if (seqNo !== null && (isNaN(seqNo) || seqNo < 0)) {
+      throw new Error('顺序号必须是大于等于0的数字');
+    }
+
+    try {
+      // 保存顺序号到数据库
+      await handleSaveEdit('seq_no', seqNo, testItemId);
+
+      // 清除对应委托单的流转顺序缓存
+      setFlowSequenceCache(prev => {
+        const newCache = { ...prev };
+        delete newCache[currentItem.order_id];
+        return newCache;
+      });
+
+      // 重新获取流转顺序信息（传入空对象确保强制刷新）
+      await fetchFlowSequence(currentItem.order_id, {});
+
+      // 关闭编辑状态
+      setEditingSeqNoItemId(null);
+    } catch (error) {
+      console.error('保存顺序号失败:', error);
+      throw error;
+    }
+  };
+
   const formatDate = (dateString) => {
     if (!dateString) return '';
     return new Date(dateString).toLocaleDateString('zh-CN');
@@ -3179,23 +3322,27 @@ const CommissionForm = () => {
             </button>
             {canAccessSettlement() && (
               <>
-                <button 
-                  onClick={handleSettlementClick} 
-                  className="btn btn-primary"
-                  disabled={selectedItems.length === 0}
-                  style={{backgroundColor: '#ffc107', color: '#000', border: 'none'}}
+                {canEditSettlement() && (
+                  <button 
+                    onClick={handleSettlementClick} 
+                    className="btn btn-primary"
+                    disabled={selectedItems.length === 0}
+                    style={{backgroundColor: '#ffc107', color: '#000', border: 'none'}}
 
-                >
-                  结算 ({selectedItems.length})
-                </button>
-                <button 
-                  onClick={handleBatchDelete} 
-                  className="btn btn-danger"
-                  disabled={selectedItems.length === 0}
-                  style={{backgroundColor: '#dc3545', color: 'white'}}
-                >
-                  批量删除 ({selectedItems.length})
-                </button>
+                  >
+                    结算 ({selectedItems.length})
+                  </button>
+                )}
+                {canEditSettlement() && (
+                  <button 
+                    onClick={handleBatchDelete} 
+                    className="btn btn-danger"
+                    disabled={selectedItems.length === 0}
+                    style={{backgroundColor: '#dc3545', color: 'white'}}
+                  >
+                    批量删除 ({selectedItems.length})
+                  </button>
+                )}
                 <button 
                   onClick={() => navigate('/orders/delete')} 
                   className="btn btn-danger"
@@ -3407,6 +3554,32 @@ const CommissionForm = () => {
                             }
                             return null;
                           })()}
+                          {/* 报告印章标识 - CNAS/CMA */}
+                          {item.report_seals && (() => {
+                            try {
+                              const seals = typeof item.report_seals === 'string' 
+                                ? JSON.parse(item.report_seals) 
+                                : item.report_seals;
+                              if (Array.isArray(seals) && seals.length > 0) {
+                                const hasSeals = seals.includes('cnas') || seals.includes('cma');
+                                if (hasSeals) {
+                                  return (
+                                    <div className="report-seals-container">
+                                      {seals.includes('cnas') && (
+                                        <span className="report-seal-badge seal-cnas" title="CNAS报告">CNAS</span>
+                                      )}
+                                      {seals.includes('cma') && (
+                                        <span className="report-seal-badge seal-cma" title="CMA报告">CMA</span>
+                                      )}
+                                    </div>
+                                  );
+                                }
+                              }
+                            } catch (e) {
+                              console.error('解析report_seals失败:', e);
+                            }
+                            return null;
+                          })()}
                         </div>
                       </td>
                       <td className="pre-urgent-field fixed-left">
@@ -3456,21 +3629,120 @@ const CommissionForm = () => {
                             )}
                             {(() => {
                               const flowInfo = getFlowSequenceInfo(item);
-                              if (!flowInfo) return null;
+                              const hasFlowInfo = flowInfo && (flowInfo.prevGroupName || flowInfo.nextGroupName);
+                              const hasSeqNo = item.seq_no !== null && item.seq_no !== undefined;
+                              
+                              // 如果没有流转信息且没有顺序号，不显示
+                              if (!hasFlowInfo && !hasSeqNo) return null;
+                              
                               const parts = [];
-                              if (flowInfo.prevGroupName) {
+                              if (flowInfo?.prevGroupName) {
                                 parts.push(`前：${flowInfo.prevGroupName}`);
                               }
-                              if (flowInfo.nextGroupName) {
+                              if (flowInfo?.nextGroupName) {
                                 parts.push(`后：${flowInfo.nextGroupName}`);
                               }
-                              if (parts.length === 0) return null;
+                              
+                              const isEditing = editingSeqNoItemId === item.test_item_id;
+                              
                               return (
                                 <div style={{marginTop: '4px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap'}}>
                                   <span className="add-on-badge" style={{backgroundColor: '#17a2b8', color: '#fff'}}>流转</span>
-                                  <span style={{fontSize: '12px', color: '#666'}}>
-                                    {parts.join('，')}
-                                  </span>
+                                  {isEditing ? (
+                                    <div style={{display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap'}}>
+                                      <span style={{fontSize: '12px', color: '#666'}}>顺序号：</span>
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        step="1"
+                                        defaultValue={item.seq_no || ''}
+                                        onKeyDown={async (e) => {
+                                          if (e.key === 'Enter') {
+                                            e.preventDefault();
+                                            const newValue = e.target.value === '' ? null : Number(e.target.value);
+                                            try {
+                                              await handleSaveSeqNo(newValue, item.test_item_id);
+                                            } catch (error) {
+                                              alert('保存失败：' + error.message);
+                                            }
+                                          } else if (e.key === 'Escape') {
+                                            setEditingSeqNoItemId(null);
+                                          }
+                                        }}
+                                        onBlur={async (e) => {
+                                          const newValue = e.target.value === '' ? null : Number(e.target.value);
+                                          // 如果值没有变化，直接关闭编辑
+                                          if (newValue === (item.seq_no || null)) {
+                                            setEditingSeqNoItemId(null);
+                                            return;
+                                          }
+                                          try {
+                                            await handleSaveSeqNo(newValue, item.test_item_id);
+                                          } catch (error) {
+                                            alert('保存失败：' + error.message);
+                                            // 保存失败时保持编辑状态
+                                          }
+                                        }}
+                                        onClick={(e) => e.stopPropagation()}
+                                        autoFocus
+                                        style={{
+                                          width: '60px',
+                                          padding: '2px 4px',
+                                          fontSize: '12px',
+                                          border: '1px solid #17a2b8',
+                                          borderRadius: '3px'
+                                        }}
+                                      />
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setEditingSeqNoItemId(null);
+                                        }}
+                                        style={{
+                                          padding: '2px 6px',
+                                          fontSize: '11px',
+                                          backgroundColor: '#6c757d',
+                                          color: 'white',
+                                          border: 'none',
+                                          borderRadius: '3px',
+                                          cursor: 'pointer'
+                                        }}
+                                      >
+                                        取消
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <>
+                                      {parts.length > 0 && (
+                                        <span style={{fontSize: '12px', color: '#666'}}>
+                                          {parts.join('，')}
+                                        </span>
+                                      )}
+                                      {canEditSeqNo() && (
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setEditingSeqNoItemId(item.test_item_id);
+                                          }}
+                                          style={{
+                                            padding: '2px 6px',
+                                            fontSize: '11px',
+                                            backgroundColor: 'transparent',
+                                            color: '#17a2b8',
+                                            border: 'none',
+                                            borderRadius: '3px',
+                                            cursor: 'pointer',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '4px'
+                                          }}
+                                          title="编辑顺序号"
+                                        >
+                                          ✏️
+                                        </button>
+                                      )}
+                                    </>
+                                  )}
                                 </div>
                               );
                             })()}
@@ -4184,76 +4456,85 @@ const CommissionForm = () => {
                                   : '-'}</span>
                               ) : (
                                 <>
-                                  {/* 未确认，显示可编辑的input输入框 */}
-                                  <input
-                                    type="number"
-                                    step="0.01"
-                                    min="0"
-                                    value={item.invoice_prefill_price !== null && item.invoice_prefill_price !== undefined 
-                                      ? item.invoice_prefill_price
-                                      : (calculateInvoicePrefillPrice(item) || '')}
-                                    onChange={(e) => {
-                                      const newValue = e.target.value === '' ? null : parseFloat(e.target.value);
-                                      // 实时更新本地数据
-                                      setData(prev => prev.map(x => 
-                                        x.test_item_id === item.test_item_id 
-                                          ? { ...x, invoice_prefill_price: newValue } 
-                                          : x
-                                      ));
-                                    }}
-                                    onBlur={async (e) => {
-                                      // 失焦时保存到数据库
-                                      const newValue = e.target.value === '' ? null : parseFloat(e.target.value);
-                                      if (newValue !== null && !isNaN(newValue) && newValue >= 0) {
-                                        try {
-                                          await handleSaveEdit('invoice_prefill_price', newValue, item.test_item_id);
-                                        } catch (error) {
-                                          alert('保存失败：' + error.message);
-                                        }
-                                      }
-                                    }}
-                                    onClick={(e) => e.stopPropagation()}
-                                    style={{
-                                      width: '100px',
-                                      padding: '4px 8px',
-                                      fontSize: '13px',
-                                      border: '1px solid #ddd',
-                                      borderRadius: '3px'
-                                    }}
-                                    placeholder="输入价格"
-                                  />
-                                  {/* 确认按钮 */}
-                                  <button
-                                    className="btn btn-sm"
-                                    style={{
-                                      padding: '2px 8px',
-                                      fontSize: '11px',
-                                      backgroundColor: '#28a745',
-                                      color: 'white',
-                                      border: 'none',
-                                      borderRadius: '3px',
-                                      cursor: 'pointer',
-                                      whiteSpace: 'nowrap'
-                                    }}
-                                    onClick={async (e) => {
-                                      e.stopPropagation();
-                                      const priceToSave = item.invoice_prefill_price !== null && item.invoice_prefill_price !== undefined
-                                        ? item.invoice_prefill_price
-                                        : calculateInvoicePrefillPrice(item);
-                                      if (priceToSave === null || priceToSave === '' || isNaN(priceToSave)) {
-                                        alert('请输入有效的开票预填价');
-                                        return;
-                                      }
-                                      try {
-                                        await handleSaveEdit('invoice_prefill_price', priceToSave, item.test_item_id);
-                                        await handleSaveEdit('invoice_prefill_confirmed', 1, item.test_item_id);
-                                      } catch (error) {
-                                        alert('保存失败：' + error.message);
-                                      }
-                                    }}
-                                  >
-                                    确认
-                                  </button>
+                                  {canEditSettlement() ? (
+                                    <>
+                                      {/* 未确认，显示可编辑的input输入框 */}
+                                      <input
+                                        type="number"
+                                        step="0.01"
+                                        min="0"
+                                        value={item.invoice_prefill_price !== null && item.invoice_prefill_price !== undefined 
+                                          ? item.invoice_prefill_price
+                                          : (calculateInvoicePrefillPrice(item) || '')}
+                                        onChange={(e) => {
+                                          const newValue = e.target.value === '' ? null : parseFloat(e.target.value);
+                                          // 实时更新本地数据
+                                          setData(prev => prev.map(x => 
+                                            x.test_item_id === item.test_item_id 
+                                              ? { ...x, invoice_prefill_price: newValue } 
+                                              : x
+                                          ));
+                                        }}
+                                        onBlur={async (e) => {
+                                          // 失焦时保存到数据库
+                                          const newValue = e.target.value === '' ? null : parseFloat(e.target.value);
+                                          if (newValue !== null && !isNaN(newValue) && newValue >= 0) {
+                                            try {
+                                              await handleSaveEdit('invoice_prefill_price', newValue, item.test_item_id);
+                                            } catch (error) {
+                                              alert('保存失败：' + error.message);
+                                            }
+                                          }
+                                        }}
+                                        onClick={(e) => e.stopPropagation()}
+                                        style={{
+                                          width: '100px',
+                                          padding: '4px 8px',
+                                          fontSize: '13px',
+                                          border: '1px solid #ddd',
+                                          borderRadius: '3px'
+                                        }}
+                                        placeholder="输入价格"
+                                      />
+                                      {/* 确认按钮 */}
+                                      <button
+                                        className="btn btn-sm"
+                                        style={{
+                                          padding: '2px 8px',
+                                          fontSize: '11px',
+                                          backgroundColor: '#28a745',
+                                          color: 'white',
+                                          border: 'none',
+                                          borderRadius: '3px',
+                                          cursor: 'pointer',
+                                          whiteSpace: 'nowrap'
+                                        }}
+                                        onClick={async (e) => {
+                                          e.stopPropagation();
+                                          const priceToSave = item.invoice_prefill_price !== null && item.invoice_prefill_price !== undefined
+                                            ? item.invoice_prefill_price
+                                            : calculateInvoicePrefillPrice(item);
+                                          if (priceToSave === null || priceToSave === '' || isNaN(priceToSave)) {
+                                            alert('请输入有效的开票预填价');
+                                            return;
+                                          }
+                                          try {
+                                            await handleSaveEdit('invoice_prefill_price', priceToSave, item.test_item_id);
+                                            await handleSaveEdit('invoice_prefill_confirmed', 1, item.test_item_id);
+                                          } catch (error) {
+                                            alert('保存失败：' + error.message);
+                                          }
+                                        }}
+                                      >
+                                        确认
+                                      </button>
+                                    </>
+                                  ) : (
+                                    // 业务员只能查看，不能编辑
+                                    <span>{item.invoice_prefill_price !== null && item.invoice_prefill_price !== undefined 
+                                      ? formatCurrency(item.invoice_prefill_price) 
+                                      : (calculateInvoicePrefillPrice(item) !== null ? formatCurrency(calculateInvoicePrefillPrice(item)) : '-')}</span>
+                                  )}
                                 </>
                               )}
                             </div>
@@ -4264,21 +4545,25 @@ const CommissionForm = () => {
                               : '-'}
                           </td>
                           <td className={getColumnCellClass('invoice_note', 'invoice-field note-col')} data-column-key="invoice_note">
-                            <div className="editable-field-container">
-                              <RealtimeEditableCell
-                                value={item.invoice_note || ''}
-                                type="textarea"
-                                onSave={handleSaveEdit}
-                                field="invoice_note"
-                                testItemId={item.test_item_id}
-                                placeholder="输入开票备注"
-                                isFieldBeingEdited={isFieldBeingEdited}
-                                getEditingUser={getEditingUser}
-                                emitUserEditing={emitUserEditing}
-                                emitUserStopEditing={emitUserStopEditing}
-                              />
-                              <SavingIndicator testItemId={item.test_item_id} field="invoice_note" />
-                            </div>
+                            {canEditSettlement() ? (
+                              <div className="editable-field-container">
+                                <RealtimeEditableCell
+                                  value={item.invoice_note || ''}
+                                  type="textarea"
+                                  onSave={handleSaveEdit}
+                                  field="invoice_note"
+                                  testItemId={item.test_item_id}
+                                  placeholder="输入开票备注"
+                                  isFieldBeingEdited={isFieldBeingEdited}
+                                  getEditingUser={getEditingUser}
+                                  emitUserEditing={emitUserEditing}
+                                  emitUserStopEditing={emitUserStopEditing}
+                                />
+                                <SavingIndicator testItemId={item.test_item_id} field="invoice_note" />
+                              </div>
+                            ) : (
+                              <span className="readonly-field">{item.invoice_note || '-'}</span>
+                            )}
                           </td>
                           <td className={getColumnCellClass('invoice_status', 'invoice-field narrow-col')} data-column-key="invoice_status">
                             <span className="readonly-field">{item.invoice_status || '未结算'}</span>

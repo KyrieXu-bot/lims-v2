@@ -202,12 +202,15 @@ router.get('/commission-form', async (req, res) => {
         o.delivery_days_after_receipt as delivery_days,
         o.remarks as other_requirements,
         o.total_price,
+        -- 报告印章要求
+        r.report_seals,
         -- 开票信息（从settlements表通过test_item_ids关联获取）
         s.invoice_number,
         s.invoice_date as settlement_invoice_date,
         COALESCE(s.customer_name, c_settlement.customer_name) as settlement_customer_name
       FROM test_items ti
       LEFT JOIN orders o ON o.order_id = ti.order_id
+      LEFT JOIN reports r ON r.order_id = ti.order_id
       LEFT JOIN customers c ON c.customer_id = o.customer_id
       LEFT JOIN commissioners comm ON comm.commissioner_id = o.commissioner_id
       LEFT JOIN users u ON u.user_id = ti.current_assignee
@@ -540,6 +543,32 @@ router.get('/month-options', async (req, res) => {
     res.json(months);
   } catch (e) {
     console.error('Error fetching month options:', e);
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// 获取指定委托单的所有项目的流转顺序信息（不受权限限制，仅用于计算流转顺序）
+// 只返回seq_no和group_name，不包含敏感信息
+router.get('/flow-sequence/:orderId', async (req, res) => {
+  const { orderId } = req.params;
+  const pool = await getPool();
+  
+  try {
+    const [rows] = await pool.query(
+      `SELECT 
+        ti.test_item_id,
+        ti.seq_no,
+        lg.group_name
+      FROM test_items ti
+      LEFT JOIN lab_groups lg ON lg.group_id = ti.group_id
+      WHERE ti.order_id = ? AND ti.seq_no IS NOT NULL
+      ORDER BY ti.seq_no ASC`,
+      [orderId]
+    );
+    
+    res.json(rows);
+  } catch (e) {
+    console.error('Error fetching flow sequence:', e);
     return res.status(500).json({ error: e.message });
   }
 });
