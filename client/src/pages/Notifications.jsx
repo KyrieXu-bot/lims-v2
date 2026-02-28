@@ -60,6 +60,13 @@ const Notifications = () => {
   const { socket } = useSocket(null);
   const [showAddonRequestModal, setShowAddonRequestModal] = useState(false);
   const [selectedRequestId, setSelectedRequestId] = useState(null);
+  const [user, setUser] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('lims_user') || 'null');
+    } catch {
+      return null;
+    }
+  });
 
   // 加载通知列表
   const loadNotifications = async () => {
@@ -234,6 +241,8 @@ const Notifications = () => {
     const typeMap = {
       'raw_data_upload': '原始数据上传',
       'addon_request': '加测申请',
+      'cancel_request': '取消申请',
+      'delete_request': '删除申请',
       'system': '系统通知',
       'other': '其他'
     };
@@ -274,6 +283,176 @@ const Notifications = () => {
   const handleRequestApproved = () => {
     // 刷新通知列表
     loadNotifications();
+  };
+
+  // 处理取消/删除申请通过
+  const handleApproveCancellationRequest = async (notification) => {
+    try {
+      const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
+      if (!user || !user.token) {
+        alert('请先登录');
+        return;
+      }
+
+      // 从通知中获取申请ID，优先使用 related_cancellation_request_id
+      let requestId = notification.related_cancellation_request_id;
+      
+      // 如果数据库查询没有返回，尝试从content中解析
+      if (!requestId && notification.content) {
+        const match = notification.content.match(/申请ID：(\d+)/);
+        if (match) {
+          requestId = parseInt(match[1]);
+        }
+      }
+      
+      if (!requestId) {
+        alert('无法获取申请ID，请刷新页面重试');
+        return;
+      }
+
+      const apiBase = getApiBase();
+      const response = await fetch(`${apiBase}/api/cancellation-requests/${requestId}/approve`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${user.token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        alert(result.message || '申请已通过');
+        loadNotifications();
+      } else {
+        const errorData = await response.json();
+        alert(errorData.error || '操作失败');
+      }
+    } catch (error) {
+      console.error('批准申请失败:', error);
+      alert('操作失败：' + error.message);
+    }
+  };
+
+  // 执行取消/删除操作
+  const handleExecuteCancellation = async (notification) => {
+    if (!window.confirm('确定要执行此操作吗？')) {
+      return;
+    }
+
+    try {
+      const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
+      if (!user || !user.token) {
+        alert('请先登录');
+        return;
+      }
+
+      // 从通知中获取申请ID，优先使用 related_cancellation_request_id
+      let requestId = notification.related_cancellation_request_id;
+      
+      // 如果数据库查询没有返回，尝试从content中解析
+      if (!requestId && notification.content) {
+        const match = notification.content.match(/申请ID：(\d+)/);
+        if (match) {
+          requestId = parseInt(match[1]);
+        }
+      }
+      
+      if (!requestId) {
+        alert('无法获取申请ID，请刷新页面重试');
+        return;
+      }
+
+      const apiBase = getApiBase();
+      const response = await fetch(`${apiBase}/api/cancellation-requests/${requestId}/execute`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${user.token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        alert(result.message || '操作已执行');
+        loadNotifications();
+        // 如果执行成功，可以跳转到委托单页面
+        if (notification.related_order_id) {
+          navigate('/commission-form', {
+            state: {
+              highlightOrderId: notification.related_order_id,
+              highlightTestItemId: notification.related_test_item_id
+            }
+          });
+        }
+      } else {
+        const errorData = await response.json();
+        alert(errorData.error || '操作失败');
+      }
+    } catch (error) {
+      console.error('执行操作失败:', error);
+      alert('操作失败：' + error.message);
+    }
+  };
+
+  // 撤回执行操作
+  const handleRevertCancellation = async (notification) => {
+    if (!window.confirm('确定要撤回执行操作吗？')) {
+      return;
+    }
+
+    try {
+      const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
+      if (!user || !user.token) {
+        alert('请先登录');
+        return;
+      }
+
+      // 从通知中获取申请ID，优先使用 related_cancellation_request_id
+      let requestId = notification.related_cancellation_request_id;
+      
+      // 如果数据库查询没有返回，尝试从content中解析
+      if (!requestId && notification.content) {
+        const match = notification.content.match(/申请ID：(\d+)/);
+        if (match) {
+          requestId = parseInt(match[1]);
+        }
+      }
+      
+      if (!requestId) {
+        alert('无法获取申请ID，请刷新页面重试');
+        return;
+      }
+
+      const apiBase = getApiBase();
+      const response = await fetch(`${apiBase}/api/cancellation-requests/${requestId}/revert`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${user.token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        alert(result.message || '操作已撤回');
+        loadNotifications();
+        // 如果撤回成功，可以跳转到委托单页面
+        if (notification.related_order_id) {
+          navigate('/commission-form', {
+            state: {
+              highlightOrderId: notification.related_order_id,
+              highlightTestItemId: notification.related_test_item_id
+            }
+          });
+        }
+      } else {
+        const errorData = await response.json();
+        alert(errorData.error || '操作失败');
+      }
+    } catch (error) {
+      console.error('撤回操作失败:', error);
+      alert('操作失败：' + error.message);
+    }
   };
 
   const totalPages = Math.ceil(total / pageSize);
@@ -351,6 +530,24 @@ const Notifications = () => {
             加测申请
           </button>
           <button
+            className={`filter-btn ${typeFilter === 'cancel_request' ? 'active' : ''}`}
+            onClick={() => {
+              setTypeFilter('cancel_request');
+              setPage(1);
+            }}
+          >
+            取消申请
+          </button>
+          <button
+            className={`filter-btn ${typeFilter === 'delete_request' ? 'active' : ''}`}
+            onClick={() => {
+              setTypeFilter('delete_request');
+              setPage(1);
+            }}
+          >
+            删除申请
+          </button>
+          <button
             className={`filter-btn ${typeFilter === 'system' ? 'active' : ''}`}
             onClick={() => {
               setTypeFilter('system');
@@ -410,6 +607,48 @@ const Notifications = () => {
                           }}
                         >
                           查看详情
+                        </button>
+                      )}
+                      {/* 取消/删除申请：业务员可以批准（pending状态） */}
+                      {(notification.type === 'cancel_request' || notification.type === 'delete_request') && 
+                       notification.cancellation_request_status === 'pending' && 
+                       (user?.role === 'sales' || user?.role === 'admin') && (
+                        <button
+                          className="btn-view-request"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleApproveCancellationRequest(notification);
+                          }}
+                        >
+                          申请通过
+                        </button>
+                      )}
+                      {/* 取消/删除申请：开单员可以执行（approved状态） */}
+                      {(notification.type === 'cancel_request' || notification.type === 'delete_request') && 
+                       notification.cancellation_request_status === 'approved' && 
+                       (user?.user_id === 'JC0089' || user?.role === 'admin') && (
+                        <button
+                          className="btn-view-request"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleExecuteCancellation(notification);
+                          }}
+                        >
+                          {notification.type === 'cancel_request' ? '执行取消' : '执行删除'}
+                        </button>
+                      )}
+                      {/* 取消/删除申请：开单员可以撤回执行（executed状态） */}
+                      {(notification.type === 'cancel_request' || notification.type === 'delete_request') && 
+                       notification.cancellation_request_status === 'executed' && 
+                       (user?.user_id === 'JC0089' || user?.role === 'admin') && (
+                        <button
+                          className="btn-view-request"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleRevertCancellation(notification);
+                          }}
+                        >
+                          取消执行
                         </button>
                       )}
                       {!notification.is_read && (

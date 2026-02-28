@@ -66,8 +66,16 @@ router.get('/commission-form', async (req, res) => {
       // 普通文本搜索
       // 使用子查询来搜索 payers.contact_name，避免 WHERE 子句中引用 JOIN 别名的问题
       // 添加对负责人名字和测试人员名字的搜索
-      filters.push('(ti.category_name LIKE ? OR ti.detail_name LIKE ? OR ti.test_code LIKE ? OR ti.order_id LIKE ? OR c.customer_name LIKE ? OR comm.contact_name LIKE ? OR EXISTS (SELECT 1 FROM payers WHERE payers.payer_id = o.payer_id AND payers.contact_name LIKE ?) OR EXISTS (SELECT 1 FROM users WHERE users.user_id = ti.supervisor_id AND users.name LIKE ?) OR EXISTS (SELECT 1 FROM users WHERE users.user_id = ti.technician_id AND users.name LIKE ?))');
-      params.push(like, like, like, like, like, like, like, like, like);
+      // 添加转单号搜索：
+      //   - ti.order_id LIKE ?: 搜索当前订单号（包括原单号和转单号）
+      //   - o.original_order_id LIKE ?: 如果当前是转单，搜索原单号
+      //   - o.root_order_id LIKE ?: 搜索根单号（如果搜索原单号，能找到所有以它为根单号的转单）
+      // 注意：移除了性能差的EXISTS子查询，因为：
+      //   1. 搜索原单号时，o.root_order_id LIKE ? 已经能找到所有相关转单
+      //   2. 搜索转单号时，ti.order_id LIKE ? 和 o.original_order_id LIKE ? 已经足够
+      //   3. 如果确实需要反向查找（搜索原单号找转单），可以通过优化索引或单独查询实现
+      filters.push('(ti.category_name LIKE ? OR ti.detail_name LIKE ? OR ti.test_code LIKE ? OR ti.order_id LIKE ? OR o.original_order_id LIKE ? OR o.root_order_id LIKE ? OR c.customer_name LIKE ? OR comm.contact_name LIKE ? OR EXISTS (SELECT 1 FROM payers WHERE payers.payer_id = o.payer_id AND payers.contact_name LIKE ?) OR EXISTS (SELECT 1 FROM users WHERE users.user_id = ti.supervisor_id AND users.name LIKE ?) OR EXISTS (SELECT 1 FROM users WHERE users.user_id = ti.technician_id AND users.name LIKE ?))');
+      params.push(like, like, like, like, like, like, like, like, like, like, like);
     }
   }
   
@@ -110,7 +118,14 @@ router.get('/commission-form', async (req, res) => {
       `SELECT 
         ti.test_item_id,
         ti.order_id,
-        o.created_at as order_created_at,
+        o.original_order_id,
+        o.root_order_id,
+        o.is_transferred,
+        -- 收样日期：普通项目用委托单创建时间，加测项目用检测项目创建时间（加测通过当日）
+        CASE 
+          WHEN ti.is_add_on = 1 THEN ti.created_at 
+          ELSE o.created_at 
+        END as order_created_at,
         ti.created_at as test_item_created_at,
         c.customer_id,
         c.customer_name,
@@ -180,6 +195,7 @@ router.get('/commission-form', async (req, res) => {
         ti.price_note,
         ti.is_add_on,
         ti.addon_reason,
+        ti.addon_target,
         ti.business_confirmed,
         sup.name as supervisor_name,
         ti.supervisor_id,
@@ -561,7 +577,7 @@ router.get('/flow-sequence/:orderId', async (req, res) => {
         lg.group_name
       FROM test_items ti
       LEFT JOIN lab_groups lg ON lg.group_id = ti.group_id
-      WHERE ti.order_id = ? AND ti.seq_no IS NOT NULL
+      WHERE ti.order_id = ? AND ti.seq_no IS NOT NULL AND ti.status != 'cancelled'
       ORDER BY ti.seq_no ASC`,
       [orderId]
     );

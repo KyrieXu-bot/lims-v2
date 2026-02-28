@@ -51,7 +51,8 @@ const RealtimeEditableCell = ({
   suffix = '',
   loadOptions, // 新增：动态加载选项的函数
   copiedValue,
-  onCopyValue
+  onCopyValue,
+  disabled = false // 新增：是否禁用编辑
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   // 对于 number 类型，0 是有效值，应该保留；对于其他类型，null/undefined 转为空字符串
@@ -419,6 +420,17 @@ const RealtimeEditableCell = ({
   const isBeingEdited = isFieldBeingEdited && isFieldBeingEdited(field, testItemId);
   const editingUser = isBeingEdited && getEditingUser && getEditingUser(field, testItemId);
 
+  // 如果字段被禁用，显示只读视图
+  if (disabled) {
+    return (
+      <div className="realtime-editable-cell">
+        <span className="readonly-field" style={{ opacity: 0.6 }}>
+          {formatValue(value)}
+        </span>
+      </div>
+    );
+  }
+
   if (!isEditing) {
     return (
       <div className="realtime-editable-cell">
@@ -449,6 +461,7 @@ const RealtimeEditableCell = ({
         onKeyDown={handleKeyDown}
         onBlur={handleSave}
         className="editable-input date-input"
+        disabled={disabled}
       />
     );
   }
@@ -467,6 +480,7 @@ const RealtimeEditableCell = ({
           onKeyDown={handleKeyDown}
           onBlur={handleSave}
           className="editable-input datetime-input"
+          disabled={disabled}
         />
         <div className="datetime-action-buttons">
           <button
@@ -509,6 +523,7 @@ const RealtimeEditableCell = ({
           className="editable-input textarea-input"
           placeholder={placeholder}
           rows={6}
+          disabled={disabled}
           style={{
             resize: 'vertical',
             height: 'auto',
@@ -523,7 +538,7 @@ const RealtimeEditableCell = ({
             overflow: 'auto',
             boxSizing: 'border-box',
             display: 'block',
-            backgroundColor: 'white',
+            backgroundColor: disabled ? '#f5f5f5' : 'white',
             wordWrap: 'break-word',
             wordBreak: 'break-all'
           }}
@@ -548,6 +563,7 @@ const RealtimeEditableCell = ({
         onKeyDown={handleKeyDown}
         onBlur={handleSave}
         className="editable-input select-input"
+        disabled={disabled}
       >
         {displayOptions.map((option, index) => (
           <option key={option.value || index} value={option.value || ''}>
@@ -569,6 +585,7 @@ const RealtimeEditableCell = ({
           onKeyDown={handleKeyDown}
           className="editable-input autocomplete-input"
           placeholder={placeholder}
+          disabled={disabled}
         />
         {showOptions && filteredOptions.length > 0 && (
           <div className="options-dropdown" style={{ 
@@ -601,6 +618,7 @@ const RealtimeEditableCell = ({
         onBlur={handleSave}
         className="editable-input"
         placeholder={placeholder}
+        disabled={disabled}
         style={suffix ? { paddingRight: suffix ? '20px' : undefined } : {}}
       />
       {suffix && isEditing && (

@@ -32,9 +32,10 @@
   background: var(--white);
   border-radius: 8px;
   box-shadow: var(--shadow);
-  align-items: center;
-  flex-wrap: nowrap;
+  align-items: flex-start;
+  flex-wrap: wrap;
   width: 100%;
+  box-sizing: border-box;
 }
 
 .filter-group {
@@ -42,10 +43,10 @@
   flex-direction: row;
   align-items: center;
   gap: 12px;
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
-  flex-wrap: nowrap;
-  width: 100%;
+  flex-wrap: wrap;
+  max-width: 100%;
 }
 
 .filter-group label {
@@ -57,18 +58,19 @@
 }
 
 .filter-btn {
-  padding: 8px 20px;
+  padding: 8px 16px;
   border: 1px solid var(--gray-300);
   background: var(--white);
   color: var(--gray-700);
   border-radius: 6px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 13px;
   transition: all 0.2s;
   white-space: nowrap;
   flex-shrink: 0;
   min-width: fit-content;
   display: inline-block;
+  box-sizing: border-box;
 }
 
 .filter-btn:hover {

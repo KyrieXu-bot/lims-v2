@@ -21,7 +21,9 @@ import templatesRouter from './src/routes/templates.js';
 import statisticsRouter from './src/routes/statistics.js';
 import notificationsRouter from './src/routes/notifications.js';
 import addonRequestsRouter from './src/routes/addon_requests.js';
+import cancellationRequestsRouter from './src/routes/cancellation_requests.js';
 import settlementsRouter from './src/routes/settlements.js';
+import orderTransfersRouter from './src/routes/order_transfers.js';
 import { setupSocket } from './src/socket.js';
 import { getPool } from './src/db.js';
 
@@ -62,7 +64,9 @@ app.use('/api/templates', templatesRouter);
 app.use('/api/statistics', statisticsRouter);
 app.use('/api/notifications', notificationsRouter);
 app.use('/api/addon-requests', addonRequestsRouter);
+app.use('/api/cancellation-requests', cancellationRequestsRouter);
 app.use('/api/settlements', settlementsRouter);
+app.use('/api/order-transfers', orderTransfersRouter);
 
 // 设置WebSocket
 const io = setupSocket(server);

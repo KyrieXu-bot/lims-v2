@@ -8,6 +8,7 @@ import SimpleFileUpload from '../../components/SimpleFileUpload.jsx';
 import BatchFileUpload from '../../components/BatchFileUpload.jsx';
 import ReadonlyNoteField from '../../components/ReadonlyNoteField.jsx';
 import DetailViewLink from '../../components/DetailViewLink.jsx';
+import OrderTransferChainModal from '../../components/OrderTransferChainModal.jsx';
 import { useSocket } from '../../hooks/useSocket.js';
 import * as XLSX from 'xlsx';
 import './CommissionForm.css';
@@ -241,6 +242,8 @@ const CommissionForm = () => {
   const [savedViewState] = useState(() => getSavedViewState());
 
   const [data, setData] = useState([]);
+  const [showTransferChainModal, setShowTransferChainModal] = useState(false);
+  const [selectedTransferOrderId, setSelectedTransferOrderId] = useState(null);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(() => (savedViewState?.page ? Number(savedViewState.page) : 1));
@@ -296,6 +299,12 @@ const CommissionForm = () => {
   const [customerSearchResults, setCustomerSearchResults] = useState([]);
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const [settlementAssigneeOptions, setSettlementAssigneeOptions] = useState([]);
+  // 取消/删除申请相关状态
+  const [showCancellationModal, setShowCancellationModal] = useState(false);
+  const [cancellationItem, setCancellationItem] = useState(null);
+  const [cancellationType, setCancellationType] = useState(null); // 'cancel' 或 'delete'
+  const [cancellationReason, setCancellationReason] = useState('');
+  const [submittingCancellation, setSubmittingCancellation] = useState(false);
   const [columnVisibility, setColumnVisibility] = useState(() => {
     if (typeof window !== 'undefined') {
       try {
@@ -465,8 +474,9 @@ const CommissionForm = () => {
     const cachedItems = flowSequenceCache[currentItem.order_id];
     if (!cachedItems || cachedItems.length === 0) {
       // 如果缓存中没有，尝试从当前data中获取（向后兼容）
+      // 排除已取消的项目，不参与排序
       const sameOrderItems = data
-        .filter(item => item.order_id === currentItem.order_id && item.seq_no)
+        .filter(item => item.order_id === currentItem.order_id && item.seq_no && item.status !== 'cancelled')
         .sort((a, b) => Number(a.seq_no) - Number(b.seq_no));
 
       if (sameOrderItems.length <= 1) {
@@ -903,10 +913,10 @@ const CommissionForm = () => {
   useEffect(() => {
     if (!data || data.length === 0) return;
 
-    // 收集所有有seq_no的项目的唯一order_id
+    // 收集所有有seq_no的项目的唯一order_id（排除已取消的项目）
     const orderIds = [...new Set(
       data
-        .filter(item => item.order_id && item.seq_no)
+        .filter(item => item.order_id && item.seq_no && item.status !== 'cancelled')
         .map(item => item.order_id)
     )];
 
@@ -1322,6 +1332,29 @@ const CommissionForm = () => {
     return num !== null && num >= 0;
   };
 
+  // 检查原始数据上传所需的7个必填字段是否都已填写
+  const checkRawDataRequiredFields = (item) => {
+    const fieldTestTimeFilled = hasValue(item.field_test_time);
+    const equipmentFilled = hasValue(item.equipment_id) || hasValue(item.equipment_name);
+    const quantityFilled = hasNonNegativeNumber(item.actual_sample_quantity);
+    const unitFilled = hasValue(item.unit);
+    const workHoursFilled = hasNonNegativeNumber(item.work_hours);
+    const machineHoursFilled = hasNonNegativeNumber(item.machine_hours);
+    const labPriceFilled = hasNonNegativeNumber(item.lab_price);
+    
+    return {
+      allFilled: fieldTestTimeFilled && equipmentFilled && quantityFilled && unitFilled && 
+                 workHoursFilled && machineHoursFilled && labPriceFilled,
+      fieldTestTimeFilled,
+      equipmentFilled,
+      quantityFilled,
+      unitFilled,
+      workHoursFilled,
+      machineHoursFilled,
+      labPriceFilled
+    };
+  };
+
   const formatNumberValue = (value) => {
     if (value === null || value === undefined || value === '') return '';
     const num = Number(value);
@@ -1450,18 +1483,101 @@ const CommissionForm = () => {
   };
 
   const handleCancel = async (item) => {
-    if (!window.confirm('确定取消该检测项目吗？')) return;
+    // 如果是管理员，直接取消；否则走申请流程
+    if (user?.role === 'admin') {
+      if (!window.confirm('确定取消该检测项目吗？')) return;
+      try {
+        const userLocal = JSON.parse(localStorage.getItem('lims_user') || 'null');
+        const r = await fetch(`/api/test-items/${item.test_item_id}`, {
+          method: 'PUT',
+          headers: { 'Authorization': `Bearer ${userLocal.token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'cancelled' })
+        });
+        if (!r.ok) throw new Error('取消失败');
+        setData(prev => prev.map(x => x.test_item_id === item.test_item_id ? { ...x, status: 'cancelled' } : x));
+      } catch (e) {
+        alert(e.message || '取消失败');
+      }
+    } else {
+      // 实验员/组长走申请流程
+      setCancellationItem(item);
+      setCancellationType('cancel');
+      setCancellationReason('');
+      setShowCancellationModal(true);
+    }
+  };
+
+  // 撤回取消操作
+  const handleUncancel = async (item) => {
+    if (!window.confirm('确定要撤回取消操作吗？项目将恢复为正常状态。')) return;
     try {
       const userLocal = JSON.parse(localStorage.getItem('lims_user') || 'null');
-      const r = await fetch(`/api/test-items/${item.test_item_id}`, {
-        method: 'PUT',
-        headers: { 'Authorization': `Bearer ${userLocal.token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'cancelled' })
+      const r = await fetch(`/api/test-items/${item.test_item_id}/uncancel`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${userLocal.token}`, 'Content-Type': 'application/json' }
       });
-      if (!r.ok) throw new Error('取消失败');
-      setData(prev => prev.map(x => x.test_item_id === item.test_item_id ? { ...x, status: 'cancelled' } : x));
+      if (!r.ok) {
+        const errorData = await r.json();
+        throw new Error(errorData.error || '撤回失败');
+      }
+      const result = await r.json();
+      // 根据返回的新状态更新本地数据
+      setData(prev => prev.map(x => 
+        x.test_item_id === item.test_item_id 
+          ? { ...x, status: result.newStatus || 'new' } 
+          : x
+      ));
+      alert(result.message || '撤回成功');
     } catch (e) {
-      alert(e.message || '取消失败');
+      alert(e.message || '撤回失败');
+    }
+  };
+
+  // 处理申请取消/删除
+  const handleRequestCancellation = async () => {
+    if (!cancellationReason || !cancellationReason.trim()) {
+      alert('请输入取消/删除原因');
+      return;
+    }
+    
+    try {
+      setSubmittingCancellation(true);
+      const userLocal = JSON.parse(localStorage.getItem('lims_user') || 'null');
+      if (!userLocal || !userLocal.token) {
+        alert('请先登录');
+        return;
+      }
+      
+      const response = await fetch('/api/cancellation-requests', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${userLocal.token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          test_item_id: cancellationItem.test_item_id,
+          request_type: cancellationType,
+          reason: cancellationReason.trim()
+        })
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || '提交申请失败');
+      }
+      
+      const result = await response.json();
+      alert(result.message || '申请已提交，等待业务员审核');
+      
+      // 关闭弹窗
+      setShowCancellationModal(false);
+      setCancellationItem(null);
+      setCancellationType(null);
+      setCancellationReason('');
+    } catch (error) {
+      alert(error.message || '提交申请失败');
+    } finally {
+      setSubmittingCancellation(false);
     }
   };
 
@@ -1552,6 +1668,8 @@ const CommissionForm = () => {
       const excelData = selectedData.map((item, index) => ({
         '序号': index + 1,
         '委托单号': item.order_id || '',
+        '原单号': item.original_order_id || '',
+        '根单号': item.root_order_id || '',
         '收样日期': formatDate(item.order_created_at),
         '开单日期': formatDate(item.test_item_created_at),
         '委托单位': item.customer_commissioner_name || '',
@@ -1570,6 +1688,7 @@ const CommissionForm = () => {
         '归属部门': item.department_name || '',
         '收费标准-最低报价': formatPriceRange(item.original_unit_price, item.minimum_price),
         '业务报价': item.price_note || '',
+        '业务价是否确认': item.business_confirmed === 1 || item.business_confirmed === '1' ? '是' : '否',
         '数量': item.quantity || '',
         '单位': item.unit || '',
         '标准单价': formatCurrency(item.standard_price),
@@ -1582,6 +1701,7 @@ const CommissionForm = () => {
         '样品是否已到': item.sample_arrival_status === 'arrived' ? '已到' : item.sample_arrival_status === 'not_arrived' ? '未到' : '',
         '是否加测': item.is_add_on === 1 || item.is_add_on === '1' ? '是' : '否',
         '加测原因': item.addon_reason || '',
+        '加测对象': item.addon_target === 'sales' ? '业务员' : item.addon_target === 'employee' ? '实验员' : '',
         '服务加急': item.service_urgency || '',
         '现场测试时间': item.field_test_time ? formatDateTime(item.field_test_time) : '',
         '检测设备': item.equipment_name || '',
@@ -1619,6 +1739,8 @@ const CommissionForm = () => {
       const colWidths = [
         { wch: 8 },   // 序号
         { wch: 15 },  // 委托单号
+        { wch: 15 },  // 原单号
+        { wch: 15 },  // 根单号
         { wch: 12 },  // 收样日期
         { wch: 12 },  // 开单日期
         { wch: 20 },  // 委托单位
@@ -1637,6 +1759,7 @@ const CommissionForm = () => {
         { wch: 12 },  // 归属部门
         { wch: 20 },  // 收费标准-最低报价
         { wch: 15 },  // 业务报价
+        { wch: 15 },  // 业务价是否确认
         { wch: 8 },   // 数量
         { wch: 8 },   // 单位
         { wch: 12 },  // 标准单价
@@ -1649,6 +1772,7 @@ const CommissionForm = () => {
         { wch: 12 },  // 样品是否已到
         { wch: 10 },  // 是否加测
         { wch: 15 },  // 加测原因
+        { wch: 12 },  // 加测对象
         { wch: 10 },  // 服务加急
         { wch: 18 },  // 现场测试时间
         { wch: 15 },  // 检测设备
@@ -2129,27 +2253,39 @@ const CommissionForm = () => {
 
   // 删除单个检测项目
   const handleDeleteItem = async (testItemId) => {
-    if (!window.confirm('确定要删除这个检测项目吗？删除后将无法恢复，包括所有相关的分配、委外、样品等信息。')) {
-      return;
-    }
+    const item = data.find(x => x.test_item_id === testItemId);
+    if (!item) return;
     
-    try {
-      setDeletingItems(prev => new Set(prev).add(testItemId));
-      await api.deleteTestItem(testItemId);
+    // 如果是管理员或室主任，直接删除；否则走申请流程
+    if (user?.role === 'admin' || user?.role === 'leader') {
+      if (!window.confirm('确定要删除这个检测项目吗？删除后将无法恢复，包括所有相关的分配、委外、样品等信息。')) {
+        return;
+      }
       
-      // 从本地数据中移除
-      setData(prev => prev.filter(item => item.test_item_id !== testItemId));
-      setTotal(prev => prev - 1);
-      
-      alert('检测项目删除成功');
-    } catch (error) {
-      alert('删除失败：' + error.message);
-    } finally {
-      setDeletingItems(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(testItemId);
-        return newSet;
-      });
+      try {
+        setDeletingItems(prev => new Set(prev).add(testItemId));
+        await api.deleteTestItem(testItemId);
+        
+        // 从本地数据中移除
+        setData(prev => prev.filter(item => item.test_item_id !== testItemId));
+        setTotal(prev => prev - 1);
+        
+        alert('检测项目删除成功');
+      } catch (error) {
+        alert('删除失败：' + error.message);
+      } finally {
+        setDeletingItems(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(testItemId);
+          return newSet;
+        });
+      }
+    } else {
+      // 实验员/组长走申请流程
+      setCancellationItem(item);
+      setCancellationType('delete');
+      setCancellationReason('');
+      setShowCancellationModal(true);
     }
   };
 
@@ -2353,14 +2489,12 @@ const CommissionForm = () => {
     }
   };
 
-  // 复制检测项目
-  const handleCopyTestItem = (item) => {
-    saveCurrentViewState();
+  // 构建复制加测时的通用数据（预填业务员工号，不预填负责人/实验员）
+  const buildCopyTestItemParams = (item) => {
     const resolvedUnitPrice = item && item.standard_price !== undefined && item.standard_price !== null && item.standard_price !== ''
       ? item.standard_price
       : item.unit_price;
       
-    // 构建复制数据的URL参数，排除ID相关字段
     const copyData = {
       order_id: item.order_id,
       category_name: item.category_name,
@@ -2373,11 +2507,11 @@ const CommissionForm = () => {
       standard_code: item.standard_code,
       department_id: item.department_id,
       group_id: item.group_id,
-      // 不复制标准单价、标准总价、测试总价
-      // unit_price: resolvedUnitPrice,
+      // 各类价格信息
+      unit_price: resolvedUnitPrice,
       discount_rate: item.discount_rate,
-      // final_unit_price: item.final_unit_price,
-      // line_total: item.line_total,
+      final_unit_price: item.final_unit_price,
+      line_total: item.line_total,
       quantity: item.quantity,
       // 不复制机时和工时
       // machine_hours: item.machine_hours,
@@ -2389,9 +2523,13 @@ const CommissionForm = () => {
       note: item.note,
       // 复制加测原因
       addon_reason: item.addon_reason,
-      // 复制业务员，方便加测时沿用业务信息
+      // 服务加急设置
+      service_urgency: item.service_urgency,
+      // 加测对象
+      addon_target: item.addon_target,
+      // 预填业务员工号
       current_assignee: item.current_assignee,
-      // 复制负责人工号，如果原项目有负责人的话
+      // 不预填负责人工号、实验员工号
       // supervisor_id: item.supervisor_id,
       // 不复制实验员，让用户重新选择
       // technician_id: item.technician_id,
@@ -2410,32 +2548,18 @@ const CommissionForm = () => {
       // business_note: item.business_note,
       // 不复制单位
       // unit: item.unit,
-      // 添加其他可能缺失的字段
-      // status 将在后面根据是否有负责人来设置
     };
 
-    // 如果原项目有负责人，则复制负责人工号
-    const hasSupervisor = item.supervisor_id && 
-                          item.supervisor_id !== null && 
-                          item.supervisor_id !== undefined && 
-                          item.supervisor_id !== '';
-    if (hasSupervisor) {
-      copyData.supervisor_id = item.supervisor_id;
-    }
-    
-    // 根据是否有负责人来设置状态：有负责人则为已分配，否则为新建
-    copyData.status = hasSupervisor ? 'assigned' : 'new';
+    // 统一从“新建”状态开始
+    copyData.status = 'new';
 
-    // 将数据编码为URL参数
     const params = new URLSearchParams();
-    // 数字类型字段列表，这些字段即使为0也应该传递
     const numericFields = ['quantity', 'unit_price', 'discount_rate', 'final_unit_price', 'line_total', 
                           'machine_hours', 'work_hours', 'is_add_on', 'is_outsourced', 'department_id', 
                           'group_id', 'supervisor_id', 'technician_id', 'equipment_id', 'actual_sample_quantity'];
     
     Object.keys(copyData).forEach(key => {
       const value = copyData[key];
-      // 对于数字类型字段，即使为0也要传递；对于其他字段，排除null/undefined/空字符串
       if (numericFields.includes(key)) {
         if (value !== null && value !== undefined && value !== '') {
           params.append(key, value);
@@ -2447,8 +2571,21 @@ const CommissionForm = () => {
       }
     });
 
-    // 跳转到新增页面，并传递复制数据
-    navigate(`/test-items/new?copy=${encodeURIComponent(params.toString())}`);
+    return encodeURIComponent(params.toString());
+  };
+
+  // 复制检测项目（走加测申请逻辑，用于实验员/组长）
+  const handleCopyTestItem = (item) => {
+    saveCurrentViewState();
+    const copyParam = buildCopyTestItemParams(item);
+    navigate(`/test-items/new?addon_request=1&copy=${copyParam}`);
+  };
+
+  // 管理员专用：复制并直接创建加测项目（不走申请流程）
+  const handleAdminCopyTestItem = (item) => {
+    saveCurrentViewState();
+    const copyParam = buildCopyTestItemParams(item);
+    navigate(`/test-items/new?copy=${copyParam}`);
   };
 
 
@@ -3055,9 +3192,40 @@ const CommissionForm = () => {
 
   const canCreateTestItem = user && user.role === 'admin';
 
+  // 复制按钮权限：仅实验员(employee)和组长(supervisor)可用
   const canCopyItem = (item) => {
     if (!user) return false;
-    return user.role === 'admin';
+    return user.role === 'supervisor' || user.role === 'employee';
+  };
+
+  // 处理转单链路点击
+  const handleTransferChainClick = (orderId, e) => {
+    e.stopPropagation();
+    setSelectedTransferOrderId(orderId);
+    setShowTransferChainModal(true);
+  };
+
+  const handleCloseTransferModal = () => {
+    setShowTransferChainModal(false);
+    setSelectedTransferOrderId(null);
+  };
+
+  // 处理从转单链路中搜索单号
+  const handleSearchOrderFromTransfer = (orderId) => {
+    // 清除其他筛选条件，确保能显示该委托单
+    setStatusFilter([]);
+    setDepartmentFilter('');
+    setMonthFilter('');
+    setMyItemsFilter(false);
+    // 设置搜索框的值并重置到第一页
+    setSearchQuery(orderId);
+    setPage(1);
+    
+    // 使用 setTimeout 确保状态更新后再触发搜索
+    // 因为 React 的状态更新是异步的
+    setTimeout(() => {
+      fetchData();
+    }, 10);
   };
 
   return (
@@ -3541,6 +3709,16 @@ const CommissionForm = () => {
                         <div className="order-id-wrapper">
                           <div style={{display: 'flex', alignItems: 'center', gap: '6px'}}>
                             <span className="order-id-text">{item.order_id}</span>
+                            {item.is_transferred === 1 && (
+                              <span 
+                                className="transfer-badge" 
+                                title="转单号，点击查看转单链路"
+                                onClick={(e) => handleTransferChainClick(item.order_id, e)}
+                                style={{cursor: 'pointer'}}
+                              >
+                                🔄
+                              </span>
+                            )}
                             {item.status === 'completed' && (
                               <span className="status-icon status-icon-completed" title="已完成">&#10003;</span>
                             )}
@@ -3628,12 +3806,15 @@ const CommissionForm = () => {
                               </div>
                             )}
                             {(() => {
-                              const flowInfo = getFlowSequenceInfo(item);
+                              const hasSeqNo = item.seq_no !== null && item.seq_no !== undefined && item.seq_no !== '';
+                              const isAdmin = user?.role === 'admin';
+
+                              // 只有当有顺序号时才计算流转信息
+                              const flowInfo = hasSeqNo ? getFlowSequenceInfo(item) : null;
                               const hasFlowInfo = flowInfo && (flowInfo.prevGroupName || flowInfo.nextGroupName);
-                              const hasSeqNo = item.seq_no !== null && item.seq_no !== undefined;
-                              
-                              // 如果没有流转信息且没有顺序号，不显示
-                              if (!hasFlowInfo && !hasSeqNo) return null;
+
+                              // 对非管理员：如果没有顺序号，则不显示整个块
+                              if (!hasSeqNo && !isAdmin) return null;
                               
                               const parts = [];
                               if (flowInfo?.prevGroupName) {
@@ -3647,7 +3828,10 @@ const CommissionForm = () => {
                               
                               return (
                                 <div style={{marginTop: '4px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap'}}>
-                                  <span className="add-on-badge" style={{backgroundColor: '#17a2b8', color: '#fff'}}>流转</span>
+                                  {/* 只有当 seq_no 有值时才展示“流转”徽标，所有角色一致 */}
+                                  {hasSeqNo && (
+                                    <span className="add-on-badge" style={{backgroundColor: '#17a2b8', color: '#fff'}}>流转</span>
+                                  )}
                                   {isEditing ? (
                                     <div style={{display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap'}}>
                                       <span style={{fontSize: '12px', color: '#666'}}>顺序号：</span>
@@ -3713,7 +3897,8 @@ const CommissionForm = () => {
                                     </div>
                                   ) : (
                                     <>
-                                      {parts.length > 0 && (
+                                      {/* 只有在有流转信息时才展示前/后分组文案 */}
+                                      {hasFlowInfo && parts.length > 0 && (
                                         <span style={{fontSize: '12px', color: '#666'}}>
                                           {parts.join('，')}
                                         </span>
@@ -4335,44 +4520,81 @@ const CommissionForm = () => {
                         <div className="editable-field-container">
                           {((!item.business_confirmed || item.business_confirmed === 0 || item.business_confirmed === false) && user?.user_id === item.current_assignee) ? (
                             <>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'nowrap' }}>
-                                <div 
-                                  style={{ flex: 1, position: 'relative' }}
-                                  className={shouldHighlightPrice(item.final_unit_price, item.line_total) ? 'price-highlight-red' : ''}
-                                >
-                                  <RealtimeEditableCell
-                                    value={item.final_unit_price}
-                                    type="number"
-                                    onSave={handleSaveEdit}
-                                    field="final_unit_price"
-                                    testItemId={item.test_item_id}
-                                    placeholder="测试总价"
-                                    isFieldBeingEdited={isFieldBeingEdited}
-                                    getEditingUser={getEditingUser}
-                                    emitUserEditing={emitUserEditing}
-                                    emitUserStopEditing={emitUserStopEditing}
-                                  />
-                                </div>
-                                <button 
-                                  onClick={(e) => handleConfirmPrice(item, e)}
-                                  title="确认测试总价"
-                                  style={{
-                                    padding: '2px 6px',
-                                    fontSize: '11px',
-                                    minWidth: 'auto',
-                                    backgroundColor: '#28a745',
-                                    color: '#fff',
-                                    border: 'none',
-                                    borderRadius: '4px',
-                                    cursor: 'pointer',
-                                    lineHeight: '1.2',
-                                    flexShrink: 0
-                                  }}
-                                >
-                                  确认
-                                </button>
-                              </div>
-                              <SavingIndicator testItemId={item.test_item_id} field="final_unit_price" />
+                              {(() => {
+                                // 权限检查：如果7个必填字段有一个是空值，则不能填写测试总价也不能点击确认按钮
+                                // 检查条件：1. 业务员角色 2. 组长角色且指派自己做实验（supervisor_id === technician_id === user_id）
+                                const isSales = user?.role === 'sales';
+                                const isSupervisorAsTechnician = user?.role === 'supervisor' && 
+                                                                 item.supervisor_id && 
+                                                                 item.technician_id &&
+                                                                 item.supervisor_id === item.technician_id &&
+                                                                 item.supervisor_id === user?.user_id;
+                                
+                                const requiredFieldsCheck = checkRawDataRequiredFields(item);
+                                // 如果既不是业务员也不是组长指派自己做实验，则可以编辑（不受限制）
+                                // 如果是业务员或组长指派自己做实验，则必须7个字段都完整才能编辑
+                                const needsCheck = isSales || isSupervisorAsTechnician;
+                                const canEditPrice = !needsCheck || requiredFieldsCheck.allFilled;
+                                
+                                // 根据角色显示不同的提示信息
+                                const errorMessage = isSales 
+                                  ? '实验数据未填写' 
+                                  : '请先填写：现场测试时间、检测设备、计数量、单位、测试工时、测试机时、实验室报价';
+                                const errorTooltip = isSales 
+                                  ? '实验数据未填写' 
+                                  : '请先填写必填项：现场测试时间、检测设备、计数量、单位、测试工时、测试机时、实验室报价';
+                                
+                                return (
+                                  <>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'nowrap' }}>
+                                      <div 
+                                        style={{ flex: 1, position: 'relative' }}
+                                        className={shouldHighlightPrice(item.final_unit_price, item.line_total) ? 'price-highlight-red' : ''}
+                                      >
+                                        <RealtimeEditableCell
+                                          value={item.final_unit_price}
+                                          type="number"
+                                          onSave={handleSaveEdit}
+                                          field="final_unit_price"
+                                          testItemId={item.test_item_id}
+                                          placeholder="测试总价"
+                                          isFieldBeingEdited={isFieldBeingEdited}
+                                          getEditingUser={getEditingUser}
+                                          emitUserEditing={emitUserEditing}
+                                          emitUserStopEditing={emitUserStopEditing}
+                                          disabled={!canEditPrice}
+                                        />
+                                        {!canEditPrice && (
+                                          <div style={{ fontSize: '10px', color: '#dc3545', marginTop: '2px' }}>
+                                            {errorMessage}
+                                          </div>
+                                        )}
+                                      </div>
+                                      <button 
+                                        onClick={(e) => handleConfirmPrice(item, e)}
+                                        title={canEditPrice ? "确认测试总价" : errorTooltip}
+                                        disabled={!canEditPrice}
+                                        style={{
+                                          padding: '2px 6px',
+                                          fontSize: '11px',
+                                          minWidth: 'auto',
+                                          backgroundColor: canEditPrice ? '#28a745' : '#6c757d',
+                                          color: '#fff',
+                                          border: 'none',
+                                          borderRadius: '4px',
+                                          cursor: canEditPrice ? 'pointer' : 'not-allowed',
+                                          lineHeight: '1.2',
+                                          flexShrink: 0,
+                                          opacity: canEditPrice ? 1 : 0.6
+                                        }}
+                                      >
+                                        确认
+                                      </button>
+                                    </div>
+                                    <SavingIndicator testItemId={item.test_item_id} field="final_unit_price" />
+                                  </>
+                                );
+                              })()}
                             </>
                           ) : (
                             <span 
@@ -4598,7 +4820,7 @@ const CommissionForm = () => {
                           >
                             查看
                           </button>
-                          {/* 只有admin、supervisor、leader角色显示其他操作 */}
+                          {/* 只有admin、supervisor、leader角色显示其他操作（复制按钮单独对实验员开放） */}
                           {(user?.role === 'admin' || user?.role === 'supervisor' || user?.role === 'leader') && (
                             <>
                             {/* 组长和室主任可以审批 */}
@@ -4648,7 +4870,8 @@ const CommissionForm = () => {
                                 编辑
                               </button>
                             )}
-                            {canCopyItem(item) && (
+                            {/* 组长和实验员的"复制"（走加测申请流程） */}
+                            {canCopyItem(item) && user?.role !== 'admin' && (
                               <button 
                                 className="btn btn-info"
                                 onClick={() => handleCopyTestItem(item)}
@@ -4666,6 +4889,25 @@ const CommissionForm = () => {
                                 复制
                               </button>
                             )}
+                            {/* 管理员的"复制加测"（直接复制为加测项目，不走申请流程） */}
+                            {user?.role === 'admin' && (
+                              <button 
+                                className="btn btn-info"
+                                onClick={() => handleAdminCopyTestItem(item)}
+                                title="复制加测（直接创建加测项目）"
+                                style={{
+                                  padding: '2px 6px',
+                                  fontSize: '11px',
+                                  minWidth: 'auto',
+                                  backgroundColor: '#17a2b8',
+                                  color: '#fff',
+                                  border: '1px solid #17a2b8',
+                                  lineHeight: '1.2'
+                                }}
+                              >
+                                复制加测
+                              </button>
+                            )}
                             {(user?.role === 'supervisor' || user?.role === 'leader') && (
                               <button
                                 className="btn btn-secondary"
@@ -4681,45 +4923,84 @@ const CommissionForm = () => {
                                 {item.abnormal_condition ? '继续' : '暂停'}
                               </button>
                             )}
-                            {/* 组长（supervisor）不可以删除，管理员和室主任可以删除 */}
-                            {(user?.role === 'admin' || user?.role === 'leader') && (
-                              <button 
-                                className="btn-delete" 
-                                onClick={() => handleDeleteItem(item.test_item_id)}
-                                disabled={deletingItems.has(item.test_item_id)}
-                                title="删除检测项目"
-                                style={{
-                                  backgroundColor: '#dc3545',
-                                  color: 'white',
-                                  border: 'none',
-                                  padding: '2px 6px',
-                                  borderRadius: '4px',
-                                  cursor: deletingItems.has(item.test_item_id) ? 'not-allowed' : 'pointer',
-                                  opacity: deletingItems.has(item.test_item_id) ? 0.6 : 1,
-                                  fontSize: '11px',
-                                  minWidth: 'auto',
-                                  lineHeight: '1.2'
-                                }}
-                              >
-                                {deletingItems.has(item.test_item_id) ? '删除中...' : '删除'}
-                              </button>
-                            )}
-                            {user?.role === 'admin' && (
-                              <button 
-                                className="btn btn-secondary"
-                                onClick={() => handleCancel(item)}
-                                title="取消此项目"
-                                style={{
-                                  padding: '2px 6px',
-                                  fontSize: '11px',
-                                  minWidth: 'auto',
-                                  lineHeight: '1.2'
-                                }}
-                              >
-                                取消
-                              </button>
-                            )}
                             </>
+                          )}
+                          {/* 删除按钮：管理员和室主任直接删除，实验员和组长走申请流程 */}
+                          {(user?.role === 'admin' || user?.role === 'leader' || user?.role === 'supervisor' || user?.role === 'employee') && (
+                            <button 
+                              className="btn-delete" 
+                              onClick={() => handleDeleteItem(item.test_item_id)}
+                              disabled={deletingItems.has(item.test_item_id)}
+                              title={user?.role === 'admin' || user?.role === 'leader' ? "删除检测项目" : "申请删除检测项目"}
+                              style={{
+                                backgroundColor: '#dc3545',
+                                color: 'white',
+                                border: 'none',
+                                padding: '2px 6px',
+                                borderRadius: '4px',
+                                cursor: deletingItems.has(item.test_item_id) ? 'not-allowed' : 'pointer',
+                                opacity: deletingItems.has(item.test_item_id) ? 0.6 : 1,
+                                fontSize: '11px',
+                                minWidth: 'auto',
+                                lineHeight: '1.2'
+                              }}
+                            >
+                              {deletingItems.has(item.test_item_id) ? '删除中...' : '删除'}
+                            </button>
+                          )}
+                          {/* 取消按钮：管理员直接取消，实验员和组长走申请流程 */}
+                          {(user?.role === 'admin' || user?.role === 'supervisor' || user?.role === 'employee') && item.status !== 'cancelled' && (
+                            <button 
+                              className="btn btn-secondary"
+                              onClick={() => handleCancel(item)}
+                              title={user?.role === 'admin' ? "取消此项目" : "申请取消此项目"}
+                              style={{
+                                padding: '2px 6px',
+                                fontSize: '11px',
+                                minWidth: 'auto',
+                                lineHeight: '1.2'
+                              }}
+                            >
+                              取消
+                            </button>
+                          )}
+                          {/* 撤回取消按钮：业务员和管理员可以撤回已取消的项目 */}
+                          {item.status === 'cancelled' && (user?.role === 'admin' || (user?.role === 'sales' && user?.user_id === item.current_assignee)) && (
+                            <button 
+                              className="btn btn-success"
+                              onClick={() => handleUncancel(item)}
+                              title="撤回取消操作"
+                              style={{
+                                padding: '2px 6px',
+                                fontSize: '11px',
+                                minWidth: 'auto',
+                                lineHeight: '1.2',
+                                backgroundColor: '#28a745',
+                                color: 'white',
+                                border: '1px solid #28a745'
+                              }}
+                            >
+                              撤回取消
+                            </button>
+                          )}
+                          {/* 实验员仅有复制加测权限（走加测申请流程） */}
+                          {user?.role === 'employee' && canCopyItem(item) && (
+                            <button 
+                              className="btn btn-info"
+                              onClick={() => handleCopyTestItem(item)}
+                              title="复制加测"
+                              style={{
+                                padding: '2px 6px',
+                                fontSize: '11px',
+                                minWidth: 'auto',
+                                backgroundColor: '#17a2b8',
+                                color: '#fff',
+                                border: '1px solid #17a2b8',
+                                lineHeight: '1.2'
+                              }}
+                            >
+                              复制
+                            </button>
                           )}
                         </div>
                       </td>
@@ -4796,6 +5077,8 @@ const CommissionForm = () => {
                 userRole={user?.role}
                 businessConfirmed={selectedFileTestItem.business_confirmed}
                 currentAssignee={selectedFileTestItem.current_assignee}
+                testItemData={selectedFileTestItem}
+                userId={user?.user_id}
                 onFileUploaded={(info) => handleFileStatusUpdate(info)}
               />
             </div>
@@ -5065,6 +5348,112 @@ const CommissionForm = () => {
                   确认结算
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 转单链路模态框 */}
+      {showTransferChainModal && (
+        <OrderTransferChainModal
+          orderId={selectedTransferOrderId}
+          onClose={handleCloseTransferModal}
+          onSearchOrder={handleSearchOrderFromTransfer}
+        />
+      )}
+
+      {/* 取消/删除申请弹窗 */}
+      {showCancellationModal && cancellationItem && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            zIndex: 20000
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setShowCancellationModal(false);
+              setCancellationItem(null);
+              setCancellationType(null);
+              setCancellationReason('');
+            }
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: 'white',
+              padding: '20px',
+              borderRadius: '8px',
+              width: '500px',
+              maxWidth: '90%',
+              maxHeight: '90%',
+              overflow: 'auto',
+              position: 'relative',
+              zIndex: 20001
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 style={{ marginTop: 0, marginBottom: '20px' }}>
+              {cancellationType === 'cancel' ? '申请取消检测项目' : '申请删除检测项目'}
+            </h2>
+            <div style={{ marginBottom: '15px' }}>
+              <div style={{ marginBottom: '10px' }}>
+                <strong>委托单号：</strong>{cancellationItem.order_id || '未知'}
+              </div>
+              <div style={{ marginBottom: '10px' }}>
+                <strong>检测项目：</strong>
+                {cancellationItem.category_name && cancellationItem.detail_name
+                  ? `${cancellationItem.category_name} - ${cancellationItem.detail_name}`
+                  : cancellationItem.category_name || cancellationItem.detail_name || '未知'}
+              </div>
+            </div>
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
+                {cancellationType === 'cancel' ? '取消原因' : '删除原因'} <span style={{ color: 'red' }}>*</span>
+              </label>
+              <textarea
+                value={cancellationReason}
+                onChange={(e) => setCancellationReason(e.target.value)}
+                placeholder={`请输入${cancellationType === 'cancel' ? '取消' : '删除'}原因`}
+                style={{
+                  width: '100%',
+                  minHeight: '100px',
+                  padding: '8px',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px',
+                  fontSize: '14px',
+                  fontFamily: 'inherit',
+                  resize: 'vertical'
+                }}
+              />
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <button
+                className="btn btn-secondary"
+                onClick={() => {
+                  setShowCancellationModal(false);
+                  setCancellationItem(null);
+                  setCancellationType(null);
+                  setCancellationReason('');
+                }}
+                disabled={submittingCancellation}
+              >
+                取消
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={handleRequestCancellation}
+                disabled={submittingCancellation || !cancellationReason.trim()}
+              >
+                {submittingCancellation ? '提交中...' : (cancellationType === 'cancel' ? '申请取消' : '申请删除')}
+              </button>
             </div>
           </div>
         </div>

@@ -590,5 +590,28 @@ export const api = {
     const r = await fetch(`${API_BASE}/api/settlements/assignees`, { headers: this.authHeaders() });
     if (!r.ok) throw new Error((await r.json()).error || '获取业务人员列表失败');
     return r.json();
+  },
+
+  // 转单管理API
+  async getOrderTransferChain(orderId) {
+    const r = await fetch(`${API_BASE}/api/order-transfers/chain/${orderId}`, { headers: this.authHeaders() });
+    if (!r.ok) throw new Error((await r.json()).error || '获取转单链路失败');
+    return r.json();
+  },
+
+  async createOrderTransfer(data) {
+    const r = await fetch(`${API_BASE}/api/order-transfers/create`, {
+      method: 'POST',
+      headers: this.authHeaders(),
+      body: JSON.stringify(data)
+    });
+    if (!r.ok) throw new Error((await r.json()).error || '创建转单记录失败');
+    return r.json();
+  },
+
+  async searchRelatedOrders(orderId) {
+    const r = await fetch(`${API_BASE}/api/order-transfers/search-related/${orderId}`, { headers: this.authHeaders() });
+    if (!r.ok) throw new Error((await r.json()).error || '搜索相关单号失败');
+    return r.json();
   }
 }

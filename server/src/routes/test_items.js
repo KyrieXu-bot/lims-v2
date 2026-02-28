@@ -150,7 +150,7 @@ router.post('/', requireRole(CREATE_ROLES), async (req, res) => {
     seq_no, sample_preparation, note, status = 'new', current_assignee, supervisor_id, technician_id,
     arrival_mode, sample_arrival_status, equipment_id, check_notes, test_notes,
     actual_sample_quantity, actual_delivery_date, field_test_time, price_note,
-    assignment_note, business_note, abnormal_condition, addon_reason
+    assignment_note, business_note, abnormal_condition, addon_reason, addon_target
   } = req.body || {};
 
   // 处理空字符串，将其转换为null，这样数据库可以接受空值
@@ -262,9 +262,10 @@ router.post('/', requireRole(CREATE_ROLES), async (req, res) => {
         processedActualDeliveryDate, 
         processedFieldTestTime,
         price_note || null,
-        assignment_note || null,
-        business_note || null,
-        addon_reason || null
+        assignment_note || null, 
+        business_note || null, 
+        addon_reason || null,
+        addon_target || null
       ];
       
       // 重新构建SQL语句，确保字段和占位符数量匹配
@@ -275,7 +276,7 @@ router.post('/', requireRole(CREATE_ROLES), async (req, res) => {
         'seq_no', 'sample_preparation', 'note', 'status', 'current_assignee', 'supervisor_id', 'technician_id',
         'arrival_mode', 'sample_arrival_status', 'equipment_id', 'check_notes', 'test_notes',
         'actual_sample_quantity', 'actual_delivery_date', 'field_test_time', 'price_note',
-        'assignment_note', 'business_note', 'addon_reason'
+        'assignment_note', 'business_note', 'addon_reason', 'addon_target'
       ];
       
       const placeholders = sqlFields.map(() => '?').join(',');
@@ -354,7 +355,7 @@ router.put('/:id', requireRole(EDIT_ROLES), async (req, res) => {
     arrival_mode, sample_arrival_status, equipment_id, check_notes, test_notes, unit,
     actual_sample_quantity, actual_delivery_date, field_test_time, price_note,
     assignment_note, business_note, invoice_note, abnormal_condition, service_urgency, business_confirmed,
-    addon_reason, invoice_prefill_price, invoice_prefill_confirmed, invoice_status
+    addon_reason, addon_target, invoice_prefill_price, invoice_prefill_confirmed, invoice_status
   } = req.body || {};
 
   // 处理空字符串，将其转换为null，这样数据库可以接受空值
@@ -471,6 +472,7 @@ router.put('/:id', requireRole(EDIT_ROLES), async (req, res) => {
       addUpdate('service_urgency', service_urgency);
       addUpdate('business_confirmed', business_confirmed);
       addUpdate('addon_reason', addon_reason);
+      addUpdate('addon_target', addon_target);
       // 添加开票相关字段
       addUpdate('invoice_prefill_price', invoice_prefill_price);
       addUpdate('invoice_prefill_confirmed', invoice_prefill_confirmed);
@@ -767,6 +769,57 @@ router.post('/:id/cancel', requireRole(['admin']), async (req, res) => {
       ok: true, 
       message: 'Test item cancelled successfully',
       testItemId: req.params.id
+    });
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// 撤回取消操作（恢复已取消的项目）- 业务员可以撤回自己负责的项目
+router.post('/:id/uncancel', requireAnyRole(['admin', 'sales']), async (req, res) => {
+  const user = req.user;
+  const pool = await getPool();
+  
+  try {
+    // 检查测试项目是否存在
+    const [chk] = await pool.query(
+      'SELECT test_item_id, status, current_assignee FROM test_items WHERE test_item_id = ?',
+      [req.params.id]
+    );
+    
+    if (chk.length === 0) {
+      return res.status(404).json({ error: 'Test item not found' });
+    }
+    
+    const testItem = chk[0];
+    
+    // 检查是否已经是已取消状态
+    if (testItem.status !== 'cancelled') {
+      return res.status(400).json({ error: 'Test item is not cancelled' });
+    }
+    
+    // 业务员只能撤回自己负责的项目
+    if (user.role === 'sales' && testItem.current_assignee !== user.user_id) {
+      return res.status(403).json({ error: '无权撤回此项目的取消操作' });
+    }
+    
+    // 恢复状态：根据项目是否有负责人来决定恢复为什么状态
+    // 如果有负责人，恢复为assigned，否则恢复为new
+    const [supervisorCheck] = await pool.query(
+      'SELECT supervisor_id FROM test_items WHERE test_item_id = ?',
+      [req.params.id]
+    );
+    
+    const newStatus = supervisorCheck[0]?.supervisor_id ? 'assigned' : 'new';
+    
+    // 更新状态
+    await pool.query('UPDATE test_items SET status = ? WHERE test_item_id = ?', [newStatus, req.params.id]);
+    
+    res.json({ 
+      ok: true, 
+      message: '取消操作已撤回，项目已恢复',
+      testItemId: req.params.id,
+      newStatus: newStatus
     });
   } catch (e) {
     return res.status(500).json({ error: e.message });

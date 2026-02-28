@@ -283,7 +283,7 @@ router.put('/:id/approve', requireRole('admin'), async (req, res) => {
         return value;
       };
 
-      // 创建检测项目 - 使用与test_items.js相同的字段顺序（不包含有默认值的字段：service_urgency, unit, business_confirmed）
+      // 创建检测项目 - 使用与test_items.js相同的字段顺序（不包含有默认值的字段：business_confirmed）
       const sqlFields = [
         'order_id', 'price_id', 'category_name', 'detail_name', 'sample_name', 'material', 'sample_type', 'original_no',
         'test_code', 'standard_code', 'department_id', 'group_id', 'quantity', 'unit_price', 'discount_rate',
@@ -291,10 +291,21 @@ router.put('/:id/approve', requireRole('admin'), async (req, res) => {
         'seq_no', 'sample_preparation', 'note', 'status', 'current_assignee', 'supervisor_id', 'technician_id',
         'arrival_mode', 'sample_arrival_status', 'equipment_id', 'check_notes', 'test_notes',
         'actual_sample_quantity', 'actual_delivery_date', 'field_test_time', 'price_note',
-        'assignment_note', 'business_note', 'service_urgency', 'unit', 'addon_reason'
+        'assignment_note', 'business_note', 'service_urgency', 'unit', 'addon_reason', 'addon_target'
       ];
       
       const placeholders = sqlFields.map(() => '?').join(', ');
+
+      // 规范化服务加急枚举值，兼容历史中文存储
+      const normalizeServiceUrgency = (value) => {
+        if (!value) return 'normal';
+        const v = String(value).trim();
+        if (v === '不加急') return 'normal';
+        if (v === '加急1.5倍') return 'urgent_1_5x';
+        if (v === '特急2倍') return 'urgent_2x';
+        // 已经是枚举值或其它合法值时直接返回
+        return v;
+      };
       
       const paramArray = [
         request.order_id || null,
@@ -336,9 +347,10 @@ router.put('/:id/approve', requireRole('admin'), async (req, res) => {
         (finalTestItemData.price_note !== undefined && finalTestItemData.price_note !== null) ? finalTestItemData.price_note : null,
         finalTestItemData.assignment_note || null,
         finalTestItemData.business_note || null,
-        finalTestItemData.service_urgency || 'normal',
+        normalizeServiceUrgency(finalTestItemData.service_urgency),
         finalTestItemData.unit || '机时',
-        finalTestItemData.addon_reason || null
+        finalTestItemData.addon_reason || null,
+        finalTestItemData.addon_target || null
       ];
 
       const sql = `INSERT INTO test_items (${sqlFields.join(', ')}) VALUES (${placeholders})`;

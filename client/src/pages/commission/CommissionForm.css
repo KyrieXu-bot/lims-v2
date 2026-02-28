@@ -2187,6 +2187,27 @@
   background: rgba(217, 119, 6, 0.15);
 }
 
+/* 转单标识 */
+.transfer-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  padding: 2px 4px;
+  border-radius: 3px;
+  background-color: #e3f2fd;
+  border: 1px solid #90caf9;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.transfer-badge:hover {
+  background-color: #bbdefb;
+  border-color: #64b5f6;
+  transform: scale(1.1);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+}
+
 /* 加测标识样式 - 使用橙色系作为淡蓝色背景的互补色 */
 .add-on-badge {
   display: inline-block;

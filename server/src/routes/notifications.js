@@ -34,12 +34,24 @@ router.get('/', async (req, res) => {
               ti.test_item_id as test_item_id_display,
               pf.filename as file_name,
               ar.request_id as addon_request_id,
-              ar.status as addon_request_status
+              ar.status as addon_request_status,
+              cr.request_id as related_cancellation_request_id,
+              cr.status as cancellation_request_status,
+              cr.request_type as cancellation_request_type
        FROM notifications n
        LEFT JOIN orders o ON n.related_order_id = o.order_id
        LEFT JOIN test_items ti ON n.related_test_item_id = ti.test_item_id
        LEFT JOIN project_files pf ON n.related_file_id = pf.file_id
        LEFT JOIN addon_requests ar ON n.related_addon_request_id = ar.request_id
+       LEFT JOIN cancellation_requests cr ON (
+         cr.test_item_id = n.related_test_item_id 
+         AND cr.status IN ('pending', 'approved', 'executed')
+         AND (
+           n.content LIKE CONCAT('%申请ID：', cr.request_id, '%') 
+           OR n.content LIKE CONCAT('%申请ID：', cr.request_id, '。%')
+           OR (n.type IN ('cancel_request', 'delete_request') AND ABS(TIMESTAMPDIFF(SECOND, n.created_at, cr.created_at)) < 5)
+         )
+       )
        ${whereClause}
        ORDER BY n.created_at DESC
        LIMIT ? OFFSET ?`,

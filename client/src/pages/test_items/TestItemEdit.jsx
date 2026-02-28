@@ -55,7 +55,9 @@ export default function TestItemEdit() {
     actual_delivery_date: '',
     field_test_time: '',
     price_note: '',
-    addon_reason: ''
+    addon_reason: '',
+    service_urgency: 'normal',
+    addon_target: ''
   });
   const [orderSuggestions, setOrderSuggestions] = useState([]);
   const [showOrderSuggestions, setShowOrderSuggestions] = useState(false);
@@ -874,6 +876,21 @@ export default function TestItemEdit() {
           </div>
           {(isAddonRequest || it.is_add_on === 1 || it.is_add_on === '1') && (
             <div>
+              <label>是否加急</label>
+              <select
+                className="input"
+                value={it.service_urgency || 'normal'}
+                onChange={e => setIt({ ...it, service_urgency: e.target.value })}
+                disabled={isView}
+              >
+                <option value="normal">正常</option>
+                <option value="urgent_1_5x">1.5倍加急</option>
+                <option value="urgent_2x">2倍加急</option>
+              </select>
+            </div>
+          )}
+          {(isAddonRequest || it.is_add_on === 1 || it.is_add_on === '1') && (
+            <div>
               <label>加测原因</label>
               <select 
                 className="input" 
@@ -888,6 +905,21 @@ export default function TestItemEdit() {
                 <option value="增加测试时段">增加测试时段</option>
                 <option value="更换设备">更换设备</option>
                 <option value="客户原因">客户原因</option>
+              </select>
+            </div>
+          )}
+          {(isAddonRequest || it.is_add_on === 1 || it.is_add_on === '1') && (
+            <div>
+              <label>加测对象</label>
+              <select 
+                className="input" 
+                value={it.addon_target || ''} 
+                onChange={e => setIt({...it, addon_target: e.target.value})} 
+                disabled={isView}
+              >
+                <option value="">请选择加测对象</option>
+                <option value="sales">业务员</option>
+                <option value="employee">实验员</option>
               </select>
             </div>
           )}
