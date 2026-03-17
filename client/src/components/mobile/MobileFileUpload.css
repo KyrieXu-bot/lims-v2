@@ -66,6 +66,100 @@
   cursor: not-allowed;
 }
 
+/* 上传方式选择面板 */
+.mobile-upload-options-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 999;
+  animation: mobile-upload-fade-in 0.18s ease-out;
+}
+
+.mobile-upload-options {
+  width: 100%;
+  max-width: 480px;
+  padding: 0 12px 12px;
+  box-sizing: border-box;
+  /* iOS ActionSheet 风格：选项和取消是两个分开的圆角块 */
+  animation: mobile-upload-slide-up 0.18s ease-out;
+}
+
+.mobile-upload-options-title {
+  text-align: center;
+  font-weight: 500;
+  font-size: 13px;
+  margin: 8px 0 4px;
+  color: #6b7280;
+}
+
+.mobile-upload-option-btn,
+.mobile-upload-option-cancel {
+  width: 100%;
+  padding: 12px 0;
+  border: none;
+  font-size: 16px;
+  font-weight: 400;
+  text-align: center;
+}
+
+.mobile-upload-option-btn {
+  background: #ffffff;
+  color: #007aff; /* iOS 蓝色 */
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.mobile-upload-option-btn:active {
+  background: #f3f4f6;
+}
+
+.mobile-upload-option-cancel {
+  background: #ffffff;
+  color: #007aff;
+  margin-top: 8px;
+}
+
+.mobile-upload-option-cancel:active {
+  background: #f3f4f6;
+}
+
+/* 包裹选项按钮的圆角容器 */
+.mobile-upload-options-group {
+  background: #ffffff;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.08);
+}
+
+.mobile-upload-options-cancel-wrapper {
+  background: transparent;
+  border-radius: 12px;
+  margin-top: 8px;
+  box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.08);
+}
+
+@keyframes mobile-upload-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes mobile-upload-slide-up {
+  from {
+    transform: translateY(16px);
+    opacity: 0.6;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
 .mobile-upload-progress-container {
   padding: 12px;
   background-color: #f9fafb;

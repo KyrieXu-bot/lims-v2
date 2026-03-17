@@ -76,7 +76,7 @@ const SimpleFileUpload = ({
     return !Number.isNaN(num) && num >= 0;
   };
 
-  // 检查原始数据上传所需的7个必填字段是否都已填写
+  // 检查原始数据上传所需的6个必填字段是否都已填写
   const checkRawDataRequiredFields = (item) => {
     if (!item) return { allFilled: false };
     
@@ -86,18 +86,16 @@ const SimpleFileUpload = ({
     const unitFilled = hasValue(item.unit);
     const workHoursFilled = hasNonNegativeNumber(item.work_hours);
     const machineHoursFilled = hasNonNegativeNumber(item.machine_hours);
-    const labPriceFilled = hasNonNegativeNumber(item.lab_price);
     
     return {
       allFilled: fieldTestTimeFilled && equipmentFilled && quantityFilled && unitFilled && 
-                 workHoursFilled && machineHoursFilled && labPriceFilled,
+                 workHoursFilled && machineHoursFilled,
       fieldTestTimeFilled,
       equipmentFilled,
       quantityFilled,
       unitFilled,
       workHoursFilled,
-      machineHoursFilled,
-      labPriceFilled
+      machineHoursFilled
     };
   };
 
@@ -105,7 +103,7 @@ const SimpleFileUpload = ({
     const selectedFiles = Array.from(e.target.files);
     if (selectedFiles.length === 0) return;
 
-    // 如果是上传原始数据，需要检查7个必填字段
+    // 如果是上传原始数据，需要检查6个必填字段
     // 检查条件：1. 工程师角色 2. 组长角色且指派自己做实验（supervisor_id === technician_id === userId）
     if (selectedCategory === 'raw_data') {
       const isEmployee = userRole === 'employee';
@@ -121,11 +119,10 @@ const SimpleFileUpload = ({
           const missingFields = [];
           if (!requiredFieldsCheck.fieldTestTimeFilled) missingFields.push('现场测试时间');
           if (!requiredFieldsCheck.equipmentFilled) missingFields.push('检测设备');
-          if (!requiredFieldsCheck.quantityFilled) missingFields.push('计数量');
+          if (!requiredFieldsCheck.quantityFilled) missingFields.push('计费数量');
           if (!requiredFieldsCheck.unitFilled) missingFields.push('单位');
           if (!requiredFieldsCheck.workHoursFilled) missingFields.push('测试工时');
           if (!requiredFieldsCheck.machineHoursFilled) missingFields.push('测试机时');
-          if (!requiredFieldsCheck.labPriceFilled) missingFields.push('实验室报价');
           
           alert(`上传原始数据前，请先填写以下必填项：\n${missingFields.join('、')}`);
           e.target.value = '';
@@ -577,13 +574,13 @@ const SimpleFileUpload = ({
       return true;
     }
     
-    // 实验员只能删除自己上传的原始数据文件
+    // 实验员只能删除自己上传的原始数据或报告文件
     if (userRole === 'employee') {
       try {
         const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
-        const isRawData = file.category === 'raw_data';
+        const isRawOrReport = file.category === 'raw_data' || file.category === 'experiment_report';
         const isOwner = file.uploaded_by === user?.user_id;
-        return isRawData && isOwner;
+        return isRawOrReport && isOwner;
       } catch (error) {
         return false;
       }

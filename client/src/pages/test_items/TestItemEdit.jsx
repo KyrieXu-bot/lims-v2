@@ -18,6 +18,9 @@ export default function TestItemEdit() {
   const isNew = id === 'new';
   const isView = new URLSearchParams(location.search).get('view') === '1';
   const isAddonRequest = new URLSearchParams(location.search).get('addon_request') === '1';
+  const hasCopyParam = !!new URLSearchParams(location.search).get('copy');
+  // 仅“复制加测申请”（addon_request=1&copy=）时业务报价只读；管理员直接“复制加测”（仅 copy=）允许编辑
+  const isFromCopyAddonRequest = isAddonRequest && hasCopyParam;
   const [it, setIt] = useState({ 
     quantity: 1, 
     status: 'new', 
@@ -28,6 +31,7 @@ export default function TestItemEdit() {
     arrival_mode: '', 
     sample_arrival_status: 'not_arrived',
     order_id: '',
+    price_id: '',
     category_name: '',
     detail_name: '',
     sample_name: '',
@@ -167,7 +171,7 @@ export default function TestItemEdit() {
           for (const [key, value] of copyData.entries()) {
             // 处理数字类型字段
             // supervisor_id 和 technician_id 可能是字符串类型的ID，不应该用 parseFloat 处理
-            if (['quantity', 'unit_price', 'discount_rate', 'final_unit_price', 'line_total', 
+            if (['price_id', 'quantity', 'unit_price', 'discount_rate', 'final_unit_price', 'line_total', 
                  'machine_hours', 'work_hours', 'is_add_on', 'is_outsourced', 'department_id', 
                  'group_id', 'equipment_id', 'actual_sample_quantity'].includes(key)) {
               if (value === '' || value === null || value === undefined) {
@@ -612,6 +616,50 @@ export default function TestItemEdit() {
     }
     
     const payload = { ...it };
+
+    // 兜底：若未显式选择价格项目但有大类/细项，尝试自动匹配并回填 price_id
+    if (!payload.price_id && payload.category_name && payload.detail_name) {
+      const normalizedCategory = String(payload.category_name).trim().toLowerCase();
+      const normalizedDetail = String(payload.detail_name).trim().toLowerCase();
+      const normalizedTestCode = payload.test_code ? String(payload.test_code).trim().toLowerCase() : '';
+      const normalizedStandardCode = payload.standard_code ? String(payload.standard_code).trim().toLowerCase() : '';
+
+      const candidates = (priceOptions || []).filter(price => {
+        const sameCategory = String(price.category_name || '').trim().toLowerCase() === normalizedCategory;
+        const sameDetail = String(price.detail_name || '').trim().toLowerCase() === normalizedDetail;
+        return sameCategory && sameDetail;
+      });
+
+      if (candidates.length === 1) {
+        payload.price_id = candidates[0].price_id;
+      } else if (candidates.length > 1) {
+        const precise = candidates.find(price =>
+          normalizedTestCode &&
+          normalizedStandardCode &&
+          String(price.test_code || '').trim().toLowerCase() === normalizedTestCode &&
+          String(price.standard_code || '').trim().toLowerCase() === normalizedStandardCode
+        );
+        if (precise?.price_id) {
+          payload.price_id = precise.price_id;
+        }
+      }
+    }
+
+    // 权限校验：管理员新增检测、或实验室用户提交加测申请时
+    // 若已填写实验员工号但未填写单价，则禁止提交
+    const roleCode = String(currentUser?.role || '').toLowerCase();
+    const isAdminCreate = isNew && roleCode === 'admin';
+    const isLabAddonRequest = isAddonRequest && isNew;
+    const hasTechnicianAssigned = payload.technician_id !== undefined
+      && payload.technician_id !== null
+      && String(payload.technician_id).trim() !== '';
+    const hasUnitPrice = payload.unit_price !== undefined
+      && payload.unit_price !== null
+      && String(payload.unit_price).trim() !== ''
+      && !Number.isNaN(Number(payload.unit_price));
+    if ((isAdminCreate || isLabAddonRequest) && hasTechnicianAssigned && !hasUnitPrice) {
+      return alert('需要先填写单价，才能指派对应的测试人员');
+    }
     
     // 验证和转换折扣率
     if (payload.discount_rate !== undefined && payload.discount_rate !== null && payload.discount_rate !== '') {
@@ -631,6 +679,7 @@ export default function TestItemEdit() {
     if (payload.machine_hours !== undefined && payload.machine_hours !== null && payload.machine_hours !== '') payload.machine_hours = Number(payload.machine_hours);
     if (payload.work_hours !== undefined && payload.work_hours !== null && payload.work_hours !== '') payload.work_hours = Number(payload.work_hours);
     if (payload.quantity !== undefined && payload.quantity !== null && payload.quantity !== '') payload.quantity = Number(payload.quantity);
+    if (payload.price_id !== undefined && payload.price_id !== null && payload.price_id !== '') payload.price_id = Number(payload.price_id);
     // 确保 is_add_on 和 is_outsourced 是数字类型（0 或 1）
     if (payload.is_add_on !== undefined && payload.is_add_on !== null) {
       payload.is_add_on = Number(payload.is_add_on) === 1 ? 1 : 0;
@@ -829,7 +878,7 @@ export default function TestItemEdit() {
                 const val = e.target.value;
                 setIt({...it, price_note: val === '' ? null : Number(val)});
               }} 
-              disabled={isView}
+              disabled={isView || isFromCopyAddonRequest}
               placeholder="输入业务报价"
               min="0"
               step="0.01"

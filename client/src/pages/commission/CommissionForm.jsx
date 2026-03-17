@@ -94,11 +94,12 @@ const calculateLabPrice = (finalUnitPrice, lineTotal) => {
   const lineTotalNum = Number(lineTotal);
   
   // 检查是否为有效数字
-  if (
-    Number.isNaN(finalPriceNum) || Number.isNaN(lineTotalNum) ||
-    finalPriceNum < 0 || lineTotalNum <= 0
-  ) {
+  if (Number.isNaN(finalPriceNum) || Number.isNaN(lineTotalNum) || finalPriceNum < 0 || lineTotalNum < 0) {
     return null;
+  }
+  // 标准总价为 0 时，实验室报价为 0（测试总价也为 0 时同理）
+  if (lineTotalNum === 0) {
+    return 0;
   }
   
   // 如果测试总价/标准总价 > 0.7，那么实验室报价 = 测试总价
@@ -154,7 +155,7 @@ const TOGGLEABLE_COLUMNS = [
   { key: 'settlement_invoice_date', label: '开票日期' },
   { key: 'settlement_customer_name', label: '开票客户名称' },
   { key: 'invoice_prefill_price', label: '开票预填价' },
-  { key: 'unpaid_amount', label: '开票未到款金额' },
+  { key: 'unpaid_amount', label: '开票金额' },
   { key: 'invoice_note', label: '开票备注' },
   { key: 'invoice_status', label: '开票状态' }
 ];
@@ -565,7 +566,10 @@ const CommissionForm = () => {
     // 对每个项目计算测试总价和标准总价
     // 如果业务已确认价格，则使用数据库中的值，不重新计算
     const processedItems = items.map(item => {
-      const isBusinessConfirmed = item.business_confirmed === 1 || item.business_confirmed === true;
+      const isBusinessConfirmed =
+        item.business_confirmed === 1 ||
+        item.business_confirmed === true ||
+        item.business_confirmed === '1';
       let finalUnitPrice = item.final_unit_price;
       
       // 只有在未确认的情况下才重新计算
@@ -580,8 +584,11 @@ const CommissionForm = () => {
         item.service_urgency
       );
       
-      // 计算实验室报价
-      const calculatedLabPrice = calculateLabPrice(finalUnitPrice, calculatedLineTotal !== null ? calculatedLineTotal : item.line_total);
+      // 计算实验室报价（始终根据当前测试总价和标准总价尝试计算）
+      const calculatedLabPrice = calculateLabPrice(
+        finalUnitPrice,
+        calculatedLineTotal !== null ? calculatedLineTotal : item.line_total
+      );
       
       return {
         ...item,
@@ -756,6 +763,24 @@ const CommissionForm = () => {
     if (item && item.status === 'cancelled') {
       return false;
     }
+    // 如果业务已确认测试总价，则实验室相关字段禁止再编辑（除admin外）
+    const isBusinessConfirmed =
+      item &&
+      (item.business_confirmed === 1 ||
+        item.business_confirmed === true ||
+        item.business_confirmed === '1');
+    const isLabDataField = [
+      'unit_price',
+      'field_test_time',
+      'equipment_name',
+      'actual_sample_quantity',
+      'unit',
+      'machine_hours',
+      'work_hours'
+    ].includes(field);
+    if (isBusinessConfirmed && isLabDataField && role !== 'admin') {
+      return false;
+    }
     if (role === 'admin') {
       return true;
     }
@@ -836,7 +861,10 @@ const CommissionForm = () => {
       // 对每个项目计算测试总价和实验室报价
       // 如果业务已确认价格，则使用数据库中的值，不重新计算
       const processedData = data.data.map(item => {
-        const isBusinessConfirmed = item.business_confirmed === 1 || item.business_confirmed === true;
+        const isBusinessConfirmed =
+          item.business_confirmed === 1 ||
+          item.business_confirmed === true ||
+          item.business_confirmed === '1';
         let finalUnitPrice = item.final_unit_price;
         
         // 只有在未确认的情况下才重新计算
@@ -853,7 +881,7 @@ const CommissionForm = () => {
         );
         const lineTotal = calculatedLineTotal !== null ? calculatedLineTotal : item.line_total;
         
-        // 计算实验室报价
+        // 计算实验室报价（始终根据当前测试总价和标准总价尝试计算）
         const calculatedLabPrice = calculateLabPrice(finalUnitPrice, lineTotal);
         
         return {
@@ -908,6 +936,8 @@ const CommissionForm = () => {
     const currentUser = JSON.parse(localStorage.getItem('lims_user') || 'null');
     setUser(currentUser);
   }, [page, searchQuery, statusFilter, departmentFilter, monthFilter, myItemsFilter]);
+
+  // （已移除移动端加载更多的滚动监听逻辑，恢复为纯分页）
 
   // 当data变化时，批量获取所有委托单的流转顺序信息
   useEffect(() => {
@@ -1085,8 +1115,39 @@ const CommissionForm = () => {
           }
         }
 
+        // 委外室主任（department_id=5 且 role=leader）分配负责人时：
+        // 负责人范围 = 所有部门的组长 + 当前登录账号自己
+        const isOutsourceLeader =
+          storedUser?.role === 'leader' && Number(storedUser?.department_id) === 5;
+
         if (!users.length) {
-          users = await api.getAllSupervisors({ department_id: departmentId ?? undefined }).then(mapUsers);
+          if (isOutsourceLeader) {
+            // 不按部门过滤，获取所有负责人/组长
+            users = await api.getAllSupervisors().then(mapUsers);
+          } else {
+            users = await api
+              .getAllSupervisors({ department_id: departmentId ?? undefined })
+              .then(mapUsers);
+          }
+        }
+
+        // 确保委外室主任自己也在可选列表中
+        if (isOutsourceLeader && storedUser) {
+          const currentUserId =
+            storedUser.user_id ?? storedUser.id ?? storedUser.userId ?? null;
+          const currentUserName = storedUser.name || storedUser.account || '';
+          if (currentUserId && currentUserName) {
+            const exists = users.some(
+              (u) => String(u.id) === String(currentUserId),
+            );
+            if (!exists) {
+              users.unshift({
+                id: currentUserId,
+                name: currentUserName,
+                account: storedUser.account || '',
+              });
+            }
+          }
         }
 
         if (users.length) {
@@ -1332,7 +1393,7 @@ const CommissionForm = () => {
     return num !== null && num >= 0;
   };
 
-  // 检查原始数据上传所需的7个必填字段是否都已填写
+  // 检查原始数据上传/确认测试总价所需的必填字段是否都已填写
   const checkRawDataRequiredFields = (item) => {
     const fieldTestTimeFilled = hasValue(item.field_test_time);
     const equipmentFilled = hasValue(item.equipment_id) || hasValue(item.equipment_name);
@@ -1340,18 +1401,25 @@ const CommissionForm = () => {
     const unitFilled = hasValue(item.unit);
     const workHoursFilled = hasNonNegativeNumber(item.work_hours);
     const machineHoursFilled = hasNonNegativeNumber(item.machine_hours);
-    const labPriceFilled = hasNonNegativeNumber(item.lab_price);
+    // 标准总价（line_total）也必须有值（允许为0）
+    const standardTotalFilled = hasNonNegativeNumber(item.line_total);
     
     return {
-      allFilled: fieldTestTimeFilled && equipmentFilled && quantityFilled && unitFilled && 
-                 workHoursFilled && machineHoursFilled && labPriceFilled,
+      // 现场测试时间不再作为必填项参与 allFilled 判断
+      allFilled:
+        equipmentFilled &&
+        quantityFilled &&
+        unitFilled &&
+        workHoursFilled &&
+        machineHoursFilled &&
+        standardTotalFilled,
       fieldTestTimeFilled,
       equipmentFilled,
       quantityFilled,
       unitFilled,
       workHoursFilled,
       machineHoursFilled,
-      labPriceFilled
+      standardTotalFilled
     };
   };
 
@@ -1485,21 +1553,21 @@ const CommissionForm = () => {
   const handleCancel = async (item) => {
     // 如果是管理员，直接取消；否则走申请流程
     if (user?.role === 'admin') {
-      if (!window.confirm('确定取消该检测项目吗？')) return;
-      try {
-        const userLocal = JSON.parse(localStorage.getItem('lims_user') || 'null');
-        const r = await fetch(`/api/test-items/${item.test_item_id}`, {
-          method: 'PUT',
-          headers: { 'Authorization': `Bearer ${userLocal.token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status: 'cancelled' })
-        });
-        if (!r.ok) throw new Error('取消失败');
-        setData(prev => prev.map(x => x.test_item_id === item.test_item_id ? { ...x, status: 'cancelled' } : x));
-      } catch (e) {
-        alert(e.message || '取消失败');
+    if (!window.confirm('确定取消该检测项目吗？')) return;
+    try {
+      const userLocal = JSON.parse(localStorage.getItem('lims_user') || 'null');
+      const r = await fetch(`/api/test-items/${item.test_item_id}`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${userLocal.token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'cancelled' })
+      });
+      if (!r.ok) throw new Error('取消失败');
+      setData(prev => prev.map(x => x.test_item_id === item.test_item_id ? { ...x, status: 'cancelled' } : x));
+    } catch (e) {
+      alert(e.message || '取消失败');
       }
     } else {
-      // 实验员/组长走申请流程
+      // 实验员/组长/室主任走申请流程
       setCancellationItem(item);
       setCancellationType('cancel');
       setCancellationReason('');
@@ -2028,6 +2096,7 @@ const CommissionForm = () => {
       const mechanicsItems = [];
       const microItems = [];
       const physchemItems = [];
+      const chemistryItems = [];
       
       selectedData.forEach((item, index) => {
         const row = {
@@ -2050,6 +2119,7 @@ const CommissionForm = () => {
             case '3': mechanicsItems.push(row); break;
             case '1': microItems.push(row); break;
             case '2': physchemItems.push(row); break;
+            case '6': chemistryItems.push(row); break;
             default: break;
           }
         }
@@ -2076,6 +2146,7 @@ const CommissionForm = () => {
         mechanicsSymbol: mechanicsItems.length > 0 ? '☑' : '☐',
         microSymbol: hasDept(1) ? '☑' : '☐',
         physchemSymbol: hasDept(2) ? '☑' : '☐',
+        chemistrySymbol: hasDept(6) ? '☑' : '☐',
         
         // 收样日期
         sampleReceivedDate: receiptDate,
@@ -2084,6 +2155,7 @@ const CommissionForm = () => {
         showMechanicsTable: hasDept(3),
         showMicroTable: hasDept(1),
         showPhyschemTable: hasDept(2),
+        showChemistryTable: hasDept(6),
         
         // 报告内容
         reportContent1Symbol: '☐',
@@ -2151,7 +2223,8 @@ const CommissionForm = () => {
         machiningItems,
         mechanicsItems,
         microItems,
-        physchemItems
+        physchemItems,
+        chemistryItems
       };
 
       const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
@@ -2256,32 +2329,32 @@ const CommissionForm = () => {
     const item = data.find(x => x.test_item_id === testItemId);
     if (!item) return;
     
-    // 如果是管理员或室主任，直接删除；否则走申请流程
-    if (user?.role === 'admin' || user?.role === 'leader') {
-      if (!window.confirm('确定要删除这个检测项目吗？删除后将无法恢复，包括所有相关的分配、委外、样品等信息。')) {
-        return;
-      }
+    // 如果是管理员，直接删除；否则走申请流程
+    if (user?.role === 'admin') {
+    if (!window.confirm('确定要删除这个检测项目吗？删除后将无法恢复，包括所有相关的分配、委外、样品等信息。')) {
+      return;
+    }
+    
+    try {
+      setDeletingItems(prev => new Set(prev).add(testItemId));
+      await api.deleteTestItem(testItemId);
       
-      try {
-        setDeletingItems(prev => new Set(prev).add(testItemId));
-        await api.deleteTestItem(testItemId);
-        
-        // 从本地数据中移除
-        setData(prev => prev.filter(item => item.test_item_id !== testItemId));
-        setTotal(prev => prev - 1);
-        
-        alert('检测项目删除成功');
-      } catch (error) {
-        alert('删除失败：' + error.message);
-      } finally {
-        setDeletingItems(prev => {
-          const newSet = new Set(prev);
-          newSet.delete(testItemId);
-          return newSet;
-        });
+      // 从本地数据中移除
+      setData(prev => prev.filter(item => item.test_item_id !== testItemId));
+      setTotal(prev => prev - 1);
+      
+      alert('检测项目删除成功');
+    } catch (error) {
+      alert('删除失败：' + error.message);
+    } finally {
+      setDeletingItems(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(testItemId);
+        return newSet;
+      });
       }
     } else {
-      // 实验员/组长走申请流程
+      // 实验员/组长/室主任走申请流程
       setCancellationItem(item);
       setCancellationType('delete');
       setCancellationReason('');
@@ -2497,6 +2570,7 @@ const CommissionForm = () => {
       
     const copyData = {
       order_id: item.order_id,
+      price_id: item.price_id,
       category_name: item.category_name,
       detail_name: item.detail_name,
       sample_name: item.sample_name,
@@ -2658,6 +2732,21 @@ const CommissionForm = () => {
       
       // 特殊处理测试人员字段：需要保存technician_id而不是technician_name
       if (field === 'technician_name') {
+        // 组长（负责人）或室主任分配测试人员时，需要检查标准单价是否填写
+        if ((user?.role === 'supervisor' || user?.role === 'leader') && value && value.trim()) {
+          // 检查标准单价是否填写（standard_price 或 unit_price）
+          // 使用 hasNonNegativeNumber 函数检查，允许为0
+          const standardPrice = currentItem.standard_price ?? currentItem.unit_price;
+          const hasStandardPrice = hasNonNegativeNumber(standardPrice);
+          
+          if (!hasStandardPrice) {
+            alert('请先填写标准单价，才能分配测试人员');
+            // 清除保存状态，阻止保存
+            setSavingStatus(prev => ({ ...prev, [statusKey]: 'idle' }));
+            return;
+          }
+        }
+        
         // 根据姓名找到对应的technician_id
         const technician = technicians.find(t => t.name === value);
         if (technician) {
@@ -2991,7 +3080,18 @@ const CommissionForm = () => {
             }
             
             // 如果更新了业务报价、折扣、计费数量或服务加急，重新计算测试总价（使用最新的值）
-            if (field === 'price_note' || field === 'discount_rate' || field === 'actual_sample_quantity' || field === 'service_urgency') {
+            // 已经业务确认的项目不再自动计算测试总价
+            const isBusinessConfirmedForMerged =
+              merged.business_confirmed === 1 ||
+              merged.business_confirmed === true ||
+              merged.business_confirmed === '1';
+            if (
+              !isBusinessConfirmedForMerged &&
+              (field === 'price_note' ||
+                field === 'discount_rate' ||
+                field === 'actual_sample_quantity' ||
+                field === 'service_urgency')
+            ) {
               const calculatedFinalUnitPrice = calculateFinalUnitPrice(merged);
               if (calculatedFinalUnitPrice !== null) {
                 merged.final_unit_price = calculatedFinalUnitPrice;
@@ -3002,12 +3102,20 @@ const CommissionForm = () => {
             
             // 重新计算实验室报价（当final_unit_price或line_total变化时，或影响它们的字段变化时）
             // 确保使用最新的merged值进行计算
-            if (field === 'final_unit_price' || field === 'line_total' || 
-                field === 'unit_price' || field === 'actual_sample_quantity' || field === 'service_urgency' ||
-                field === 'price_note' || field === 'discount_rate') {
+            if (
+              field === 'final_unit_price' ||
+              field === 'line_total' ||
+              field === 'unit_price' ||
+              field === 'actual_sample_quantity' ||
+              field === 'service_urgency' ||
+              field === 'price_note' ||
+              field === 'discount_rate'
+            ) {
               // 使用merged中已更新的最新值
-              const finalPrice = merged.final_unit_price !== undefined ? merged.final_unit_price : currentItem.final_unit_price;
-              const lineTotal = merged.line_total !== undefined ? merged.line_total : currentItem.line_total;
+              const finalPrice =
+                merged.final_unit_price !== undefined ? merged.final_unit_price : currentItem.final_unit_price;
+              const lineTotal =
+                merged.line_total !== undefined ? merged.line_total : currentItem.line_total;
               const recalculatedLabPrice = calculateLabPrice(finalPrice, lineTotal);
               merged.lab_price = recalculatedLabPrice !== null ? recalculatedLabPrice : null;
             }
@@ -3153,10 +3261,10 @@ const CommissionForm = () => {
         alert('必须选择同一委托单号下的项目');
         return;
       }
-      // 仅物化部门用户可见该功能；再次校验所选项目均为物化部门
-      const nonWH = selectedData.find(it => String(it.department_id) !== '2');
+      // 仅物化部门和化学组用户可见该功能；再次校验所选项目均为物化部门或化学组
+      const nonWH = selectedData.find(it => !['2', '6'].includes(String(it.department_id)));
       if (nonWH) {
-        alert('仅支持物化部门(2)的项目导出物化报告');
+        alert('仅支持物化部门(2)及化学组(6)的项目导出物化报告');
         return;
       }
 
@@ -3530,74 +3638,111 @@ const CommissionForm = () => {
           <div className="loading">加载中...</div>
         ) : (
           <>
-            <div className="table-info" style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'nowrap' }}>
-              <span style={{ flexShrink: 0 }}>共 {total} 条记录，当前第 {page} 页</span>
-              {maintenanceList.length > 0 && !isMaintenanceClosed && (
-                <div style={{ 
-                  marginLeft: '0', 
-                  minWidth: '300px',
-                  maxWidth: '600px',
-                  flex: '1 1 auto',
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  background: '#fff1f0', 
-                  border: '1px solid #ffa39e', 
-                  borderRadius: '4px',
-                  padding: '0 20px 0 10px',
-                  height: '30px',
-                  overflow: 'hidden',
-                  position: 'relative',
-                  flexShrink: 1
-                }}>
-                  <span style={{ color: '#cf1322', fontWeight: 'bold', marginRight: '10px', whiteSpace: 'nowrap', fontSize: '12px' }}>⚠️ 设备维护公告:</span>
-                  <marquee 
-                    scrollamount="4" 
-                    style={{ color: '#cf1322', fontSize: '12px', flex: 1, marginRight: '18px' }}
-                    onMouseOver={(e) => e.target.stop()}
-                    onMouseOut={(e) => e.target.start()}
-                  >
-                    {(() => {
-                      const text = maintenanceList.map(eq => {
-                        const timeStr = eq.status_update_time 
-                        ? new Date(eq.status_update_time).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
-                        : '';
-                      return `${eq.equipment_name} (${eq.model || '无型号'}) 于 ${timeStr} 报修`;
-                    }).join('\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0');
-                      // 重复一次内容以减少首尾间隔感（marquee默认首尾循环间隔取决于内容长度和容器宽度的关系，手动重复可以视觉上优化）
-                      return `${text}\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0${text}`;
-                    })()}
-                  </marquee>
+            <div className="table-info">
+              <div className="table-info-left">
+                <span>共 {total} 条记录</span>
+                {maintenanceList.length > 0 && !isMaintenanceClosed && (
+                  <div style={{ 
+                    marginLeft: '12px', 
+                    minWidth: '220px',
+                    maxWidth: '320px',
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    background: '#fff1f0', 
+                    border: '1px solid #ffa39e', 
+                    borderRadius: '4px',
+                    padding: '0 12px 0 8px',
+                    height: '24px',
+                    overflow: 'hidden',
+                    position: 'relative',
+                    flexShrink: 0
+                  }}>
+                    <span style={{ color: '#cf1322', fontWeight: 'bold', marginRight: '4px', whiteSpace: 'nowrap', fontSize: '11px' }}>⚠️ 设备维护公告:</span>
+                    <marquee 
+                      scrollamount="3" 
+                      style={{ color: '#cf1322', fontSize: '11px', flex: 1, marginRight: '10px' }}
+                      onMouseOver={(e) => e.target.stop()}
+                      onMouseOut={(e) => e.target.start()}
+                    >
+                      {(() => {
+                        const text = maintenanceList.map(eq => {
+                          const timeStr = eq.status_update_time 
+                          ? new Date(eq.status_update_time).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+                          : '';
+                        return `${eq.equipment_name} (${eq.model || '无型号'}) 于 ${timeStr} 报修`;
+                      }).join('\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0');
+                        return `${text}\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0${text}`;
+                      })()}
+                    </marquee>
+                    <button
+                      onClick={handleCloseMaintenance}
+                      style={{
+                        position: 'absolute',
+                        right: '2px',
+                        top: '2px',
+                        background: 'transparent',
+                        border: 'none',
+                        color: '#cf1322',
+                        fontSize: '12px',
+                        fontWeight: 'bold',
+                        cursor: 'pointer',
+                        padding: '0',
+                        lineHeight: '1',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        width: '14px',
+                        height: '14px',
+                        borderRadius: '2px',
+                        transition: 'background-color 0.2s'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.target.style.backgroundColor = 'rgba(207, 19, 34, 0.15)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.target.style.backgroundColor = 'transparent';
+                      }}
+                      title="关闭公告"
+                    >
+                      ×
+                    </button>
+                  </div>
+                )}
+              </div>
+              {total > pageSize && (
+                <div className="table-info-pagination">
                   <button
-                    onClick={handleCloseMaintenance}
-                    style={{
-                      position: 'absolute',
-                      right: '2px',
-                      top: '2px',
-                      background: 'transparent',
-                      border: 'none',
-                      color: '#cf1322',
-                      fontSize: '14px',
-                      fontWeight: 'bold',
-                      cursor: 'pointer',
-                      padding: '0',
-                      lineHeight: '1',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      width: '16px',
-                      height: '16px',
-                      borderRadius: '2px',
-                      transition: 'background-color 0.2s'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.target.style.backgroundColor = 'rgba(207, 19, 34, 0.15)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.target.style.backgroundColor = 'transparent';
-                    }}
-                    title="关闭公告"
+                    onClick={() => setPage(1)}
+                    disabled={page === 1}
+                    className="btn-secondary"
+                    title="首页"
                   >
-                    ×
+                    首页
+                  </button>
+                  <button
+                    onClick={() => setPage(page - 1)}
+                    disabled={page === 1}
+                    className="btn-secondary"
+                  >
+                    上一页
+                  </button>
+                  <span className="page-info">
+                    第 {page} 页，共 {Math.ceil(total / pageSize)} 页
+                  </span>
+                  <button
+                    onClick={() => setPage(page + 1)}
+                    disabled={page >= Math.ceil(total / pageSize)}
+                    className="btn-secondary"
+                  >
+                    下一页
+                  </button>
+                  <button
+                    onClick={() => setPage(Math.ceil(total / pageSize))}
+                    disabled={page >= Math.ceil(total / pageSize)}
+                    className="btn-secondary"
+                    title="末页"
+                  >
+                    末页
                   </button>
                 </div>
               )}
@@ -4186,13 +4331,22 @@ const CommissionForm = () => {
                                   setData(prevData => 
                                     prevData.map(item => {
                                       if (item.test_item_id === testItemId) {
-                                        const updatedItem = { ...item, service_urgency: getServiceUrgencyDisplayValue(value) };
-                                        // 重新计算测试总价
-                                        const calculatedFinalUnitPrice = calculateFinalUnitPrice(updatedItem);
-                                        if (calculatedFinalUnitPrice !== null) {
-                                          updatedItem.final_unit_price = calculatedFinalUnitPrice;
-                                        } else {
-                                          updatedItem.final_unit_price = null;
+                                        const updatedItem = {
+                                          ...item,
+                                          service_urgency: getServiceUrgencyDisplayValue(value)
+                                        };
+                                        const isBusinessConfirmed =
+                                          updatedItem.business_confirmed === 1 ||
+                                          updatedItem.business_confirmed === true ||
+                                          updatedItem.business_confirmed === '1';
+                                        // 重新计算测试总价（仅未确认的项目）
+                                        if (!isBusinessConfirmed) {
+                                          const calculatedFinalUnitPrice = calculateFinalUnitPrice(updatedItem);
+                                          if (calculatedFinalUnitPrice !== null) {
+                                            updatedItem.final_unit_price = calculatedFinalUnitPrice;
+                                          } else {
+                                            updatedItem.final_unit_price = null;
+                                          }
                                         }
                                         // 同步计算标准总价
                                         const calculatedLineTotal = calculateStandardLineTotal(
@@ -4203,8 +4357,9 @@ const CommissionForm = () => {
                                         updatedItem.line_total = calculatedLineTotal;
                                         
                                         const payload = {};
-                                        if (calculatedFinalUnitPrice !== null) {
-                                          payload.final_unit_price = calculatedFinalUnitPrice;
+                                        // 仅当未业务确认且重新计算出测试总价时才回写测试总价值
+                                        if (!isBusinessConfirmed && updatedItem.final_unit_price !== undefined) {
+                                          payload.final_unit_price = updatedItem.final_unit_price;
                                         }
                                         if (calculatedLineTotal !== null) {
                                           payload.line_total = calculatedLineTotal;
@@ -4521,7 +4676,7 @@ const CommissionForm = () => {
                           {((!item.business_confirmed || item.business_confirmed === 0 || item.business_confirmed === false) && user?.user_id === item.current_assignee) ? (
                             <>
                               {(() => {
-                                // 权限检查：如果7个必填字段有一个是空值，则不能填写测试总价也不能点击确认按钮
+                                // 权限检查：如果6个必填字段有一个是空值，则不能填写测试总价也不能点击确认按钮
                                 // 检查条件：1. 业务员角色 2. 组长角色且指派自己做实验（supervisor_id === technician_id === user_id）
                                 const isSales = user?.role === 'sales';
                                 const isSupervisorAsTechnician = user?.role === 'supervisor' && 
@@ -4532,17 +4687,17 @@ const CommissionForm = () => {
                                 
                                 const requiredFieldsCheck = checkRawDataRequiredFields(item);
                                 // 如果既不是业务员也不是组长指派自己做实验，则可以编辑（不受限制）
-                                // 如果是业务员或组长指派自己做实验，则必须7个字段都完整才能编辑
+                                // 如果是业务员或组长指派自己做实验，则必须6个字段都完整才能编辑
                                 const needsCheck = isSales || isSupervisorAsTechnician;
                                 const canEditPrice = !needsCheck || requiredFieldsCheck.allFilled;
                                 
                                 // 根据角色显示不同的提示信息
                                 const errorMessage = isSales 
                                   ? '实验数据未填写' 
-                                  : '请先填写：现场测试时间、检测设备、计数量、单位、测试工时、测试机时、实验室报价';
+                                  : '请先填写：检测设备、计数量、单位、测试工时、测试机时';
                                 const errorTooltip = isSales 
                                   ? '实验数据未填写' 
-                                  : '请先填写必填项：现场测试时间、检测设备、计数量、单位、测试工时、测试机时、实验室报价';
+                                  : '请先填写必填项：检测设备、计数量、单位、测试工时、测试机时';
                                 
                                 return (
                                   <>
@@ -4601,7 +4756,7 @@ const CommissionForm = () => {
                               className={`readonly-field ${shouldHighlightPrice(item.final_unit_price, item.line_total) ? 'price-highlight-red' : ''}`}
                             >
                               {formatCurrency(item.final_unit_price)}
-                              {(item.business_confirmed === 1 || item.business_confirmed === true) && (
+                              {(item.business_confirmed === 1 || item.business_confirmed === true || item.business_confirmed === '1') && (
                                 <span style={{marginLeft: '4px', color: '#28a745', fontWeight: 'bold'}}>✓</span>
                               )}
                             </span>
@@ -4925,45 +5080,45 @@ const CommissionForm = () => {
                             )}
                             </>
                           )}
-                          {/* 删除按钮：管理员和室主任直接删除，实验员和组长走申请流程 */}
-                          {(user?.role === 'admin' || user?.role === 'leader' || user?.role === 'supervisor' || user?.role === 'employee') && (
-                            <button 
-                              className="btn-delete" 
-                              onClick={() => handleDeleteItem(item.test_item_id)}
-                              disabled={deletingItems.has(item.test_item_id)}
-                              title={user?.role === 'admin' || user?.role === 'leader' ? "删除检测项目" : "申请删除检测项目"}
-                              style={{
-                                backgroundColor: '#dc3545',
-                                color: 'white',
-                                border: 'none',
-                                padding: '2px 6px',
-                                borderRadius: '4px',
-                                cursor: deletingItems.has(item.test_item_id) ? 'not-allowed' : 'pointer',
-                                opacity: deletingItems.has(item.test_item_id) ? 0.6 : 1,
-                                fontSize: '11px',
-                                minWidth: 'auto',
-                                lineHeight: '1.2'
-                              }}
-                            >
-                              {deletingItems.has(item.test_item_id) ? '删除中...' : '删除'}
-                            </button>
-                          )}
-                          {/* 取消按钮：管理员直接取消，实验员和组长走申请流程 */}
-                          {(user?.role === 'admin' || user?.role === 'supervisor' || user?.role === 'employee') && item.status !== 'cancelled' && (
-                            <button 
-                              className="btn btn-secondary"
-                              onClick={() => handleCancel(item)}
+                          {/* 删除按钮：管理员直接删除，组长和室主任走申请流程（组员无权限） */}
+                          {(user?.role === 'admin' || user?.role === 'leader' || user?.role === 'supervisor') && (
+                              <button 
+                                className="btn-delete" 
+                                onClick={() => handleDeleteItem(item.test_item_id)}
+                                disabled={deletingItems.has(item.test_item_id)}
+                              title={user?.role === 'admin' ? "删除检测项目" : "申请删除检测项目"}
+                                style={{
+                                  backgroundColor: '#dc3545',
+                                  color: 'white',
+                                  border: 'none',
+                                  padding: '2px 6px',
+                                  borderRadius: '4px',
+                                  cursor: deletingItems.has(item.test_item_id) ? 'not-allowed' : 'pointer',
+                                  opacity: deletingItems.has(item.test_item_id) ? 0.6 : 1,
+                                  fontSize: '11px',
+                                  minWidth: 'auto',
+                                  lineHeight: '1.2'
+                                }}
+                              >
+                                {deletingItems.has(item.test_item_id) ? '删除中...' : '删除'}
+                              </button>
+                            )}
+                          {/* 取消按钮：管理员直接取消，组长和室主任走申请流程（组员无权限） */}
+                          {(user?.role === 'admin' || user?.role === 'supervisor' || user?.role === 'leader') && item.status !== 'cancelled' && (
+                              <button 
+                                className="btn btn-secondary"
+                                onClick={() => handleCancel(item)}
                               title={user?.role === 'admin' ? "取消此项目" : "申请取消此项目"}
-                              style={{
-                                padding: '2px 6px',
-                                fontSize: '11px',
-                                minWidth: 'auto',
-                                lineHeight: '1.2'
-                              }}
-                            >
-                              取消
-                            </button>
-                          )}
+                                style={{
+                                  padding: '2px 6px',
+                                  fontSize: '11px',
+                                  minWidth: 'auto',
+                                  lineHeight: '1.2'
+                                }}
+                              >
+                                取消
+                              </button>
+                            )}
                           {/* 撤回取消按钮：业务员和管理员可以撤回已取消的项目 */}
                           {item.status === 'cancelled' && (user?.role === 'admin' || (user?.role === 'sales' && user?.user_id === item.current_assignee)) && (
                             <button 
@@ -5009,45 +5164,6 @@ const CommissionForm = () => {
                 </tbody>
               </table>
             </div>
-
-            {/* 分页 */}
-            {total > pageSize && (
-              <div className="pagination">
-                <button
-                  onClick={() => setPage(1)}
-                  disabled={page === 1}
-                  className="btn-secondary"
-                  title="首页"
-                >
-                  首页
-                </button>
-                <button
-                  onClick={() => setPage(page - 1)}
-                  disabled={page === 1}
-                  className="btn-secondary"
-                >
-                  上一页
-                </button>
-                <span className="page-info">
-                  第 {page} 页，共 {Math.ceil(total / pageSize)} 页
-                </span>
-                <button
-                  onClick={() => setPage(page + 1)}
-                  disabled={page >= Math.ceil(total / pageSize)}
-                  className="btn-secondary"
-                >
-                  下一页
-                </button>
-                <button
-                  onClick={() => setPage(Math.ceil(total / pageSize))}
-                  disabled={page >= Math.ceil(total / pageSize)}
-                  className="btn-secondary"
-                  title="末页"
-                >
-                  末页
-                </button>
-              </div>
-            )}
           </>
         )}
       </div>
@@ -5157,10 +5273,10 @@ const CommissionForm = () => {
                 {(() => {
                   // 排除业务员角色
                   if (user?.role === 'sales') return false;
-                  if (String(user?.department_id) === '2') return true;
+                  if (['2', '6'].includes(String(user?.department_id))) return true;
                   const selectedData = data.filter(item => selectedItems.includes(item.test_item_id));
                   if (selectedData.length === 0) return false;
-                  return selectedData.every(it => String(it.department_id) === '2');
+                  return selectedData.every(it => ['2', '6'].includes(String(it.department_id)));
                 })() && (
                   <button 
                     className="btn btn-warning" 

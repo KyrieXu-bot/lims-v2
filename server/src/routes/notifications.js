@@ -32,6 +32,10 @@ router.get('/', async (req, res) => {
       `SELECT n.*, 
               o.order_id as order_id_display,
               ti.test_item_id as test_item_id_display,
+              ti.category_name as test_item_category_name,
+              ti.detail_name as test_item_detail_name,
+              JSON_UNQUOTE(JSON_EXTRACT(ar.test_item_data, '$.category_name')) as addon_category_name,
+              JSON_UNQUOTE(JSON_EXTRACT(ar.test_item_data, '$.detail_name')) as addon_detail_name,
               pf.filename as file_name,
               ar.request_id as addon_request_id,
               ar.status as addon_request_status,
@@ -173,9 +177,35 @@ export async function createNotification(pool, {
   related_order_id = null,
   related_test_item_id = null,
   related_file_id = null,
-  related_addon_request_id = null
+  related_addon_request_id = null,
+  test_item_display_name = null,
+  test_item_display_id = null
 }) {
   try {
+    const hasDisplayFields = test_item_display_name != null || test_item_display_id != null;
+    if (hasDisplayFields) {
+      try {
+        const [result] = await pool.query(
+          `INSERT INTO notifications 
+           (user_id, title, content, type, related_order_id, related_test_item_id, related_file_id, related_addon_request_id, test_item_display_name, test_item_display_id) 
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [user_id, title, content, type, related_order_id, related_test_item_id, related_file_id, related_addon_request_id, test_item_display_name, test_item_display_id]
+        );
+        return result.insertId;
+      } catch (err) {
+        if (err.code === 'ER_BAD_FIELD_ERROR' || err.message?.includes('Unknown column')) {
+          // 表尚未执行 migration，不带 display 字段插入
+          const [result] = await pool.query(
+            `INSERT INTO notifications 
+             (user_id, title, content, type, related_order_id, related_test_item_id, related_file_id, related_addon_request_id) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [user_id, title, content, type, related_order_id, related_test_item_id, related_file_id, related_addon_request_id]
+          );
+          return result.insertId;
+        }
+        throw err;
+      }
+    }
     const [result] = await pool.query(
       `INSERT INTO notifications 
        (user_id, title, content, type, related_order_id, related_test_item_id, related_file_id, related_addon_request_id) 

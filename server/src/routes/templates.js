@@ -177,15 +177,15 @@ router.post('/generate-process-template', requireAnyRole(['admin']), async (req,
 });
 
 // 物化报告（WH）导出
-// 仅物化部门(2)用户可用，排除业务员角色
+// 物化部门(2)和化学组(6)用户可用，排除业务员角色
 router.post('/generate-wh-report', async (req, res) => {
   try {
     // 排除业务员角色
     if (req.user?.role === 'sales') {
       return res.status(403).json({ error: '业务员无权导出物化报告' });
     }
-    if (String(req.user?.department_id) !== '2') {
-      return res.status(403).json({ error: '仅物化部门可导出物化报告' });
+    if (!['2', '6'].includes(String(req.user?.department_id))) {
+      return res.status(403).json({ error: '仅物化部门(2)及化学组(6)可导出物化报告' });
     }
     const { order_id, test_item_ids = [] } = req.body || {};
     if (!order_id || !Array.isArray(test_item_ids) || test_item_ids.length === 0) {
@@ -274,8 +274,26 @@ router.post('/generate-wh-report', async (req, res) => {
       signature_tester: testerFirst ? `${testerFirst}.png` : ''
     });
 
+    // 将阿拉伯数字序号转换为中文序号（1 -> 一，2 -> 二，... 11 -> 十一 等）
+    const toChineseIndex = (n) => {
+      const numerals = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十'];
+      if (n <= 0) return '';
+      if (n <= 10) return numerals[n - 1];
+      if (n < 20) {
+        return '十' + numerals[n - 11];
+      }
+      const tens = Math.floor(n / 10);
+      const units = n % 10;
+      let result = numerals[tens - 1] + '十';
+      if (units > 0) {
+        result += numerals[units - 1];
+      }
+      return result;
+    };
+
     const sanitizedItems = tiRows.map((item, idx) => ({
       sample_no: `${order.order_id}-${idx + 1}`,
+      index_cn: toChineseIndex(idx + 1),
       sample_name: item.sample_name || '',
       original_no: item.original_no || '',
       test_item: item.test_item || '',
@@ -291,24 +309,6 @@ router.post('/generate-wh-report', async (req, res) => {
       validity_period: item.validity_period || '',
       report_title: item.report_title || ''
     }));
-
-    const equipmentMap = new Map();
-    for (const it of tiRows) {
-      if (it.equipment_name) {
-        const key = `${it.equipment_name}||${it.model}`;
-        if (!equipmentMap.has(key)) {
-          equipmentMap.set(key, {
-            equipment_no: it.equipment_no,
-            equipment_name: it.equipment_name,
-            model: it.model,
-            parameters_and_accuracy: it.parameters_and_accuracy || '',
-            validity_period: it.validity_period || '',
-            report_title: it.report_title || ''
-          });
-        }
-      }
-    }
-    const equipments = Array.from(equipmentMap.values());
     const totalCount = tiRows.reduce((sum, it) => sum + (it.quantity || 0), 0);
 
     let leaderAccount = '';
@@ -393,7 +393,6 @@ router.post('/generate-wh-report', async (req, res) => {
       customer_address: order.customer_address || '',
       test_items: sanitizedItems,
       total_count: totalCount,
-      equipments,
       // 签名字段（作为图片文件路径，用于模板中的 {@signature_manager} 语法）
       // 如果图片不存在，值为 null，getImage 会返回 null，图片模块会跳过该图片
       signature_manager: signatureManagerPath,
@@ -414,7 +413,7 @@ router.post('/generate-wh-report', async (req, res) => {
       signature_leader_type: typeof templateData.signature_leader
     });
 
-    const templatePath = path.join(__dirname, '..', 'templates', 'WH_template_old.docx');
+    const templatePath = path.join(__dirname, '..', 'templates', 'WH_template_2026.docx');
     await fs.access(templatePath);
     const templateBuffer = await fs.readFile(templatePath);
     const zip = new PizZip(templateBuffer);

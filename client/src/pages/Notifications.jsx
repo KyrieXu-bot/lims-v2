@@ -249,6 +249,22 @@ const Notifications = () => {
     return typeMap[type] || type;
   };
 
+  // 获取检测项目显示名（category_name + detail_name）
+  const getTestItemDisplayName = (notification) => {
+    if (notification.type === 'addon_request' && (notification.addon_category_name || notification.addon_detail_name)) {
+      return [notification.addon_category_name, notification.addon_detail_name].filter(Boolean).join(' - ');
+    }
+    if (notification.test_item_category_name != null || notification.test_item_detail_name != null) {
+      return [notification.test_item_category_name, notification.test_item_detail_name].filter(Boolean).join(' - ');
+    }
+    return notification.test_item_display_name || null;
+  };
+
+  // 获取检测ID（优先 related_test_item_id，其次 test_item_display_id / test_item_id_display）
+  const getTestItemDisplayId = (notification) => {
+    return notification.related_test_item_id ?? notification.test_item_display_id ?? notification.test_item_id_display ?? null;
+  };
+
   const handleViewRequest = (notification) => {
     // 从通知中获取申请ID，优先使用 related_addon_request_id
     let requestId = notification.related_addon_request_id || notification.addon_request_id;
@@ -375,15 +391,6 @@ const Notifications = () => {
         const result = await response.json();
         alert(result.message || '操作已执行');
         loadNotifications();
-        // 如果执行成功，可以跳转到委托单页面
-        if (notification.related_order_id) {
-          navigate('/commission-form', {
-            state: {
-              highlightOrderId: notification.related_order_id,
-              highlightTestItemId: notification.related_test_item_id
-            }
-          });
-        }
       } else {
         const errorData = await response.json();
         alert(errorData.error || '操作失败');
@@ -436,15 +443,6 @@ const Notifications = () => {
         const result = await response.json();
         alert(result.message || '操作已撤回');
         loadNotifications();
-        // 如果撤回成功，可以跳转到委托单页面
-        if (notification.related_order_id) {
-          navigate('/commission-form', {
-            state: {
-              highlightOrderId: notification.related_order_id,
-              highlightTestItemId: notification.related_test_item_id
-            }
-          });
-        }
       } else {
         const errorData = await response.json();
         alert(errorData.error || '操作失败');
@@ -628,7 +626,7 @@ const Notifications = () => {
                        notification.cancellation_request_status === 'approved' && 
                        (user?.user_id === 'JC0089' || user?.role === 'admin') && (
                         <button
-                          className="btn-view-request"
+                          className="btn-view-request btn-execute-action"
                           onClick={(e) => {
                             e.stopPropagation();
                             handleExecuteCancellation(notification);
@@ -642,13 +640,13 @@ const Notifications = () => {
                        notification.cancellation_request_status === 'executed' && 
                        (user?.user_id === 'JC0089' || user?.role === 'admin') && (
                         <button
-                          className="btn-view-request"
+                          className="btn-view-request btn-revert-action"
                           onClick={(e) => {
                             e.stopPropagation();
                             handleRevertCancellation(notification);
                           }}
                         >
-                          取消执行
+                          撤回
                         </button>
                       )}
                       {!notification.is_read && (
@@ -675,7 +673,28 @@ const Notifications = () => {
                   </div>
                   <div className="notification-card-body">
                     <p>{notification.content}</p>
-                    {notification.order_id_display && (
+                    {(notification.type === 'addon_request' || notification.type === 'cancel_request' || notification.type === 'delete_request') &&
+                     (notification.order_id_display || getTestItemDisplayName(notification) || getTestItemDisplayId(notification) != null) && (
+                      <div className="notification-meta">
+                        {notification.order_id_display && (
+                          <span>委托单号: {notification.order_id_display}</span>
+                        )}
+                        {(() => {
+                          const displayName = getTestItemDisplayName(notification);
+                          const displayId = getTestItemDisplayId(notification);
+                          if (!displayName && displayId == null) return null;
+                          return (
+                            <>
+                              {notification.order_id_display && (displayName || displayId != null) && <span className="meta-sep">｜</span>}
+                              {displayName && <span>检测项目: {displayName}</span>}
+                              {displayName && displayId != null && <span className="meta-sep">｜</span>}
+                              {displayId != null && <span>检测ID: {displayId}</span>}
+                            </>
+                          );
+                        })()}
+                      </div>
+                    )}
+                    {notification.order_id_display && !['addon_request', 'cancel_request', 'delete_request'].includes(notification.type) && (
                       <div className="notification-meta">
                         <span>委托单号: {notification.order_id_display}</span>
                       </div>

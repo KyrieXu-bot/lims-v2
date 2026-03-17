@@ -8,7 +8,7 @@ const router = Router();
 router.use(requireAuth);
 
 // 创建取消/删除申请
-router.post('/', requireAnyRole(['supervisor', 'employee']), async (req, res) => {
+router.post('/', requireAnyRole(['supervisor', 'employee', 'leader']), async (req, res) => {
   try {
     const user = req.user;
     const pool = await getPool();
@@ -241,12 +241,20 @@ router.put('/:id/execute', requireAnyRole(['admin']), async (req, res) => {
     
     try {
       let testItemBackup = null;
+      // 保存原始的 test_item_id，用于后续通知创建（删除操作后 test_item_id 会变为 NULL）
+      const originalTestItemId = request.test_item_id;
       
       if (request.request_type === 'cancel') {
         // 执行取消操作
         await pool.query(
           'UPDATE test_items SET status = ? WHERE test_item_id = ?',
           ['cancelled', request.test_item_id]
+        );
+        
+        // 更新申请状态
+        await pool.query(
+          'UPDATE cancellation_requests SET status = ?, executed_by = ?, executed_at = NOW(3) WHERE request_id = ?',
+          ['executed', user.user_id, id]
         );
       } else if (request.request_type === 'delete') {
         // 执行删除操作前，先备份test_item数据
@@ -257,7 +265,27 @@ router.put('/:id/execute', requireAnyRole(['admin']), async (req, res) => {
         
         if (testItemRows.length > 0) {
           testItemBackup = JSON.stringify(testItemRows[0]);
+        } else {
+          await pool.query('ROLLBACK');
+          return res.status(404).json({ error: '检测项目不存在' });
         }
+        
+        // 保存原始数据用于后续恢复记录
+        const savedRequestData = {
+          applicant_id: request.applicant_id,
+          request_type: request.request_type,
+          reason: request.reason,
+          approved_by: request.approved_by,
+          approved_at: request.approved_at,
+          created_at: request.created_at || new Date()
+        };
+        
+        // 先更新申请状态和备份数据
+        // 如果外键约束是 CASCADE，我们需要先保存所有数据，然后临时移除外键约束
+        await pool.query(
+          'UPDATE cancellation_requests SET status = ?, executed_by = ?, executed_at = NOW(3), test_item_backup = ? WHERE request_id = ?',
+          ['executed', user.user_id, testItemBackup, id]
+        );
         
         // 先处理外键约束：将notifications表中的related_test_item_id设置为NULL
         await pool.query(
@@ -272,24 +300,49 @@ router.put('/:id/execute', requireAnyRole(['admin']), async (req, res) => {
         await pool.query('DELETE FROM sample_tracking WHERE test_item_id = ?', [request.test_item_id]);
         await pool.query('DELETE FROM samples WHERE test_item_id = ?', [request.test_item_id]);
         
+        // 临时将 test_item_id 设置为 NULL（如果外键约束允许）
+        // 这样可以避免删除 test_item 时级联删除 cancellation_requests 记录
+        try {
+          await pool.query(
+            'UPDATE cancellation_requests SET test_item_id = NULL WHERE request_id = ?',
+            [id]
+          );
+        } catch (nullError) {
+          // 如果外键约束不允许 NULL，记录可能已被删除，需要重新插入
+          console.log('设置 test_item_id 为 NULL 失败，可能需要重新插入记录');
+        }
+        
         // 删除主表记录
         await pool.query(
           'DELETE FROM test_items WHERE test_item_id = ?',
           [request.test_item_id]
         );
-      }
-      
-      // 更新申请状态，如果是删除操作，保存备份数据
-      if (testItemBackup) {
-        await pool.query(
-          'UPDATE cancellation_requests SET status = ?, executed_by = ?, executed_at = NOW(3), test_item_backup = ? WHERE request_id = ?',
-          ['executed', user.user_id, testItemBackup, id]
+        
+        // 检查 cancellation_requests 记录是否还在
+        const [checkRequest] = await pool.query(
+          'SELECT request_id FROM cancellation_requests WHERE request_id = ?',
+          [id]
         );
-      } else {
-        await pool.query(
-          'UPDATE cancellation_requests SET status = ?, executed_by = ?, executed_at = NOW(3) WHERE request_id = ?',
-          ['executed', user.user_id, id]
-        );
+        
+        if (checkRequest.length === 0) {
+          // 记录被外键约束删除了，需要重新插入（test_item_id 为 NULL）
+          await pool.query(
+            `INSERT INTO cancellation_requests 
+             (request_id, applicant_id, test_item_id, request_type, reason, status, approved_by, approved_at, executed_by, executed_at, test_item_backup, created_at)
+             VALUES (?, ?, NULL, ?, ?, 'executed', ?, ?, ?, NOW(3), ?, ?)`,
+            [
+              id, 
+              savedRequestData.applicant_id, 
+              savedRequestData.request_type, 
+              savedRequestData.reason, 
+              savedRequestData.approved_by, 
+              savedRequestData.approved_at, 
+              user.user_id, 
+              testItemBackup,
+              savedRequestData.created_at
+            ]
+          );
+        }
       }
       
       // 提交事务
@@ -304,15 +357,26 @@ router.put('/:id/execute', requireAnyRole(['admin']), async (req, res) => {
         
         const io = getIO();
         if (approvedByRows.length > 0) {
+          // 对于删除操作，test_item 已被删除，related_test_item_id 应该为 NULL
+          // 对于取消操作，test_item 仍然存在，可以使用原始的 test_item_id
+          const relatedTestItemId = request.request_type === 'delete' ? null : originalTestItemId;
+          // 执行删除后 test_item 已不存在，将检测项目显示名与ID存入通知便于列表展示
+          const testItemDisplayName = request.request_type === 'delete' && request.category_name != null
+            ? [request.category_name, request.detail_name].filter(Boolean).join(' - ')
+            : null;
+          const testItemDisplayId = request.request_type === 'delete' ? originalTestItemId : null;
+
           const notificationId = await createNotification(pool, {
             user_id: request.approved_by,
             title: request.request_type === 'cancel' ? '取消操作已执行' : '删除操作已执行',
             content: `开单员已执行${request.request_type === 'cancel' ? '取消' : '删除'}操作，原因：${request.reason}。委托单号：${request.order_id_display || '未知'}。申请ID：${id}`,
             type: request.request_type === 'cancel' ? 'cancel_request' : 'delete_request',
             related_order_id: request.order_id || null,
-            related_test_item_id: request.test_item_id,
+            related_test_item_id: relatedTestItemId,
             related_file_id: null,
-            related_addon_request_id: null
+            related_addon_request_id: null,
+            test_item_display_name: testItemDisplayName,
+            test_item_display_id: testItemDisplayId
           });
           
           // 通过WebSocket推送通知
@@ -329,7 +393,7 @@ router.put('/:id/execute', requireAnyRole(['admin']), async (req, res) => {
               content: `开单员已执行${request.request_type === 'cancel' ? '取消' : '删除'}操作，原因：${request.reason}。委托单号：${request.order_id_display || '未知'}。申请ID：${id}`,
               type: request.request_type === 'cancel' ? 'cancel_request' : 'delete_request',
               related_order_id: request.order_id || null,
-              related_test_item_id: request.test_item_id,
+              related_test_item_id: relatedTestItemId,
               related_file_id: null,
               related_addon_request_id: null,
               related_cancellation_request_id: id,

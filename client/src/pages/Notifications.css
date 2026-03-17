@@ -186,6 +186,32 @@
   border-color: var(--primary-dark);
 }
 
+/* 执行取消/执行删除：主操作按钮（红色警示） */
+.btn-execute-action {
+  background: #c82333;
+  color: var(--white);
+  border-color: #bd2130;
+}
+
+.btn-execute-action:hover {
+  background: #a71d2a;
+  border-color: #a71d2a;
+  color: var(--white);
+}
+
+/* 撤回：次要操作按钮（灰色），与执行取消区分 */
+.btn-revert-action {
+  background: #6c757d;
+  color: var(--white);
+  border-color: #6c757d;
+}
+
+.btn-revert-action:hover {
+  background: #5a6268;
+  border-color: #545b62;
+  color: var(--white);
+}
+
 .btn-mark-read:hover {
   background: var(--primary);
   color: var(--white);
@@ -211,6 +237,11 @@
   margin: 8px 0;
   font-size: 13px;
   color: var(--gray-600);
+}
+
+.notification-meta .meta-sep {
+  margin: 0 8px;
+  color: var(--gray-400);
 }
 
 .notification-time {

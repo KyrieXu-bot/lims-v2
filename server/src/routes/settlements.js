@@ -236,6 +236,61 @@ router.put('/:id', requireAuth, async (req, res) => {
   const pool = await getPool();
   
   try {
+    const deriveInvoiceStatusFromPaymentStatus = (ps) => {
+      if (ps === '未到款') return '已结算';
+      if (ps === '已到款' || ps === '部分到款') return '已到账';
+      return null;
+    };
+
+    const syncTestItemsInvoiceStatusForSettlement = async (executor, settlementId, ps) => {
+      if (ps === undefined) return;
+      const targetInvoiceStatus = deriveInvoiceStatusFromPaymentStatus(ps);
+      if (!targetInvoiceStatus) return;
+
+      const [settlementRows] = await executor.query(
+        'SELECT order_ids, test_item_ids FROM settlements WHERE settlement_id = ?',
+        [settlementId]
+      );
+      if (!settlementRows || settlementRows.length === 0) return;
+
+      const { order_ids: orderIdsStr, test_item_ids: testItemIdsStr } = settlementRows[0];
+
+      let testItemIds = [];
+      if (testItemIdsStr) {
+        try {
+          const parsed = JSON.parse(testItemIdsStr);
+          if (Array.isArray(parsed)) testItemIds = parsed;
+        } catch (e) {
+          // ignore parse errors; fallback to order_ids below
+        }
+      }
+
+      if ((!testItemIds || testItemIds.length === 0) && orderIdsStr) {
+        const orderIdArray = orderIdsStr.split('-').map(s => s.trim()).filter(Boolean);
+        if (orderIdArray.length > 0) {
+          const placeholders = orderIdArray.map(() => '?').join(',');
+          const [rows] = await executor.query(
+            `SELECT test_item_id FROM test_items WHERE order_id IN (${placeholders}) AND status != 'cancelled'`,
+            orderIdArray
+          );
+          testItemIds = (rows || []).map(r => r.test_item_id).filter(Boolean);
+        }
+      }
+
+      if (!testItemIds || testItemIds.length === 0) return;
+
+      const uniqueIds = Array.from(new Set(testItemIds));
+      const placeholders = uniqueIds.map(() => '?').join(',');
+      await executor.query(
+        `UPDATE test_items 
+         SET invoice_status = ?
+         WHERE test_item_id IN (${placeholders})
+           AND status != 'cancelled'
+           AND invoice_status IN ('已结算','已到账')`,
+        [targetInvoiceStatus, ...uniqueIds]
+      );
+    };
+
     const updateFields = [];
     const updateValues = [];
     
@@ -344,6 +399,9 @@ router.put('/:id', requireAuth, async (req, res) => {
           `UPDATE settlements SET ${updateFields.join(', ')}, updated_at = NOW() WHERE settlement_id = ?`,
           updateValues
         );
+
+        // 联动：更新到款情况时，同步更新关联 test_items 的开票状态
+        await syncTestItemsInvoiceStatusForSettlement(connection, req.params.id, payment_status);
         
         // 重新计算并分配test_items的unpaid_amount
         if (test_item_ids_str) {
@@ -416,6 +474,9 @@ router.put('/:id', requireAuth, async (req, res) => {
         `UPDATE settlements SET ${updateFields.join(', ')}, updated_at = NOW() WHERE settlement_id = ?`,
         updateValues
       );
+
+      // 联动：更新到款情况时，同步更新关联 test_items 的开票状态
+      await syncTestItemsInvoiceStatusForSettlement(pool, req.params.id, payment_status);
     }
     
     // 获取更新后的记录

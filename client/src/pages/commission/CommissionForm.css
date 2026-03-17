@@ -410,7 +410,24 @@
   width: 100%;
   box-sizing: border-box;
   min-height: 40px;
+  display: flex;
   align-items: center;
+}
+
+.table-info-left {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.table-info-pagination {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
 }
 
 .table-wrapper {
@@ -418,6 +435,8 @@
   flex: 1;
   position: relative;
 }
+
+/* （已移除手机端专用加载更多样式，恢复为统一分页） */
 
 /* 保持滚动条，避免编辑时布局位移 */
 .table-wrapper:has(.textarea-input) {

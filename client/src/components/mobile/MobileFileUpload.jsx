@@ -9,7 +9,8 @@ const getCapacitorModules = () => {
       Share: window.Capacitor?.Plugins?.Share,
       Filesystem: window.Capacitor?.Plugins?.Filesystem,
       Directory: window.Capacitor?.Plugins?.Filesystem?.Directory,
-      FilePicker: window.Capacitor?.Plugins?.FilePicker
+      FilePicker: window.Capacitor?.Plugins?.FilePicker,
+      Camera: window.Capacitor?.Plugins?.Camera,
     };
   }
   return null;
@@ -67,6 +68,7 @@ const MobileFileUpload = ({
   const [selectedCategory, setSelectedCategory] = useState('order_attachment');
   const [uploadProgress, setUploadProgress] = useState({});
   const [downloadProgress, setDownloadProgress] = useState({});
+  const [showUploadOptions, setShowUploadOptions] = useState(false);
   const downloadXhrRef = useRef({});
 
   const categories = [
@@ -261,7 +263,60 @@ const MobileFileUpload = ({
       }
     }
   };
+  
+  // 使用相机/相册选择图片，并转换为 File 进行上传
+  const handleCameraUpload = async (source) => {
+    try {
+      const capModules = getCapacitorModules();
+      const Camera = capModules?.Camera;
 
+      if (!Camera) {
+        alert('相机插件不可用，请确认已安装 @capacitor/camera 并执行 npx cap sync');
+        return;
+      }
+
+      const photo = await Camera.getPhoto({
+        quality: 80,
+        allowEditing: false,
+        // 使用 base64 结果，便于在 JS 侧转成 File
+        resultType: 'base64',
+        source,
+      });
+
+      if (!photo || !photo.base64String) {
+        throw new Error('未获取到图片数据');
+      }
+
+      const base64Data = photo.base64String;
+      const mimeType = photo.format ? `image/${photo.format}` : 'image/jpeg';
+      const fileName = `photo_${Date.now()}.${photo.format || 'jpg'}`;
+
+      const byteCharacters = atob(base64Data);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type: mimeType });
+      const file = new File([blob], fileName, { type: mimeType });
+
+      await handleFilesUpload([file]);
+    } catch (error) {
+      const message = error?.message || String(error || '');
+      const lower = message.toLowerCase();
+      if (
+        lower.includes('cancel') ||
+        lower.includes('user cancelled') ||
+        lower.includes('user canceled') ||
+        lower.includes('取消')
+      ) {
+        return;
+      }
+      console.error('使用相机/相册选择图片失败:', error);
+      alert('使用相机/相册选择图片失败: ' + message);
+    }
+  };
+  
   // 统一的文件上传处理函数
   const handleFilesUpload = async (selectedFiles) => {
     if (selectedFiles.length === 0) return;
@@ -289,18 +344,33 @@ const MobileFileUpload = ({
     }
   };
 
-  // 处理上传按钮点击（根据环境选择不同的文件选择方式）
+  // 处理上传方式选择（仅原生环境）
+  const handleSelectUploadOption = async (option) => {
+    setShowUploadOptions(false);
+
+    if (!isNativePlatform()) {
+      return;
+    }
+
+    if (option === 'camera') {
+      await handleCameraUpload('CAMERA');
+    } else if (option === 'photos') {
+      await handleCameraUpload('PHOTOS');
+    } else if (option === 'file') {
+      await handleNativeFileSelect();
+    }
+  };
+
+  // 处理上传按钮点击：Web 直接打开 input，原生弹出选项面板
   const handleUploadClick = () => {
-    if (isNativePlatform()) {
-      // 原生环境：使用 File Picker
-      handleNativeFileSelect();
-    } else {
-      // Web环境：使用传统的 input 元素
+    if (!isNativePlatform()) {
       const fileInput = document.getElementById('mobile-file-input');
       if (fileInput) {
         fileInput.click();
       }
+      return;
     }
+    setShowUploadOptions(true);
   };
 
   const uploadFileWithProgress = (file) => {
@@ -953,6 +1023,49 @@ const MobileFileUpload = ({
           >
             {uploading ? '上传中...' : '上传附件'}
           </button>
+        </div>
+      )}
+
+      {/* 原生端：上传方式选择面板 */}
+      {isNativePlatform() && showUploadOptions && (
+        <div
+          className="mobile-upload-options-mask"
+          onClick={() => setShowUploadOptions(false)}
+        >
+          <div
+            className="mobile-upload-options"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mobile-upload-options-group">
+              <div className="mobile-upload-options-title">选择上传方式</div>
+              <button
+                className="mobile-upload-option-btn"
+                onClick={() => handleSelectUploadOption('camera')}
+              >
+                拍照上传
+              </button>
+              <button
+                className="mobile-upload-option-btn"
+                onClick={() => handleSelectUploadOption('photos')}
+              >
+                从相册选择
+              </button>
+              <button
+                className="mobile-upload-option-btn"
+                onClick={() => handleSelectUploadOption('file')}
+              >
+                从文件选择器选择
+              </button>
+            </div>
+            <div className="mobile-upload-options-cancel-wrapper">
+              <button
+                className="mobile-upload-option-cancel"
+                onClick={() => setShowUploadOptions(false)}
+              >
+                取消
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
