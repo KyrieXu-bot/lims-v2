@@ -43,7 +43,7 @@ router.get('/', async (req, res) => {
 // create
 router.post('/', async (req, res) => {
   const { category_name, detail_name, test_code, standard_code, department_id, group_id,
-          unit_price, is_outsourced = 0, is_active = 1, note, active_from, active_to } = req.body || {};
+          unit_price, amount, unit, is_outsourced = 0, is_active = 1, note, active_from, active_to } = req.body || {};
   if (!category_name || !detail_name || unit_price == null) {
     return res.status(400).json({ error: 'category_name, detail_name, unit_price are required' });
   }
@@ -51,10 +51,10 @@ router.post('/', async (req, res) => {
   try {
     const [r] = await pool.query(
       `INSERT INTO price (category_name, detail_name, test_code, standard_code, department_id, group_id,
-                          unit_price, is_outsourced, is_active, note, active_from, active_to)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+                          unit_price, amount, unit, is_outsourced, is_active, note, active_from, active_to)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [category_name, detail_name, test_code, standard_code, department_id || null, group_id || null,
-       unit_price, Number(is_outsourced), Number(is_active), note, active_from || null, active_to || null]
+       unit_price, amount ?? null, unit ?? null, Number(is_outsourced), Number(is_active), note, active_from || null, active_to || null]
     );
     const [rows] = await pool.query('SELECT * FROM price WHERE price_id = ?', [r.insertId]);
     res.status(201).json(rows[0]);
@@ -74,7 +74,7 @@ router.get('/:id', async (req, res) => {
 // update
 router.put('/:id', async (req, res) => {
   const { category_name, detail_name, test_code, standard_code, department_id, group_id,
-          unit_price, is_outsourced, is_active, note, active_from, active_to } = req.body || {};
+          unit_price, amount, unit, is_outsourced, is_active, note, active_from, active_to } = req.body || {};
   const pool = await getPool();
   await pool.query(
     `UPDATE price SET
@@ -85,6 +85,8 @@ router.put('/:id', async (req, res) => {
       department_id = COALESCE(?, department_id),
       group_id = COALESCE(?, group_id),
       unit_price = COALESCE(?, unit_price),
+      amount = COALESCE(?, amount),
+      unit = COALESCE(?, unit),
       is_outsourced = COALESCE(?, is_outsourced),
       is_active = COALESCE(?, is_active),
       note = COALESCE(?, note),
@@ -92,7 +94,7 @@ router.put('/:id', async (req, res) => {
       active_to = COALESCE(?, active_to)
      WHERE price_id = ?`,
     [category_name, detail_name, test_code, standard_code, department_id, group_id,
-     unit_price, is_outsourced, is_active, note, active_from, active_to, req.params.id]
+     unit_price, amount, unit, is_outsourced, is_active, note, active_from, active_to, req.params.id]
   );
   const [rows] = await pool.query('SELECT * FROM price WHERE price_id = ?', [req.params.id]);
   if (rows.length === 0) return res.status(404).json({ error: 'Not found after update' });

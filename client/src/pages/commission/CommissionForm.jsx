@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { api } from '../../api.js';
 import CustomerDetailModal from './CustomerDetailModal.jsx';
@@ -125,6 +125,7 @@ const TOGGLEABLE_COLUMNS = [
   { key: 'price_original', label: '收费标准' },
   { key: 'price_note', label: '业务报价' },
   { key: 'quantity', label: '数量' },
+  { key: 'unit', label: '开单单位' },
   { key: 'assignee_name', label: '业务负责人' },
   { key: 'discount_rate', label: '折扣' },
   { key: 'customer_note', label: '客户备注' },
@@ -140,7 +141,6 @@ const TOGGLEABLE_COLUMNS = [
   { key: 'field_test_time', label: '现场测试时间' },
   { key: 'equipment_name', label: '检测设备' },
   { key: 'actual_sample_quantity', label: '计费数量' },
-  { key: 'unit', label: '单位' },
   { key: 'work_hours', label: '测试工时' },
   { key: 'machine_hours', label: '测试机时' },
   { key: 'test_notes', label: '实验备注' },
@@ -265,12 +265,20 @@ const CommissionForm = () => {
   const [showFileModal, setShowFileModal] = useState(false);
   const [isOrderPartyModalOpen, setIsOrderPartyModalOpen] = useState(false);
   const [selectedOrderId, setSelectedOrderId] = useState(null);
-  const [activeRowIndex, setActiveRowIndex] = useState(null); // 新增：当前选中的行索引
+  const [activeRowIndex, setActiveRowIndex] = useState(null); // 新增：当前选中的行索引 
   const [user, setUser] = useState(null);
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
   const statusDropdownRef = useRef(null);
   const [savingStatus, setSavingStatus] = useState({}); // 保存状态：{testItemId-field: 'saving'|'success'|'error'}
   const [selectedItems, setSelectedItems] = useState([]);
+  // 合并填价相关状态
+  const [showMergePriceModal, setShowMergePriceModal] = useState(false);
+  const [showMergePriceConfirmModal, setShowMergePriceConfirmModal] = useState(false);
+  /** 二次确认前缓存的分配结果：{ allocations, totalPrice, itemCount } */
+  const [mergePriceConfirmPayload, setMergePriceConfirmPayload] = useState(null);
+  const [mergeTotalPriceInput, setMergeTotalPriceInput] = useState('');
+  const [mergePriceLoading, setMergePriceLoading] = useState(false);
+  const [mergePriceError, setMergePriceError] = useState('');
   const [showBatchUploadModal, setShowBatchUploadModal] = useState(false);
   const [deletingItems, setDeletingItems] = useState(new Set()); // 正在删除的项目ID集合
   const [showExportModal, setShowExportModal] = useState(false); // 导出弹框状态
@@ -760,6 +768,10 @@ const CommissionForm = () => {
   const canEditField = (field, item = null) => {
     const role = user?.role;
     if (!role) return false;
+    // 开单单位由开单系统填写，LIMS 内仅管理员允许修正
+    if (field === 'unit' && role !== 'admin') {
+      return false;
+    }
     if (item && item.status === 'cancelled') {
       return false;
     }
@@ -774,7 +786,6 @@ const CommissionForm = () => {
       'field_test_time',
       'equipment_name',
       'actual_sample_quantity',
-      'unit',
       'machine_hours',
       'work_hours'
     ].includes(field);
@@ -793,7 +804,7 @@ const CommissionForm = () => {
     if (role === 'employee') {
       return [
         'technician_name', 'field_test_time', 'equipment_name',
-        'actual_sample_quantity', 'unit', 'work_hours', 'machine_hours',
+        'actual_sample_quantity', 'work_hours', 'machine_hours',
         'test_notes'
       ].includes(field);
     }
@@ -802,11 +813,11 @@ const CommissionForm = () => {
         'supervisor_name', 'unit_price', 'technician_name', 'assignment_note',
         'field_test_time', 'equipment_name'
       ];
-      // 如果组长将自己分配为实验员，则额外允许编辑计费数量、单位、机时、工时、价格
+      // 如果组长将自己分配为实验员，则额外允许编辑计费数量、机时、工时、价格
       if (item && item.technician_name === user?.name) {
         const extendedFields = [
           ...baseFields,
-          'actual_sample_quantity', 'unit', 'work_hours', 'machine_hours', 'final_unit_price'
+          'actual_sample_quantity', 'work_hours', 'machine_hours', 'final_unit_price'
         ];
         return extendedFields.includes(field);
       }
@@ -1525,7 +1536,7 @@ const CommissionForm = () => {
         `测试人员: ${item.technician_name || ''}`,
         `标准单价: ${formatCurrency(standardPriceValue)}`,
         `计费数量: ${formatNumberValue(item.actual_sample_quantity)}`,
-        `单位: ${item.unit || ''}`,
+        `开单单位: ${item.unit || ''}`,
         `标准总价: ${formatCurrency(item.line_total)}`,
         `测试机时: ${formatNumberValue(item.machine_hours)}`,
         `测试工时: ${formatNumberValue(item.work_hours)}`,
@@ -1755,11 +1766,14 @@ const CommissionForm = () => {
         '项目编号': item.test_code || '',
         '归属部门': item.department_name || '',
         '收费标准-最低报价': formatPriceRange(item.original_unit_price, item.minimum_price),
+        '收费金额': item.price_amount ?? '',
+        '收费单位': item.price_unit || '',
         '业务报价': item.price_note || '',
         '业务价是否确认': item.business_confirmed === 1 || item.business_confirmed === '1' ? '是' : '否',
         '数量': item.quantity || '',
-        '单位': item.unit || '',
+        '开单单位': item.unit || '',
         '标准单价': formatCurrency(item.standard_price),
+        '单价修改情况': formatUnitMismatchStatus(item.unit_mismatch_reviewed),
         '标准总价': formatCurrency(item.line_total),
         '业务总价': formatCurrency(item.final_unit_price),
         '实验室报价': formatCurrency(item.lab_price),
@@ -1826,11 +1840,14 @@ const CommissionForm = () => {
         { wch: 15 },  // 项目编号
         { wch: 12 },  // 归属部门
         { wch: 20 },  // 收费标准-最低报价
+        { wch: 12 },  // 收费金额
+        { wch: 10 },  // 收费单位
         { wch: 15 },  // 业务报价
         { wch: 15 },  // 业务价是否确认
         { wch: 8 },   // 数量
-        { wch: 8 },   // 单位
+        { wch: 8 },   // 开单单位
         { wch: 12 },  // 标准单价
+        { wch: 12 },  // 单价修改情况
         { wch: 12 },  // 标准总价
         { wch: 12 },  // 业务总价
         { wch: 12 },  // 实验室报价
@@ -1880,6 +1897,262 @@ const CommissionForm = () => {
     } catch (error) {
       console.error('导出Excel失败:', error);
       alert('导出Excel失败：' + error.message);
+    }
+  };
+
+  // 检查当前是否可以对所选项目执行合并填价：
+  // 1）必须是业务员角色；2）有选中项目；3）所有选中的项目 business_confirmed 都为未确认；
+  // 4）当前用户是这些项目的 current_assignee（与单个行编辑规则保持一致）；
+  // 5）每一行均满足「实验数据」必填（与单行测试总价可编辑规则一致，缺一则禁用按钮、不弹窗）。
+  const canMergeFillPrice = () => {
+    if (!user || user.role !== 'sales') return false;
+    if (!selectedItems || selectedItems.length === 0) return false;
+    const selectedData = data.filter(item => selectedItems.includes(item.test_item_id));
+    if (selectedData.length === 0) return false;
+    // 任意一个已确认价格则禁止合并填价
+    const hasConfirmed = selectedData.some(item => {
+      return item.business_confirmed === 1 ||
+        item.business_confirmed === true ||
+        item.business_confirmed === '1';
+    });
+    if (hasConfirmed) return false;
+    // 限定为当前业务员负责的项目
+    const allOwnedByUser = selectedData.every(item => item.current_assignee === user.user_id);
+    if (!allOwnedByUser) return false;
+    // 与单行「业务员填写测试总价」相同：缺实验数据必填项则不可合并填价
+    const allLabDataReady = selectedData.every(item => checkRawDataRequiredFields(item).allFilled);
+    if (!allLabDataReady) return false;
+    return true;
+  };
+
+  /** 业务员多选中存在「实验数据未填全」行：合并填价应禁用且静默处理，不弹窗 */
+  const isMergeFillBlockedByIncompleteRawData = () => {
+    if (user?.role !== 'sales') return false;
+    const selectedData = data.filter(item => selectedItems.includes(item.test_item_id));
+    if (selectedData.length === 0) return false;
+    return selectedData.some(item => !checkRawDataRequiredFields(item).allFilled);
+  };
+
+  // 计算合并填价时各项目的标准总价（line_total）的权重
+  const getMergeSelectedItemsWithWeights = () => {
+    const selectedData = data.filter(item => selectedItems.includes(item.test_item_id));
+    // 只考虑标准总价为正数的项目
+    const itemsWithStd = selectedData.map(item => {
+      const standardTotal = typeof item.line_total === 'number'
+        ? item.line_total
+        : (item.line_total ? Number(item.line_total) : 0);
+      return {
+        ...item,
+        _standardTotal: Number.isFinite(standardTotal) && standardTotal > 0 ? standardTotal : 0
+      };
+    });
+    const totalStandard = itemsWithStd.reduce((sum, it) => sum + (it._standardTotal || 0), 0);
+    return { itemsWithStd, totalStandard };
+  };
+
+  const openMergePriceModal = () => {
+    if (!canMergeFillPrice()) {
+      // 更精确的提示：如果有已确认的项目或包含非自己负责的项目
+      const selectedData = data.filter(item => selectedItems.includes(item.test_item_id));
+      if (isMergeFillBlockedByIncompleteRawData()) {
+        return;
+      }
+      if (selectedItems.length === 0) {
+        alert('请先选择要合并填价的检测项目');
+        return;
+      }
+      if (selectedData.some(item =>
+        item.business_confirmed === 1 ||
+        item.business_confirmed === true ||
+        item.business_confirmed === '1'
+      )) {
+        alert('选中的项目中存在已确认价格的项目，不能进行合并填价');
+        return;
+      }
+      if (selectedData.some(item => item.current_assignee !== user?.user_id)) {
+        alert('只能对当前由您负责的检测项目进行合并填价');
+        return;
+      }
+      alert('当前无法进行合并填价操作');
+      return;
+    }
+
+    const { totalStandard } = getMergeSelectedItemsWithWeights();
+    if (!totalStandard || totalStandard <= 0) {
+      alert('选中的项目标准总价无效，无法按比例分配合并总价');
+      return;
+    }
+
+    setMergePriceError('');
+    setMergeTotalPriceInput('');
+    setShowMergePriceConfirmModal(false);
+    setMergePriceConfirmPayload(null);
+    setShowMergePriceModal(true);
+  };
+
+  const closeMergePriceModal = () => {
+    if (mergePriceLoading) return;
+    setShowMergePriceModal(false);
+    setMergePriceError('');
+    setShowMergePriceConfirmModal(false);
+    setMergePriceConfirmPayload(null);
+  };
+
+  // 设备维护公告滚动文案（用于 CSS 无缝滚动，替代已失效的 <marquee>）
+  const maintenanceMarqueeText = useMemo(() => {
+    if (!maintenanceList.length) return '';
+    const sep = '\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0';
+    return maintenanceList.map(eq => {
+      const timeStr = eq.status_update_time
+        ? new Date(eq.status_update_time).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+        : '';
+      return `${eq.equipment_name} (${eq.model || '无型号'}) 于 ${timeStr} 报修`;
+    }).join(sep);
+  }, [maintenanceList]);
+
+  // 第一步：校验并打开「二次确认」弹窗
+  const handlePrepareMergePriceConfirm = () => {
+    if (!canMergeFillPrice()) {
+      if (isMergeFillBlockedByIncompleteRawData()) return;
+      alert('当前选择的项目不满足合并填价条件');
+      return;
+    }
+
+    const totalInput = typeof mergeTotalPriceInput === 'string'
+      ? mergeTotalPriceInput.trim()
+      : String(mergeTotalPriceInput || '');
+    if (!totalInput) {
+      setMergePriceError('请输入合并后的总价');
+      return;
+    }
+    const totalPrice = Number(totalInput);
+    if (!Number.isFinite(totalPrice) || totalPrice <= 0) {
+      setMergePriceError('请输入有效的正数总价');
+      return;
+    }
+
+    const { itemsWithStd, totalStandard } = getMergeSelectedItemsWithWeights();
+    if (!totalStandard || totalStandard <= 0) {
+      setMergePriceError('选中的项目标准总价无效，无法按比例分配');
+      return;
+    }
+
+    let allocatedSum = 0;
+    const allocations = itemsWithStd.map((item, index) => {
+      let allocated = 0;
+      if (index === itemsWithStd.length - 1) {
+        allocated = Number((totalPrice - allocatedSum).toFixed(2));
+      } else {
+        if (item._standardTotal > 0) {
+          allocated = Number(((totalPrice * item._standardTotal) / totalStandard).toFixed(2));
+        } else {
+          allocated = 0;
+        }
+        allocatedSum += allocated;
+      }
+      if (allocated < 0) allocated = 0;
+      return { item, allocatedPrice: allocated };
+    });
+
+    setMergePriceError('');
+    setMergePriceConfirmPayload({
+      allocations,
+      totalPrice,
+      itemCount: allocations.length
+    });
+    setShowMergePriceConfirmModal(true);
+  };
+
+  const handleCloseMergePriceConfirmOnly = () => {
+    if (mergePriceLoading) return;
+    setShowMergePriceConfirmModal(false);
+    setMergePriceConfirmPayload(null);
+  };
+
+  // 第二步：二次确认后真正提交
+  const handleExecuteMergePriceConfirm = async () => {
+    if (!mergePriceConfirmPayload?.allocations?.length) {
+      alert('没有待提交的分配数据，请重新操作');
+      return;
+    }
+    if (!canMergeFillPrice()) {
+      if (isMergeFillBlockedByIncompleteRawData()) {
+        setShowMergePriceConfirmModal(false);
+        setMergePriceConfirmPayload(null);
+        return;
+      }
+      alert('当前选择的项目不满足合并填价条件');
+      setShowMergePriceConfirmModal(false);
+      setMergePriceConfirmPayload(null);
+      return;
+    }
+
+    const { allocations } = mergePriceConfirmPayload;
+
+    setMergePriceLoading(true);
+    setMergePriceError('');
+
+    try {
+      const userLocal = JSON.parse(localStorage.getItem('lims_user') || 'null');
+      if (!userLocal || !userLocal.token) {
+        throw new Error('未登录，无法保存合并价格');
+      }
+
+      for (const { item, allocatedPrice } of allocations) {
+        const calculatedLabPrice = calculateLabPrice(allocatedPrice, item.line_total);
+        const payload = {
+          final_unit_price: allocatedPrice,
+          business_confirmed: 1
+        };
+        if (calculatedLabPrice !== null) {
+          payload.lab_price = calculatedLabPrice;
+        }
+
+        const r = await fetch(`/api/test-items/${item.test_item_id}`, {
+          method: 'PUT',
+          headers: {
+            'Authorization': `Bearer ${userLocal.token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(payload)
+        });
+        if (!r.ok) {
+          const errText = await r.text().catch(() => '');
+          console.error('合并填价更新失败:', errText);
+          throw new Error('保存合并价格失败，请稍后重试');
+        }
+      }
+
+      setData(prev =>
+        prev.map(existing => {
+          const found = allocations.find(a => a.item.test_item_id === existing.test_item_id);
+          if (!found) return existing;
+          const updated = {
+            ...existing,
+            final_unit_price: found.allocatedPrice,
+            business_confirmed: 1
+          };
+          const calculatedLabPrice = calculateLabPrice(found.allocatedPrice, existing.line_total);
+          if (calculatedLabPrice !== null) {
+            updated.lab_price = calculatedLabPrice;
+          }
+          return updated;
+        })
+      );
+
+      setShowMergePriceConfirmModal(false);
+      setMergePriceConfirmPayload(null);
+      setShowMergePriceModal(false);
+      setMergeTotalPriceInput('');
+      setSelectedItems([]);
+      alert('合并填价成功，已按标准总价比例分配测试总价并自动确认价格');
+    } catch (error) {
+      console.error('handleExecuteMergePriceConfirm error:', error);
+      setShowMergePriceConfirmModal(false);
+      setMergePriceConfirmPayload(null);
+      setMergePriceError(error.message || '保存合并价格失败');
+    } finally {
+      setMergePriceLoading(false);
     }
   };
 
@@ -2587,6 +2860,8 @@ const CommissionForm = () => {
       final_unit_price: item.final_unit_price,
       line_total: item.line_total,
       quantity: item.quantity,
+      // 复制下单单位
+      unit: item.unit,
       // 不复制机时和工时
       // machine_hours: item.machine_hours,
       // work_hours: item.work_hours,
@@ -2620,8 +2895,6 @@ const CommissionForm = () => {
       // assignment_note: item.assignment_note,
       // test_notes: item.test_notes,
       // business_note: item.business_note,
-      // 不复制单位
-      // unit: item.unit,
     };
 
     // 统一从“新建”状态开始
@@ -2660,6 +2933,20 @@ const CommissionForm = () => {
     saveCurrentViewState();
     const copyParam = buildCopyTestItemParams(item);
     navigate(`/test-items/new?copy=${copyParam}`);
+  };
+
+  const getStandardPriceHighlightClass = (item) => {
+    const status = Number(item?.unit_mismatch_reviewed ?? 0);
+    if (status === 1) return 'price-highlight-unit-mismatch';
+    if (status === 2) return 'price-highlight-unit-reviewed';
+    return '';
+  };
+
+  const formatUnitMismatchStatus = (value) => {
+    const status = Number(value ?? 0);
+    if (status === 1) return '未修改';
+    if (status === 2) return '已修改';
+    return '单位一致';
   };
 
 
@@ -2729,6 +3016,11 @@ const CommissionForm = () => {
       
       // 先设置基本字段值
       updateData[field] = value;
+
+      // 单位不一致且未修改时，修改标准单价后将状态置为“已修改(2)”
+      if (field === 'unit_price' && Number(currentItem.unit_mismatch_reviewed) === 1) {
+        updateData.unit_mismatch_reviewed = 2;
+      }
       
       // 特殊处理测试人员字段：需要保存technician_id而不是technician_name
       if (field === 'technician_name') {
@@ -3642,66 +3934,23 @@ const CommissionForm = () => {
               <div className="table-info-left">
                 <span>共 {total} 条记录</span>
                 {maintenanceList.length > 0 && !isMaintenanceClosed && (
-                  <div style={{ 
-                    marginLeft: '12px', 
-                    minWidth: '220px',
-                    maxWidth: '320px',
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    background: '#fff1f0', 
-                    border: '1px solid #ffa39e', 
-                    borderRadius: '4px',
-                    padding: '0 12px 0 8px',
-                    height: '24px',
-                    overflow: 'hidden',
-                    position: 'relative',
-                    flexShrink: 0
-                  }}>
-                    <span style={{ color: '#cf1322', fontWeight: 'bold', marginRight: '4px', whiteSpace: 'nowrap', fontSize: '11px' }}>⚠️ 设备维护公告:</span>
-                    <marquee 
-                      scrollamount="3" 
-                      style={{ color: '#cf1322', fontSize: '11px', flex: 1, marginRight: '10px' }}
-                      onMouseOver={(e) => e.target.stop()}
-                      onMouseOut={(e) => e.target.start()}
-                    >
-                      {(() => {
-                        const text = maintenanceList.map(eq => {
-                          const timeStr = eq.status_update_time 
-                          ? new Date(eq.status_update_time).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
-                          : '';
-                        return `${eq.equipment_name} (${eq.model || '无型号'}) 于 ${timeStr} 报修`;
-                      }).join('\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0');
-                        return `${text}\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0${text}`;
-                      })()}
-                    </marquee>
+                  <div className="maintenance-notice-banner">
+                    <span className="maintenance-notice-label">⚠️ 设备维护公告:</span>
+                    <div className="maintenance-notice-marquee-viewport">
+                      <div
+                        className="maintenance-notice-marquee-track"
+                        style={{
+                          animationDuration: `${Math.max(18, Math.min(45, maintenanceMarqueeText.length * 0.35))}s`
+                        }}
+                      >
+                        <span className="maintenance-notice-marquee-segment">{maintenanceMarqueeText}</span>
+                        <span className="maintenance-notice-marquee-segment" aria-hidden="true">{maintenanceMarqueeText}</span>
+                      </div>
+                    </div>
                     <button
+                      type="button"
+                      className="maintenance-notice-close"
                       onClick={handleCloseMaintenance}
-                      style={{
-                        position: 'absolute',
-                        right: '2px',
-                        top: '2px',
-                        background: 'transparent',
-                        border: 'none',
-                        color: '#cf1322',
-                        fontSize: '12px',
-                        fontWeight: 'bold',
-                        cursor: 'pointer',
-                        padding: '0',
-                        lineHeight: '1',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        width: '14px',
-                        height: '14px',
-                        borderRadius: '2px',
-                        transition: 'background-color 0.2s'
-                      }}
-                      onMouseEnter={(e) => {
-                        e.target.style.backgroundColor = 'rgba(207, 19, 34, 0.15)';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.target.style.backgroundColor = 'transparent';
-                      }}
                       title="关闭公告"
                     >
                       ×
@@ -3766,6 +4015,29 @@ const CommissionForm = () => {
                 ))}
               </div>
             )}
+            {/* 业务员合并填价操作条，仅在有选中项目时显示 */}
+            {user?.role === 'sales' && selectedItems.length > 0 && (
+              <div className="merge-price-toolbar">
+                <span className="merge-price-toolbar-text">
+                  已选择 <strong className="merge-price-toolbar-count">{selectedItems.length}</strong> 个检测项目
+                </span>
+                <button
+                  type="button"
+                  className={`merge-price-toolbar-btn merge-price-toolbar-btn-primary ${!canMergeFillPrice() ? 'is-disabled' : ''}`}
+                  onClick={openMergePriceModal}
+                  disabled={!canMergeFillPrice()}
+                >
+                  合并填价
+                </button>
+                <button
+                  type="button"
+                  className="merge-price-toolbar-btn merge-price-toolbar-btn-outline"
+                  onClick={() => setSelectedItems([])}
+                >
+                  取消选择
+                </button>
+              </div>
+            )}
             <div className="table-wrapper">
               <table className="data-table">
                 <thead>
@@ -3798,6 +4070,7 @@ const CommissionForm = () => {
                     {renderColumnHeader('price_original', '收费标准', 'order-creator-field price-original-col')}
                     {renderColumnHeader('price_note', '业务报价', 'order-creator-field price-note-col')}
                     {renderColumnHeader('quantity', '数量', 'order-creator-field quantity-col')}
+                    {renderColumnHeader('unit', '开单单位', 'order-creator-field narrow-col order-unit-col')}
                     {renderColumnHeader('assignee_name', '业务负责人', 'order-creator-field narrow-col')}
                     {renderColumnHeader('discount_rate', '折扣', 'order-creator-field discount-col')}
                     {renderColumnHeader('customer_note', '客户备注', 'order-creator-field note-col')}
@@ -3813,7 +4086,6 @@ const CommissionForm = () => {
                     {renderColumnHeader('field_test_time', '现场测试时间', 'lab-field')}
                     {renderColumnHeader('equipment_name', '检测设备', 'lab-field')}
                     {renderColumnHeader('actual_sample_quantity', '计费数量', 'lab-field narrow-col')}
-                    {renderColumnHeader('unit', '单位', 'lab-field narrow-col')}
                     {renderColumnHeader('work_hours', '测试工时', 'lab-field narrow-col')}
                     {renderColumnHeader('machine_hours', '测试机时', 'lab-field narrow-col')}
                     {renderColumnHeader('test_notes', '实验备注', 'lab-field note-col')}
@@ -4134,6 +4406,22 @@ const CommissionForm = () => {
                               fieldName="最低报价"
                             />
                           </div>
+                          <div style={{display: 'flex', gap: '4px'}}>
+                            <strong style={{color: '#6c757d'}}>金额:</strong>
+                            <DetailViewLink
+                              text={item.price_amount ?? ''}
+                              maxLength={15}
+                              fieldName="金额"
+                            />
+                          </div>
+                          <div style={{display: 'flex', gap: '4px'}}>
+                            <strong style={{color: '#6c757d'}}>单位:</strong>
+                            <DetailViewLink
+                              text={item.price_unit || ''}
+                              maxLength={15}
+                              fieldName="收费单位"
+                            />
+                          </div>
                         </div>
                       </td>
                       <td className={getColumnCellClass('price_note', 'order-creator-field price-note-col')} data-column-key="price_note">
@@ -4177,6 +4465,36 @@ const CommissionForm = () => {
                         ) : (
                           <span className="readonly-field">{item.quantity || ''}</span>
                         )}
+                      </td>
+                      <td className={getColumnCellClass('unit', 'order-creator-field narrow-col order-unit-col')} data-column-key="unit">
+                        <div className="editable-field-container">
+                          {canEditField('unit', item) ? (
+                            <>
+                              <RealtimeEditableCell
+                                value={item.unit}
+                                type="select"
+                                options={[
+                                  { value: '机时', label: '机时' },
+                                  { value: '样品数', label: '样品数' },
+                                  { value: '元素', label: '元素' },
+                                  { value: '点位', label: '点位' },
+                                  { value: '次', label: '次' }
+                                ]}
+                                onSave={handleSaveEdit}
+                                field="unit"
+                                testItemId={item.test_item_id}
+                                placeholder="开单单位"
+                                isFieldBeingEdited={isFieldBeingEdited}
+                                getEditingUser={getEditingUser}
+                                emitUserEditing={emitUserEditing}
+                                emitUserStopEditing={emitUserStopEditing}
+                              />
+                              <SavingIndicator testItemId={item.test_item_id} field="unit" />
+                            </>
+                          ) : (
+                            <span className="readonly-field">{item.unit || ''}</span>
+                          )}
+                        </div>
                       </td>
                       <td className={getColumnCellClass('assignee_name', 'order-creator-field narrow-col')} data-column-key="assignee_name">
                         {canEditField('assignee_name', item) ? (
@@ -4430,7 +4748,10 @@ const CommissionForm = () => {
                           <span className="readonly-field">{item.supervisor_name || ''}</span>
                         )}
                       </td>
-                      <td className={getColumnCellClass('standard_price', 'lab-field')} data-column-key="standard_price">
+                      <td
+                        className={`${getColumnCellClass('standard_price', 'lab-field')} ${getStandardPriceHighlightClass(item)}`.trim()}
+                        data-column-key="standard_price"
+                      >
                         {canEditField('unit_price', item) ? (
                           <div className="editable-field-container">
                             <RealtimeEditableCell
@@ -4569,36 +4890,6 @@ const CommissionForm = () => {
                           )}
                         </div>
                       </td>
-                      <td className={getColumnCellClass('unit', 'lab-field narrow-col')} data-column-key="unit">
-                        <div className="editable-field-container">
-                          {canEditField('unit', item) ? (
-                            <>
-                              <RealtimeEditableCell
-                                value={item.unit}
-                                type="select"
-                                options={[
-                                  { value: '机时', label: '机时' },
-                                  { value: '样品数', label: '样品数' },
-                                  { value: '元素', label: '元素' },
-                                  { value: '点位', label: '点位' },
-                                  { value: '次', label: '次' }
-                                ]}
-                                onSave={handleSaveEdit}
-                                field="unit"
-                                testItemId={item.test_item_id}
-                                placeholder="单位"
-                                isFieldBeingEdited={isFieldBeingEdited}
-                                getEditingUser={getEditingUser}
-                                emitUserEditing={emitUserEditing}
-                                emitUserStopEditing={emitUserStopEditing}
-                              />
-                              <SavingIndicator testItemId={item.test_item_id} field="unit" />
-                            </>
-                          ) : (
-                            <span className="readonly-field">{item.unit || ''}</span>
-                          )}
-                        </div>
-                      </td>
                       <td className={getColumnCellClass('work_hours', 'lab-field narrow-col')} data-column-key="work_hours">
                         <div className="editable-field-container">
                           {(!canEditField('work_hours', item) || (item.status === 'completed' && !['admin','leader'].includes(user?.role))) ? (
@@ -4673,9 +4964,15 @@ const CommissionForm = () => {
                       </td>
                       <td className={getColumnCellClass('final_unit_price', 'lab-field narrow-col')} data-column-key="final_unit_price">
                         <div className="editable-field-container">
-                          {((!item.business_confirmed || item.business_confirmed === 0 || item.business_confirmed === false) && user?.user_id === item.current_assignee) ? (
+                          {(((item.business_confirmed === 1 || item.business_confirmed === true || item.business_confirmed === '1') && user?.role === 'admin')
+                            || ((!(item.business_confirmed === 1 || item.business_confirmed === true || item.business_confirmed === '1')) && user?.user_id === item.current_assignee)) ? (
                             <>
                               {(() => {
+                                const isBusinessConfirmed =
+                                  item.business_confirmed === 1 ||
+                                  item.business_confirmed === true ||
+                                  item.business_confirmed === '1';
+                                const isAdminEditingConfirmed = isBusinessConfirmed && user?.role === 'admin';
                                 // 权限检查：如果6个必填字段有一个是空值，则不能填写测试总价也不能点击确认按钮
                                 // 检查条件：1. 业务员角色 2. 组长角色且指派自己做实验（supervisor_id === technician_id === user_id）
                                 const isSales = user?.role === 'sales';
@@ -4689,15 +4986,18 @@ const CommissionForm = () => {
                                 // 如果既不是业务员也不是组长指派自己做实验，则可以编辑（不受限制）
                                 // 如果是业务员或组长指派自己做实验，则必须6个字段都完整才能编辑
                                 const needsCheck = isSales || isSupervisorAsTechnician;
-                                const canEditPrice = !needsCheck || requiredFieldsCheck.allFilled;
+                                const canEditPrice = isAdminEditingConfirmed
+                                  ? true
+                                  : (!needsCheck || requiredFieldsCheck.allFilled);
+                                const showConfirmButton = !isBusinessConfirmed;
                                 
                                 // 根据角色显示不同的提示信息
                                 const errorMessage = isSales 
                                   ? '实验数据未填写' 
-                                  : '请先填写：检测设备、计数量、单位、测试工时、测试机时';
+                                  : '请先填写：检测设备、计数量、开单单位、测试工时、测试机时';
                                 const errorTooltip = isSales 
                                   ? '实验数据未填写' 
-                                  : '请先填写必填项：检测设备、计数量、单位、测试工时、测试机时';
+                                  : '请先填写必填项：检测设备、计数量、开单单位、测试工时、测试机时';
                                 
                                 return (
                                   <>
@@ -4725,26 +5025,28 @@ const CommissionForm = () => {
                                           </div>
                                         )}
                                       </div>
-                                      <button 
-                                        onClick={(e) => handleConfirmPrice(item, e)}
-                                        title={canEditPrice ? "确认测试总价" : errorTooltip}
-                                        disabled={!canEditPrice}
-                                        style={{
-                                          padding: '2px 6px',
-                                          fontSize: '11px',
-                                          minWidth: 'auto',
-                                          backgroundColor: canEditPrice ? '#28a745' : '#6c757d',
-                                          color: '#fff',
-                                          border: 'none',
-                                          borderRadius: '4px',
-                                          cursor: canEditPrice ? 'pointer' : 'not-allowed',
-                                          lineHeight: '1.2',
-                                          flexShrink: 0,
-                                          opacity: canEditPrice ? 1 : 0.6
-                                        }}
-                                      >
-                                        确认
-                                      </button>
+                                      {showConfirmButton && (
+                                        <button 
+                                          onClick={(e) => handleConfirmPrice(item, e)}
+                                          title={canEditPrice ? "确认测试总价" : errorTooltip}
+                                          disabled={!canEditPrice}
+                                          style={{
+                                            padding: '2px 6px',
+                                            fontSize: '11px',
+                                            minWidth: 'auto',
+                                            backgroundColor: canEditPrice ? '#28a745' : '#6c757d',
+                                            color: '#fff',
+                                            border: 'none',
+                                            borderRadius: '4px',
+                                            cursor: canEditPrice ? 'pointer' : 'not-allowed',
+                                            lineHeight: '1.2',
+                                            flexShrink: 0,
+                                            opacity: canEditPrice ? 1 : 0.6
+                                          }}
+                                        >
+                                          确认
+                                        </button>
+                                      )}
                                     </div>
                                     <SavingIndicator testItemId={item.test_item_id} field="final_unit_price" />
                                   </>
@@ -5197,6 +5499,144 @@ const CommissionForm = () => {
                 userId={user?.user_id}
                 onFileUploaded={(info) => handleFileStatusUpdate(info)}
               />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 合并填价弹窗 */}
+      {showMergePriceModal && (
+        <div
+          className="merge-price-modal-overlay"
+          onClick={() => {
+            if (mergePriceLoading) return;
+            if (showMergePriceConfirmModal) return;
+            closeMergePriceModal();
+          }}
+        >
+          <div
+            className="merge-price-modal"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="merge-price-modal-header">
+              <h3>合并填写测试总价</h3>
+              <button
+                type="button"
+                className="merge-price-modal-close"
+                onClick={() => {
+                  if (!mergePriceLoading) {
+                    closeMergePriceModal();
+                  }
+                }}
+              >
+                ×
+              </button>
+            </div>
+            <div className="merge-price-modal-body">
+              <p className="merge-price-modal-tip">
+                将按照所选检测项目的<strong>标准总价</strong>占比，自动分配您输入的合并总价到各行的测试总价中，
+                并同时将这些项目标记为<strong>已确认价格</strong>。
+              </p>
+              <div className="merge-price-input-row">
+                <label className="merge-price-input-label" htmlFor="merge-total-price-input">
+                  合并总价（元）
+                </label>
+                <input
+                  id="merge-total-price-input"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  className="merge-price-input"
+                  value={mergeTotalPriceInput}
+                  onChange={(e) => setMergeTotalPriceInput(e.target.value)}
+                  disabled={mergePriceLoading || showMergePriceConfirmModal}
+                  placeholder="例如 1900"
+                />
+              </div>
+              {mergePriceError && (
+                <div className="merge-price-error" role="alert">
+                  {mergePriceError}
+                </div>
+              )}
+            </div>
+            <div className="merge-price-modal-footer">
+              <button
+                type="button"
+                className="merge-price-modal-footer-btn merge-price-modal-footer-btn-outline"
+                onClick={() => {
+                  if (!mergePriceLoading) {
+                    closeMergePriceModal();
+                  }
+                }}
+                disabled={mergePriceLoading}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                className="merge-price-modal-footer-btn merge-price-modal-footer-btn-primary"
+                onClick={handlePrepareMergePriceConfirm}
+                disabled={mergePriceLoading || showMergePriceConfirmModal}
+              >
+                确定合并填价
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 合并填价：二次确认（提交后价格不可再改） */}
+      {showMergePriceModal && showMergePriceConfirmModal && mergePriceConfirmPayload && (
+        <div
+          className="merge-price-confirm-overlay"
+          onClick={() => {
+            if (!mergePriceLoading) {
+              handleCloseMergePriceConfirmOnly();
+            }
+          }}
+        >
+          <div
+            className="merge-price-confirm-dialog"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="merge-price-confirm-title"
+          >
+            <div className="merge-price-confirm-header">
+              <h3 id="merge-price-confirm-title">确认合并填价</h3>
+            </div>
+            <div className="merge-price-confirm-body">
+              <p className="merge-price-confirm-warning">
+                <strong>重要提醒：</strong>
+                确认提交后，所选各行的<strong>测试总价</strong>将按标准总价比例写入，并立即标记为
+                <strong>已确认价格</strong>。<span className="merge-price-confirm-highlight">此后无法再修改这些项目的测试总价</span>，请仔细核对。
+              </p>
+              <ul className="merge-price-confirm-summary">
+                <li>
+                  检测项目数：<strong>{mergePriceConfirmPayload.itemCount}</strong> 个
+                </li>
+                <li>
+                  合并总价：<strong>{formatCurrency(mergePriceConfirmPayload.totalPrice)}</strong>
+                </li>
+              </ul>
+            </div>
+            <div className="merge-price-confirm-footer">
+              <button
+                type="button"
+                className="merge-price-modal-footer-btn merge-price-modal-footer-btn-outline"
+                onClick={handleCloseMergePriceConfirmOnly}
+                disabled={mergePriceLoading}
+              >
+                返回修改
+              </button>
+              <button
+                type="button"
+                className="merge-price-modal-footer-btn merge-price-modal-footer-btn-primary"
+                onClick={handleExecuteMergePriceConfirm}
+                disabled={mergePriceLoading}
+              >
+                {mergePriceLoading ? '提交中…' : '确认提交'}
+              </button>
             </div>
           </div>
         </div>

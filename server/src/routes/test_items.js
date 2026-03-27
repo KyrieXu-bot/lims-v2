@@ -25,6 +25,46 @@ const canLeaderAccessDepartment = (user, departmentId) => {
   return leaderDept === targetDept;
 };
 
+/** 规范为 test_items.service_urgency ENUM，兼容列表展示用的中文历史值 */
+const normalizeServiceUrgencyForDb = (value) => {
+  if (value === null || value === undefined || value === '') return 'normal';
+  const v = String(value).trim();
+  if (v === '不加急') return 'normal';
+  if (v === '加急1.5倍') return 'urgent_1_5x';
+  if (v === '特急2倍') return 'urgent_2x';
+  if (v === 'normal' || v === 'urgent_1_5x' || v === 'urgent_2x') return v;
+  return 'normal';
+};
+
+// 根据委托单ID获取第一条检测项目的样品到达信息（仅返回 arrival_mode 和 sample_arrival_status）
+router.get('/first-arrival-by-order/:orderId', async (req, res) => {
+  const { orderId } = req.params;
+  if (!orderId) {
+    return res.status(400).json({ error: 'orderId is required' });
+  }
+
+  try {
+    const pool = await getPool();
+    const [rows] = await pool.query(
+      `SELECT arrival_mode, sample_arrival_status
+       FROM test_items
+       WHERE order_id = ?
+       ORDER BY test_item_id ASC
+       LIMIT 1`,
+      [orderId]
+    );
+
+    if (!rows || rows.length === 0) {
+      return res.json(null);
+    }
+
+    return res.json(rows[0]);
+  } catch (error) {
+    console.error('Error fetching first test item arrival info by order:', error);
+    return res.status(500).json({ error: 'Failed to fetch arrival info' });
+  }
+});
+
 // list
 router.get('/', async (req, res) => {
   const { q = '', page = 1, pageSize = 20, status, order_id } = req.query;
@@ -41,8 +81,6 @@ router.get('/', async (req, res) => {
     // 不添加任何过滤条件
   } else if (user.role === 'leader') {
     const leaderDept = parseNumber(user.department_id);
-    // 室主任：样品需已到
-    filters.push('(ti.sample_arrival_status IS NULL OR ti.sample_arrival_status != "not_arrived")');
     if (leaderDept === 5) {
       // 委外室主任查看所有部门
     } else if (leaderDept !== null) {
@@ -54,19 +92,16 @@ router.get('/', async (req, res) => {
       params.push(user.group_id);
     }
   } else if (user.role === 'supervisor') {
-    // 组长：查询负责人是自己的项目（登录用户是组长且负责人=组长），且样品已到
-    filters.push('(ti.sample_arrival_status IS NULL OR ti.sample_arrival_status != "not_arrived")');
+    // 组长：查询负责人是自己的项目（登录用户是组长且负责人=组长）
     filters.push('ti.supervisor_id = ?');
     params.push(user.user_id);
   } else if (user.role === 'employee') {
-    // 实验员：只能看到指派给他的检测项目，且样品已到
+    // 实验员：只能看到指派给他的检测项目
     filters.push('ti.technician_id = ?');
-    filters.push('(ti.sample_arrival_status IS NULL OR ti.sample_arrival_status != "not_arrived")');
     params.push(user.user_id);
   } else if (user.role === 'sales') {
-    // 业务员：只能看到分配给他的检测项目，且样品已到
+    // 业务员：只能看到分配给他的检测项目
     filters.push('ti.current_assignee = ?');
-    filters.push('(ti.sample_arrival_status IS NULL OR ti.sample_arrival_status != "not_arrived")');
     params.push(user.user_id);
   }
 
@@ -150,7 +185,7 @@ router.post('/', requireRole(CREATE_ROLES), async (req, res) => {
     seq_no, sample_preparation, note, status = 'new', current_assignee, supervisor_id, technician_id,
     arrival_mode, sample_arrival_status, equipment_id, check_notes, test_notes,
     actual_sample_quantity, actual_delivery_date, field_test_time, price_note,
-    assignment_note, business_note, abnormal_condition, addon_reason, addon_target
+    assignment_note, business_note, abnormal_condition, service_urgency, unit, addon_reason, addon_target
   } = req.body || {};
 
   // 处理空字符串，将其转换为null，这样数据库可以接受空值
@@ -182,6 +217,8 @@ router.post('/', requireRole(CREATE_ROLES), async (req, res) => {
   const processedActualSampleQuantity = processValue(actual_sample_quantity);
   const processedActualDeliveryDate = processDate(actual_delivery_date);
   const processedFieldTestTime = processDateTime(field_test_time);
+  const processedServiceUrgency = normalizeServiceUrgencyForDb(service_urgency);
+  const processedUnit = processValue(unit);
   if (!order_id || !category_name || !detail_name) {
     return res.status(400).json({ error: 'order_id, category_name, detail_name are required' });
   }
@@ -264,6 +301,8 @@ router.post('/', requireRole(CREATE_ROLES), async (req, res) => {
         price_note || null,
         assignment_note || null, 
         business_note || null, 
+        processedServiceUrgency,
+        processedUnit,
         addon_reason || null,
         addon_target || null
       ];
@@ -276,7 +315,7 @@ router.post('/', requireRole(CREATE_ROLES), async (req, res) => {
         'seq_no', 'sample_preparation', 'note', 'status', 'current_assignee', 'supervisor_id', 'technician_id',
         'arrival_mode', 'sample_arrival_status', 'equipment_id', 'check_notes', 'test_notes',
         'actual_sample_quantity', 'actual_delivery_date', 'field_test_time', 'price_note',
-        'assignment_note', 'business_note', 'addon_reason', 'addon_target'
+        'assignment_note', 'business_note', 'service_urgency', 'unit', 'addon_reason', 'addon_target'
       ];
       
       const placeholders = sqlFields.map(() => '?').join(',');
@@ -355,7 +394,7 @@ router.put('/:id', requireRole(EDIT_ROLES), async (req, res) => {
     arrival_mode, sample_arrival_status, equipment_id, check_notes, test_notes, unit,
     actual_sample_quantity, actual_delivery_date, field_test_time, price_note,
     assignment_note, business_note, invoice_note, abnormal_condition, service_urgency, business_confirmed,
-    addon_reason, addon_target, invoice_prefill_price, invoice_prefill_confirmed, invoice_status
+    unit_mismatch_reviewed, addon_reason, addon_target, invoice_prefill_price, invoice_prefill_confirmed, invoice_status
   } = req.body || {};
 
   // 处理空字符串，将其转换为null，这样数据库可以接受空值
@@ -469,8 +508,9 @@ router.put('/:id', requireRole(EDIT_ROLES), async (req, res) => {
       addUpdate('business_note', business_note);
       addUpdate('invoice_note', invoice_note);
       addUpdate('abnormal_condition', abnormal_condition);
-      addUpdate('service_urgency', service_urgency);
+      addUpdate('service_urgency', service_urgency, normalizeServiceUrgencyForDb(service_urgency));
       addUpdate('business_confirmed', business_confirmed);
+      addUpdate('unit_mismatch_reviewed', unit_mismatch_reviewed);
       addUpdate('addon_reason', addon_reason);
       addUpdate('addon_target', addon_target);
       // 添加开票相关字段

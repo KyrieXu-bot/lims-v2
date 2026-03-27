@@ -224,6 +224,12 @@ export const api = {
     if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
     return r.json();
   },
+  // 获取某个委托单下第一条检测项目的样品到达信息（不受列表权限过滤影响）
+  async getFirstTestItemArrivalByOrder(orderId) {
+    const r = await fetch(`${API_BASE}/api/test-items/first-arrival-by-order/${encodeURIComponent(orderId)}`, { headers: this.authHeaders() });
+    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
+    return r.json();
+  },
   async getTestItem(id) {
     const r = await fetch(`${API_BASE}/api/test-items/${id}`, { headers: this.authHeaders() });
     if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');

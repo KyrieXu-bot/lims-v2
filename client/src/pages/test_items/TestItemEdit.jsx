@@ -12,6 +12,17 @@ function Field({label, value, onChange, type='text', disabled=false}) {
   )
 }
 
+const ORDER_UNIT_OPTIONS = [
+  { value: '样品数', label: '样品数' },
+  { value: '机时', label: '机时' },
+  { value: '点位', label: '点位' },
+  { value: '次', label: '次' },
+  { value: '图', label: '图' },
+  { value: '天', label: '天' },
+  { value: '元素', label: '元素' },
+  { value: '曲线', label: '曲线' }
+];
+
 export default function TestItemEdit() {
   const { id } = useParams();
   const location = useLocation();
@@ -43,6 +54,7 @@ export default function TestItemEdit() {
     department_id: '',
     group_id: '',
     unit_price: '',
+    unit: '',
     discount_rate: '',
     final_unit_price: '',
     line_total: '',
@@ -340,6 +352,7 @@ export default function TestItemEdit() {
       if (!orderDetail) return;
       setSelectedOrder(orderDetail);
 
+      // 1) 先根据委托单信息预填业务员工号和折扣
       setIt(prev => {
         const next = { ...prev };
         if (orderDetail.created_by) {
@@ -355,6 +368,20 @@ export default function TestItemEdit() {
         }
         return next;
       });
+
+      // 2) 再根据该委托单下的第一条检测项目，预填样品到达方式和样品是否已到
+      try {
+        const firstItemArrival = await api.getFirstTestItemArrivalByOrder(trimmedOrderId);
+        if (firstItemArrival) {
+          setIt(prev => ({
+            ...prev,
+            arrival_mode: firstItemArrival.arrival_mode || prev.arrival_mode || '',
+            sample_arrival_status: firstItemArrival.sample_arrival_status || prev.sample_arrival_status || ''
+          }));
+        }
+      } catch (err) {
+        console.warn('根据委托单获取检测项目样品到达信息失败，无法预填样品到达信息:', err);
+      }
       setShowBusinessStaffSuggestions(false);
     } catch (error) {
       console.warn('自动获取委托单信息失败:', error);
@@ -531,6 +558,7 @@ export default function TestItemEdit() {
     setSelectedPrice(priceItem);
     // 仅在价格表单价为数值时预填到检测项目的数值单价字段
     const numericUnitPrice = Number(priceItem.unit_price);
+    const prefillOrderUnit = priceItem.unit !== null && priceItem.unit !== undefined ? String(priceItem.unit).trim() : '';
     setIt(prev => {
       const departmentId = priceItem.department_id ?? null;
       const groupId = priceItem.group_id ?? null;
@@ -544,6 +572,7 @@ export default function TestItemEdit() {
         standard_code: priceItem.standard_code || '',
         is_outsourced: priceItem.is_outsourced,
         unit_price: Number.isFinite(numericUnitPrice) ? numericUnitPrice : prev.unit_price,
+        unit: prefillOrderUnit,
         department_id: departmentId,
         group_id: groupId,
         supervisor_id: '',
@@ -609,6 +638,7 @@ export default function TestItemEdit() {
     if (!it.order_id) return alert('委托单号必填');
     if (!it.category_name) return alert('大类必填');
     if (!it.detail_name) return alert('细项必填');
+    if (!it.unit || String(it.unit).trim() === '') return alert('下单单位必填');
     
     // 验证加测原因：如果是加测项目，必须填写加测原因
     if ((isAddonRequest || it.is_add_on === 1 || it.is_add_on === '1') && (!it.addon_reason || it.addon_reason.trim() === '')) {
@@ -632,6 +662,9 @@ export default function TestItemEdit() {
 
       if (candidates.length === 1) {
         payload.price_id = candidates[0].price_id;
+        if ((!payload.unit || String(payload.unit).trim() === '') && candidates[0].unit) {
+          payload.unit = String(candidates[0].unit).trim();
+        }
       } else if (candidates.length > 1) {
         const precise = candidates.find(price =>
           normalizedTestCode &&
@@ -641,6 +674,9 @@ export default function TestItemEdit() {
         );
         if (precise?.price_id) {
           payload.price_id = precise.price_id;
+          if ((!payload.unit || String(payload.unit).trim() === '') && precise.unit) {
+            payload.unit = String(precise.unit).trim();
+          }
         }
       }
     }
@@ -867,6 +903,20 @@ export default function TestItemEdit() {
             />
           </div>
           <Field label="数量" value={it.quantity} onChange={v=>setIt({...it, quantity:v})} disabled={isView} />
+          <div>
+            <label>下单单位 *</label>
+            <select
+              className="input"
+              value={it.unit || ''}
+              onChange={e => setIt({ ...it, unit: e.target.value })}
+              disabled={isView}
+            >
+              <option value="">请选择下单单位</option>
+              {ORDER_UNIT_OPTIONS.map(opt => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          </div>
           <Field label="单价" value={it.unit_price} onChange={v=>setIt({...it, unit_price:v})} disabled={isView} />
           <div>
             <label>业务报价</label>

@@ -1918,6 +1918,12 @@
   overflow: hidden !important;
 }
 
+/* 开单单位列：蓝色底，标识该字段来源于开单数据 */
+.commission-form .data-table th.order-unit-col,
+.commission-form .data-table td.order-unit-col {
+  background: #e3f2fd !important;
+}
+
 /* 业务报价列中的ReadonlyNoteField超出宽度时显示省略号 */
 .commission-form .data-table td.price-note-col {
   overflow: hidden !important;
@@ -2317,6 +2323,24 @@
   font-weight: bold !important;
 }
 
+/* 标准单价：开单单位与价目表单位不一致，组长关注红色加粗 */
+.price-highlight-unit-mismatch,
+.price-highlight-unit-mismatch .editable-cell,
+.price-highlight-unit-mismatch .readonly-field,
+.price-highlight-unit-mismatch input {
+  color: #dc3545 !important;
+  font-weight: 700 !important;
+}
+
+/* 组长二次编辑后，恢复黑色但保留加粗 */
+.price-highlight-unit-reviewed,
+.price-highlight-unit-reviewed .editable-cell,
+.price-highlight-unit-reviewed .readonly-field,
+.price-highlight-unit-reviewed input {
+  color: #000000 !important;
+  font-weight: 700 !important;
+}
+
 /* 报告印章标识样式 */
 .report-seal-badge {
   display: inline-block;
@@ -2352,4 +2376,412 @@
   flex-wrap: wrap;
   gap: 4px;
   align-items: center;
+}
+
+/* ========== 设备维护公告：CSS 无缝滚动（替代 <marquee>，避免在 flex/现代浏览器中不滚动） ========== */
+.maintenance-notice-banner {
+  margin-left: 12px;
+  min-width: 220px;
+  max-width: 360px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #fff1f0;
+  border: 1px solid #ffa39e;
+  border-radius: 4px;
+  padding: 0 22px 0 8px;
+  position: relative;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+
+.maintenance-notice-label {
+  color: #cf1322;
+  font-weight: 700;
+  white-space: nowrap;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+/* flex 子项需 min-width:0，否则跑马灯区域会被内容撑开导致“看起来不滚动” */
+.maintenance-notice-marquee-viewport {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  height: 100%;
+  display: flex;
+  align-items: center;
+}
+
+.maintenance-notice-marquee-track {
+  display: inline-flex;
+  flex-shrink: 0;
+  white-space: nowrap;
+  animation-name: commission-form-maintenance-marquee;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  will-change: transform;
+}
+
+.maintenance-notice-marquee-track:hover {
+  animation-play-state: paused;
+}
+
+.maintenance-notice-marquee-segment {
+  color: #cf1322;
+  font-size: 11px;
+  padding-right: 3rem;
+}
+
+@keyframes commission-form-maintenance-marquee {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+.maintenance-notice-close {
+  position: absolute;
+  right: 3px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  color: #cf1322;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+  transition: background-color 0.15s ease;
+}
+
+.maintenance-notice-close:hover {
+  background-color: rgba(207, 19, 34, 0.12);
+}
+
+/* ========== 业务员：合并填价工具条（单行左对齐，系统蓝主色） ========== */
+.merge-price-toolbar {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  padding: 8px 14px;
+  margin: 0 0 8px;
+  background: linear-gradient(90deg, #e8f2ff 0%, #f4f9ff 55%, #fff 100%);
+  border: 1px solid rgba(13, 110, 253, 0.22);
+  border-radius: 6px;
+  box-shadow: 0 1px 3px rgba(13, 110, 253, 0.08);
+}
+
+.merge-price-toolbar-text {
+  font-size: 13px;
+  color: #1e3a5f;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+
+.merge-price-toolbar-count {
+  color: #0d6efd;
+  font-weight: 700;
+}
+
+.merge-price-toolbar-btn {
+  padding: 6px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 5px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  white-space: nowrap;
+  line-height: 1.3;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+}
+
+.merge-price-toolbar-btn-primary {
+  background: #0d6efd;
+  color: #fff;
+  border-color: #0d6efd;
+  box-shadow: 0 1px 4px rgba(13, 110, 253, 0.35);
+}
+
+.merge-price-toolbar-btn-primary:hover:not(:disabled):not(.is-disabled) {
+  background: #0b5ed7;
+  border-color: #0b5ed7;
+}
+
+.merge-price-toolbar-btn-primary.is-disabled,
+.merge-price-toolbar-btn-primary:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.merge-price-toolbar-btn-outline {
+  background: #fff;
+  color: #0d6efd;
+  border-color: rgba(13, 110, 253, 0.45);
+}
+
+.merge-price-toolbar-btn-outline:hover {
+  background: #f0f7ff;
+  border-color: #0d6efd;
+}
+
+/* ========== 合并填价弹窗（蓝色主色） ========== */
+.merge-price-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 12050;
+}
+
+.merge-price-modal {
+  width: 440px;
+  max-width: 92vw;
+  background: #fff;
+  border-radius: 10px;
+  box-shadow:
+    0 20px 50px rgba(13, 110, 253, 0.12),
+    0 8px 24px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+  border: 1px solid rgba(13, 110, 253, 0.18);
+}
+
+.merge-price-modal-header {
+  padding: 14px 18px;
+  background: linear-gradient(135deg, #0d6efd 0%, #3d8bfd 55%, #6ea8fe 100%);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.merge-price-modal-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.merge-price-modal-close {
+  flex-shrink: 0;
+  border: none;
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.15s ease;
+}
+
+.merge-price-modal-close:hover {
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.merge-price-modal-body {
+  padding: 16px 18px 10px;
+}
+
+.merge-price-modal-tip {
+  margin: 0 0 14px;
+  font-size: 13px;
+  color: #475569;
+  line-height: 1.55;
+}
+
+.merge-price-modal-tip strong {
+  color: #1e40af;
+}
+
+.merge-price-input-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: nowrap;
+}
+
+.merge-price-input-label {
+  flex-shrink: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1e3a8a;
+}
+
+.merge-price-input {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 12px;
+  border: 1px solid rgba(13, 110, 253, 0.35);
+  border-radius: 6px;
+  font-size: 14px;
+  box-sizing: border-box;
+}
+
+.merge-price-input:focus {
+  outline: none;
+  border-color: #0d6efd;
+  box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.22);
+}
+
+.merge-price-input:disabled {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+.merge-price-error {
+  margin-top: 10px;
+  font-size: 13px;
+  color: #dc2626;
+}
+
+.merge-price-modal-footer {
+  padding: 12px 18px 16px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  background: #f8fafc;
+  border-top: 1px solid #e2e8f0;
+}
+
+.merge-price-modal-footer-btn {
+  padding: 8px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, opacity 0.15s ease;
+}
+
+.merge-price-modal-footer-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.merge-price-modal-footer-btn-outline {
+  background: #fff;
+  color: #475569;
+  border-color: #cbd5e1;
+}
+
+.merge-price-modal-footer-btn-outline:hover:not(:disabled) {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+}
+
+.merge-price-modal-footer-btn-primary {
+  background: #0d6efd;
+  color: #fff;
+  border-color: #0d6efd;
+  box-shadow: 0 1px 4px rgba(13, 110, 253, 0.35);
+}
+
+.merge-price-modal-footer-btn-primary:hover:not(:disabled) {
+  background: #0b5ed7;
+  border-color: #0b5ed7;
+}
+
+/* 合并填价：二次确认弹窗（叠在第一层之上） */
+.merge-price-confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 12150;
+  background: rgba(15, 23, 42, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+.merge-price-confirm-dialog {
+  width: 420px;
+  max-width: 100%;
+  background: #fff;
+  border-radius: 10px;
+  border: 1px solid rgba(220, 38, 38, 0.35);
+  box-shadow:
+    0 20px 50px rgba(220, 38, 38, 0.12),
+    0 8px 28px rgba(0, 0, 0, 0.14);
+  overflow: hidden;
+}
+
+.merge-price-confirm-header {
+  padding: 12px 18px;
+  background: linear-gradient(135deg, #b91c1c 0%, #dc2626 50%, #ef4444 100%);
+  color: #fff;
+}
+
+.merge-price-confirm-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.merge-price-confirm-body {
+  padding: 16px 18px 8px;
+}
+
+.merge-price-confirm-warning {
+  margin: 0 0 14px;
+  font-size: 13px;
+  line-height: 1.65;
+  color: #334155;
+}
+
+.merge-price-confirm-warning strong {
+  color: #b91c1c;
+}
+
+.merge-price-confirm-highlight {
+  color: #b91c1c;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.merge-price-confirm-summary {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  color: #475569;
+  line-height: 1.8;
+}
+
+.merge-price-confirm-summary strong {
+  color: #0d6efd;
+  font-weight: 700;
+}
+
+.merge-price-confirm-footer {
+  padding: 12px 18px 16px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  background: #fef2f2;
+  border-top: 1px solid #fecaca;
 }

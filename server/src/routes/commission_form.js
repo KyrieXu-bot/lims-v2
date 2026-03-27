@@ -161,6 +161,8 @@ router.get('/commission-form', async (req, res) => {
         ti.unit_price as standard_price,
         p.unit_price as original_unit_price,
         p.minimum_price,
+        p.amount as price_amount,
+        p.unit as price_unit,
         ti.discount_rate as discount_rate,
         CASE 
           WHEN ti.service_urgency = 'normal' THEN '不加急'
@@ -178,6 +180,7 @@ router.get('/commission-form', async (req, res) => {
         ti.machine_hours,
         ti.test_notes,
         ti.unit,
+        ti.unit_mismatch_reviewed,
         ti.line_total,
         ti.final_unit_price,
         ti.lab_price,
