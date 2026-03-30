@@ -7,11 +7,35 @@ router.use(requireAuth, requireAnyRole(['admin', 'leader', 'supervisor', 'employ
 
 const CREATE_ROLES = ['admin', 'leader', 'supervisor', 'sales'];
 const EDIT_ROLES = ['admin', 'leader', 'supervisor', 'employee', 'sales'];
+const ADMIN_AUDIT_FIELDS = new Set([
+  'final_unit_price',
+  'price_note',
+  'discount_rate',
+  'machine_hours',
+  'work_hours',
+  'actual_sample_quantity',
+  'line_total'
+]);
+const NUMERIC_AUDIT_FIELDS = new Set([
+  'unit_price',
+  'final_unit_price',
+  'price_note',
+  'discount_rate',
+  'machine_hours',
+  'work_hours',
+  'actual_sample_quantity',
+  'line_total'
+]);
 
 const parseNumber = (value) => {
   if (value === undefined || value === null || value === '') return null;
   const num = Number(value);
   return Number.isNaN(num) ? null : num;
+};
+
+const normalizeAuditValue = (value) => {
+  if (value === undefined || value === null || value === '') return null;
+  return String(value);
 };
 
 const canLeaderAccessDepartment = (user, departmentId) => {
@@ -432,7 +456,11 @@ router.put('/:id', requireRole(EDIT_ROLES), async (req, res) => {
     try {
       // 获取更新前的数据
       const [oldRows] = await pool.query(
-        `SELECT supervisor_id, technician_id, current_assignee, department_id FROM test_items WHERE test_item_id = ?`,
+        `SELECT order_id, price_id, supervisor_id, technician_id, current_assignee, department_id,
+                unit_price, final_unit_price, price_note, discount_rate, machine_hours, work_hours,
+                actual_sample_quantity, line_total
+         FROM test_items
+         WHERE test_item_id = ?`,
         [req.params.id]
       );
       
@@ -542,10 +570,68 @@ router.put('/:id', requireRole(EDIT_ROLES), async (req, res) => {
       
       // 获取更新后的数据
       const [newRows] = await pool.query(
-        `SELECT supervisor_id, technician_id, current_assignee FROM test_items WHERE test_item_id = ?`,
+        `SELECT order_id, price_id, supervisor_id, technician_id, current_assignee,
+                unit_price, final_unit_price, price_note, discount_rate, machine_hours, work_hours,
+                actual_sample_quantity, line_total
+         FROM test_items
+         WHERE test_item_id = ?`,
         [req.params.id]
       );
       const newData = newRows[0];
+
+      // 写入变更日志：
+      // 1) unit_price：任何角色修改都记录
+      // 2) 其他受控字段：仅管理员修改时记录
+      const loggableFields = ['unit_price', ...Array.from(ADMIN_AUDIT_FIELDS)];
+      const logsToInsert = [];
+
+      for (const field of loggableFields) {
+        if (!hasField(field)) continue;
+
+        const shouldLog =
+          field === 'unit_price' ||
+          (req.user.role === 'admin' && ADMIN_AUDIT_FIELDS.has(field));
+        if (!shouldLog) continue;
+
+        const oldRaw = oldData[field];
+        const newRaw = newData[field];
+
+        let changed = false;
+        if (NUMERIC_AUDIT_FIELDS.has(field)) {
+          const oldNum = parseNumber(oldRaw);
+          const newNum = parseNumber(newRaw);
+          changed = oldNum !== newNum;
+        } else {
+          changed = normalizeAuditValue(oldRaw) !== normalizeAuditValue(newRaw);
+        }
+        if (!changed) continue;
+
+        logsToInsert.push([
+          Number(req.params.id),
+          newData.order_id || oldData.order_id || null,
+          newData.price_id || oldData.price_id || null,
+          field,
+          normalizeAuditValue(oldRaw),
+          normalizeAuditValue(newRaw),
+          req.user?.user_id || null,
+          req.user?.name || null,
+          req.user?.role || null,
+          newData.current_assignee || oldData.current_assignee || null,
+          newData.supervisor_id || oldData.supervisor_id || null,
+          newData.technician_id || oldData.technician_id || null
+        ]);
+      }
+
+      if (logsToInsert.length > 0) {
+        await pool.query(
+          `INSERT INTO test_item_change_logs (
+            test_item_id, order_id, price_id, changed_field, old_value, new_value,
+            changed_by_user_id, changed_by_name, changed_by_role,
+            current_assignee_snapshot, supervisor_id_snapshot, technician_id_snapshot
+          ) VALUES ?`,
+          [logsToInsert]
+        );
+      }
       
       // 同步assignments表
       // 由于assignments表有唯一约束，需要先删除所有现有记录，然后添加新的记录

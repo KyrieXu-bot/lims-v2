@@ -40,6 +40,28 @@
   gap: 12px;
 }
 
+.mobile-scan-header-btn {
+  background: none;
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+  color: #2c5aa0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+}
+
+.mobile-scan-header-btn:active {
+  background: rgba(44, 90, 160, 0.1);
+}
+
+.mobile-scan-header-icon {
+  width: 24px;
+  height: 24px;
+  display: block;
+}
+
 .mobile-menu-btn {
   background: none;
   border: none;

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate, useLocation, NavLink } from 'react-router-dom';
+import MobileScanSearchModal from './MobileScanSearchModal.jsx';
 import './MobileLayout.css';
 
 const MobileLayout = ({ children }) => {
@@ -7,6 +8,7 @@ const MobileLayout = ({ children }) => {
   const location = useLocation();
   const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
   const [showMenu, setShowMenu] = useState(false);
+  const [showScanSearch, setShowScanSearch] = useState(false);
 
   const logout = () => {
     localStorage.removeItem('lims_user');
@@ -45,15 +47,57 @@ const MobileLayout = ({ children }) => {
         <div className="mobile-header-content">
           <h1 className="mobile-title">LIMS V2.0</h1>
           <div className="mobile-header-actions">
-            <button 
+            <button
+              type="button"
+              className="mobile-scan-header-btn"
+              onClick={() => {
+                setShowMenu(false);
+                setShowScanSearch(true);
+              }}
+              aria-label="扫码搜索"
+              title="扫码搜索"
+            >
+              {/* 取景框四角 + 中间扫描线（常见「扫一扫」图标样式） */}
+              <svg
+                className="mobile-scan-header-icon"
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
+                <path d="M4 10V5a1 1 0 0 1 1-1h5" />
+                <path d="M14 4h5a1 1 0 0 1 1 1v5" />
+                <path d="M20 14v5a1 1 0 0 1-1 1h-5" />
+                <path d="M10 20H5a1 1 0 0 1-1-1v-5" />
+                <path d="M8 12h8" strokeWidth="2.25" />
+              </svg>
+            </button>
+            <button
+              type="button"
               className="mobile-menu-btn"
               onClick={() => setShowMenu(!showMenu)}
+              aria-label="菜单"
             >
               ☰
             </button>
           </div>
         </div>
       </header>
+
+      <MobileScanSearchModal
+        open={showScanSearch}
+        onClose={() => setShowScanSearch(false)}
+        onDecoded={(text) => {
+          const q = (text || '').trim();
+          setShowScanSearch(false);
+          if (!q) return;
+          navigate(`/mobile/commission-form?q=${encodeURIComponent(q)}`, { replace: true });
+        }}
+      />
 
       {/* 侧边菜单 */}
       {showMenu && (

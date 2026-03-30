@@ -56,5 +56,7 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>用于扫描二维码和条形码，快速搜索委托单。</string>
 </dict>
 </plist>

@@ -58,6 +58,15 @@ const MobileCommissionForm = () => {
   const hasInitializedFromState = useRef(!!initialSearchQuery); // 如果初始值不为空，标记为已初始化
   const NOTIFICATION_SEARCH_KEY = 'mobile_commission_notification_search';
 
+  // 当 URL 出现 ?q= / ?search= 时同步到搜索框（扫码、通知跳转等同一路径二次进入）
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const q = params.get('q') || params.get('search');
+    if (q != null && q !== '') {
+      setSearchQuery((prev) => (prev !== q ? q : prev));
+    }
+  }, [location.search]);
+
   // 获取委托单数据（初始加载或重置）
   const fetchData = async (reset = true) => {
     if (reset) {

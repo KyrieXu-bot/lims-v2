@@ -1,16 +1,21 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { Capacitor } from '@capacitor/core';
+import { Share } from '@capacitor/share';
+import { Filesystem, Directory } from '@capacitor/filesystem';
+import { Camera } from '@capacitor/camera';
+import { FilePicker } from '@capawesome/capacitor-file-picker';
 import './MobileFileUpload.css';
 
-// 获取 Capacitor 相关模块（仅在原生环境中可用）
+// 必须通过 import 触发各插件的 registerPlugin，仅靠 window.Capacitor.Plugins.xxx 在打包后常为 undefined
 const getCapacitorModules = () => {
   if (typeof window !== 'undefined' && window.Capacitor) {
     return {
-      Capacitor: window.Capacitor,
-      Share: window.Capacitor?.Plugins?.Share,
-      Filesystem: window.Capacitor?.Plugins?.Filesystem,
-      Directory: window.Capacitor?.Plugins?.Filesystem?.Directory,
-      FilePicker: window.Capacitor?.Plugins?.FilePicker,
-      Camera: window.Capacitor?.Plugins?.Camera,
+      Capacitor,
+      Share,
+      Filesystem,
+      Directory,
+      FilePicker,
+      Camera,
     };
   }
   return null;
@@ -515,6 +520,7 @@ const MobileFileUpload = ({
     }
 
     const xhr = new XMLHttpRequest();
+    xhr.responseType = 'blob';
     let lastLoaded = 0;
     let lastTime = Date.now();
 
@@ -577,7 +583,11 @@ const MobileFileUpload = ({
             }
           }));
 
-          const blob = new Blob([xhr.response], { type: xhr.getResponseHeader('content-type') || 'application/octet-stream' });
+          const ct = xhr.getResponseHeader('content-type') || 'application/octet-stream';
+          const blob =
+            xhr.response instanceof Blob
+              ? xhr.response
+              : new Blob([xhr.response], { type: ct });
           
           const contentDisposition = xhr.getResponseHeader('content-disposition');
           let downloadFilename = file.filename;
@@ -619,11 +629,12 @@ const MobileFileUpload = ({
                   .replace(/[\x01-\x1f]/g, '_')  // 移除控制字符
                   .trim();  // 移除首尾空白
                 
-                // 保存文件到Cache目录（临时目录）
+                // 保存文件到 Cache（临时目录）；路径加时间戳避免连续下载同名文件互相覆盖
+                const cachePath = `lims_dl_${Date.now()}_${safeFilename}`;
                 const fileResult = await capModules.Filesystem.writeFile({
-                  path: safeFilename,
+                  path: cachePath,
                   data: base64Data,
-                  directory: capModules.Directory.Cache, // 使用Cache目录作为临时存储
+                  directory: capModules.Directory.Cache,
                   recursive: true
                 });
 
@@ -736,7 +747,6 @@ const MobileFileUpload = ({
       delete downloadXhrRef.current[file.file_id];
     });
 
-    xhr.responseType = 'blob';
     xhr.open('GET', `${API_BASE}/api/files/download/${file.file_id}`);
     xhr.setRequestHeader('Authorization', `Bearer ${user.token}`);
     xhr.send();

@@ -4474,11 +4474,14 @@ const CommissionForm = () => {
                                 value={item.unit}
                                 type="select"
                                 options={[
-                                  { value: '机时', label: '机时' },
                                   { value: '样品数', label: '样品数' },
-                                  { value: '元素', label: '元素' },
+                                  { value: '机时', label: '机时' },
                                   { value: '点位', label: '点位' },
-                                  { value: '次', label: '次' }
+                                  { value: '次', label: '次' },
+                                  { value: '图', label: '图' },
+                                  { value: '天', label: '天' },
+                                  { value: '元素', label: '元素' },
+                                  { value: '曲线', label: '曲线' }
                                 ]}
                                 onSave={handleSaveEdit}
                                 field="unit"
