@@ -2,6 +2,84 @@ import { Router } from 'express';
 import { getPool } from '../db.js';
 import { requireAuth, requireAnyRole } from '../middleware/auth.js';
 
+/**
+ * 委托单列表：已关联结算时，用 settlements.invoice_amount 与组内开票预填价之和的比例覆盖展示用 unpaid_amount。
+ * 在主查询之后执行，避免对每一行做 JSON_CONTAINS 相关子查询（大数据量下会极慢）。
+ */
+async function applySettlementDerivedUnpaidAmount(rows, pool) {
+  const bySid = new Map();
+  for (const row of rows) {
+    const sid = row.__settlement_alloc_id;
+    if (sid == null || row.__settlement_invoice_amount == null) continue;
+    const key = String(sid);
+    if (bySid.has(key)) continue;
+    const rawIds = row.__settlement_test_item_ids;
+    if (rawIds == null || String(rawIds).trim() === '') continue;
+    let ids = [];
+    try {
+      const parsed = typeof rawIds === 'string' ? JSON.parse(rawIds) : rawIds;
+      ids = Array.isArray(parsed) ? parsed.filter((id) => id != null && id !== '') : [];
+    } catch {
+      ids = [];
+    }
+    if (ids.length === 0) continue;
+    bySid.set(key, {
+      invoiceAmount: Number(row.__settlement_invoice_amount),
+      ids
+    });
+  }
+
+  const allIds = new Set();
+  for (const { ids } of bySid.values()) {
+    for (const id of ids) {
+      const n = Number(id);
+      if (Number.isFinite(n)) allIds.add(n);
+    }
+  }
+
+  if (allIds.size === 0) {
+    for (const row of rows) {
+      delete row.__settlement_alloc_id;
+      delete row.__settlement_invoice_amount;
+      delete row.__settlement_test_item_ids;
+    }
+    return;
+  }
+
+  const idList = [...allIds];
+  const ph = idList.map(() => '?').join(',');
+  const [prefillRows] = await pool.query(
+    `SELECT test_item_id, invoice_prefill_price FROM test_items WHERE test_item_id IN (${ph}) AND status != 'cancelled'`,
+    idList
+  );
+  const prefillMap = new Map();
+  for (const r of prefillRows) {
+    prefillMap.set(Number(r.test_item_id), parseFloat(r.invoice_prefill_price) || 0);
+  }
+
+  const totals = new Map();
+  for (const [key, { ids, invoiceAmount }] of bySid) {
+    let sum = 0;
+    for (const id of ids) {
+      sum += prefillMap.get(Number(id)) || 0;
+    }
+    totals.set(key, { totalPrefill: sum, invoiceAmount });
+  }
+
+  for (const row of rows) {
+    const sid = row.__settlement_alloc_id;
+    delete row.__settlement_alloc_id;
+    delete row.__settlement_invoice_amount;
+    delete row.__settlement_test_item_ids;
+
+    if (sid == null) continue;
+    const t = totals.get(String(sid));
+    if (!t || t.totalPrefill <= 0 || !Number.isFinite(t.invoiceAmount)) continue;
+    const prefill = parseFloat(row.invoice_prefill_price) || 0;
+    row.unpaid_amount = Math.round((t.invoiceAmount * prefill / t.totalPrefill) * 100) / 100;
+  }
+}
+
 const router = Router();
 router.use(requireAuth, requireAnyRole(['admin', 'leader', 'supervisor', 'employee', 'sales', 'viewer']));
 
@@ -141,7 +219,7 @@ router.get('/commission-form', async (req, res) => {
         u.name as assignee_name,
         u.account as assignee_account,
         ti.current_assignee,
-        ti.unpaid_amount, -- 开票金额
+        ti.unpaid_amount,
         ti.invoice_prefill_price, -- 开票预填价
         ti.invoice_prefill_confirmed, -- 开票预填价是否已确认
         ti.invoice_status, -- 开票状态
@@ -224,6 +302,9 @@ router.get('/commission-form', async (req, res) => {
         -- 报告印章要求
         r.report_seals,
         -- 开票信息（从settlements表通过test_item_ids关联获取）
+        s.settlement_id AS __settlement_alloc_id,
+        s.invoice_amount AS __settlement_invoice_amount,
+        s.test_item_ids AS __settlement_test_item_ids,
         s.invoice_number,
         s.invoice_date as settlement_invoice_date,
         COALESCE(s.customer_name, c_settlement.customer_name) as settlement_customer_name
@@ -257,6 +338,8 @@ router.get('/commission-form', async (req, res) => {
       LIMIT ? OFFSET ?`,
       [...params, Number(pageSize), offset]
     );
+
+    await applySettlementDerivedUnpaidAmount(rows, pool);
 
     // 业务员权限处理：不再在后端隐藏数据，让前端根据权限进行展示控制
     // 业务员可以看到所有数据，但前端会根据current_assignee判断是否需要模糊处理

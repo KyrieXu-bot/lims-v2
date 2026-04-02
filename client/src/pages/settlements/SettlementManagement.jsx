@@ -256,6 +256,7 @@ export default function SettlementManagement() {
       alert('更新成功');
       handleCancelEdit();
       loadSettlements();
+      window.dispatchEvent(new CustomEvent('commission-form-refetch-request'));
     } catch (e) {
       alert('更新失败: ' + e.message);
     }

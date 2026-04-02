@@ -236,6 +236,22 @@ router.put('/:id', requireAuth, async (req, res) => {
   const pool = await getPool();
   
   try {
+    const [existingRows] = await pool.query(
+      'SELECT invoice_amount FROM settlements WHERE settlement_id = ?',
+      [req.params.id]
+    );
+    if (existingRows.length === 0) {
+      return res.status(404).json({ error: '结算记录不存在' });
+    }
+    const existingInvoiceAmount = existingRows[0].invoice_amount;
+
+    const invoiceAmountToCents = (v) => {
+      if (v === null || v === undefined || v === '') return null;
+      const n = Number(v);
+      if (!Number.isFinite(n)) return null;
+      return Math.round(n * 100);
+    };
+
     const deriveInvoiceStatusFromPaymentStatus = (ps) => {
       if (ps === '未到款') return '已结算';
       if (ps === '已到款' || ps === '部分到款') return '已到账';
@@ -336,15 +352,19 @@ router.put('/:id', requireAuth, async (req, res) => {
       updateValues.push(remarks);
     }
     
-    // 如果更新了开票金额，需要重新分配test_items的unpaid_amount
+    // 仅在实际修改开票金额时重新分配 test_items.unpaid_amount（避免费用结算编辑其他字段时误用行金额比例覆盖）
     let shouldRecalculate = false;
     let newInvoiceAmount = null;
     
     if (invoice_amount !== undefined) {
       updateFields.push('invoice_amount = ?');
       updateValues.push(invoice_amount);
-      shouldRecalculate = true;
-      newInvoiceAmount = invoice_amount;
+      const newCents = invoiceAmountToCents(invoice_amount);
+      const oldCents = invoiceAmountToCents(existingInvoiceAmount);
+      if (newCents !== null && newCents !== oldCents) {
+        shouldRecalculate = true;
+        newInvoiceAmount = newCents / 100;
+      }
     }
     
     if (customer_name !== undefined) {
@@ -403,61 +423,64 @@ router.put('/:id', requireAuth, async (req, res) => {
         // 联动：更新到款情况时，同步更新关联 test_items 的开票状态
         await syncTestItemsInvoiceStatusForSettlement(connection, req.params.id, payment_status);
         
-        // 重新计算并分配test_items的unpaid_amount
-        if (test_item_ids_str) {
+        // 重新分配 test_items.unpaid_amount：与创建结算一致，按开票预填价比例；无 test_item_ids 时按委托单号组内未取消项目
+        let testItemIds = [];
+        if (test_item_ids_str && String(test_item_ids_str).trim() !== '') {
           try {
-            const testItemIds = JSON.parse(test_item_ids_str);
-            if (Array.isArray(testItemIds) && testItemIds.length > 0) {
-              // 获取这些test_items的金额
-              const placeholders = testItemIds.map(() => '?').join(',');
-              const [testItems] = await connection.query(
-                `SELECT test_item_id, 
-                        COALESCE(final_unit_price * actual_sample_quantity, 
-                                 line_total, 
-                                 unit_price * actual_sample_quantity, 
-                                 0) as item_amount
-                 FROM test_items 
-                 WHERE test_item_id IN (${placeholders}) 
-                 AND status != 'cancelled'`,
-                testItemIds
-              );
-              
-              if (testItems.length > 0) {
-                // 计算总金额
-                const totalAmount = testItems.reduce((sum, item) => sum + (parseFloat(item.item_amount) || 0), 0);
-                
-                if (totalAmount > 0) {
-                  // 按比例分配开票金额
-                  const allocations = testItems.map((item) => {
-                    const itemAmount = parseFloat(item.item_amount) || 0;
-                    const proportion = itemAmount / totalAmount;
-                    const allocatedAmount = parseFloat((newInvoiceAmount * proportion).toFixed(2));
-                    return {
-                      test_item_id: item.test_item_id,
-                      unpaid_amount: allocatedAmount
-                    };
-                  });
-                  
-                  // 处理精度问题：确保总和等于开票金额
-                  const allocatedTotal = allocations.reduce((sum, item) => sum + item.unpaid_amount, 0);
-                  const difference = newInvoiceAmount - allocatedTotal;
-                  if (Math.abs(difference) > 0.01) {
-                    // 将差额加到最后一个项目
-                    allocations[allocations.length - 1].unpaid_amount = parseFloat((allocations[allocations.length - 1].unpaid_amount + difference).toFixed(2));
-                  }
-                  
-                  // 更新test_items的unpaid_amount
-                  for (const allocation of allocations) {
-                    await connection.query(
-                      'UPDATE test_items SET unpaid_amount = ? WHERE test_item_id = ?',
-                      [allocation.unpaid_amount, allocation.test_item_id]
-                    );
-                  }
-                }
-              }
+            const parsed = JSON.parse(test_item_ids_str);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              testItemIds = parsed.filter((id) => id != null && id !== '');
             }
           } catch (parseErr) {
             console.error('Failed to parse test_item_ids:', parseErr);
+          }
+        }
+        if (testItemIds.length === 0 && orderIds) {
+          const orderIdArray = String(orderIds).split('-').map((s) => s.trim()).filter(Boolean);
+          if (orderIdArray.length > 0) {
+            const ph = orderIdArray.map(() => '?').join(',');
+            const [orderItems] = await connection.query(
+              `SELECT test_item_id FROM test_items WHERE order_id IN (${ph}) AND status != 'cancelled'`,
+              orderIdArray
+            );
+            testItemIds = orderItems.map((r) => r.test_item_id);
+          }
+        }
+
+        if (testItemIds.length > 0) {
+          const placeholders = testItemIds.map(() => '?').join(',');
+          const [testItems] = await connection.query(
+            `SELECT test_item_id, invoice_prefill_price FROM test_items WHERE test_item_id IN (${placeholders}) AND status != 'cancelled'`,
+            testItemIds
+          );
+
+          const totalPrefillPrice = testItems.reduce((sum, item) => sum + (parseFloat(item.invoice_prefill_price) || 0), 0);
+
+          if (totalPrefillPrice > 0) {
+            const allocations = testItems.map((item) => {
+              const prefillPrice = parseFloat(item.invoice_prefill_price) || 0;
+              const proportion = prefillPrice / totalPrefillPrice;
+              const allocatedAmount = parseFloat((newInvoiceAmount * proportion).toFixed(2));
+              return {
+                test_item_id: item.test_item_id,
+                unpaid_amount: allocatedAmount
+              };
+            });
+
+            const allocatedTotal = allocations.reduce((sum, item) => sum + item.unpaid_amount, 0);
+            const difference = newInvoiceAmount - allocatedTotal;
+            if (Math.abs(difference) > 0.01 && allocations.length > 0) {
+              allocations[allocations.length - 1].unpaid_amount = parseFloat(
+                (allocations[allocations.length - 1].unpaid_amount + difference).toFixed(2)
+              );
+            }
+
+            for (const allocation of allocations) {
+              await connection.query(
+                'UPDATE test_items SET unpaid_amount = ? WHERE test_item_id = ?',
+                [allocation.unpaid_amount, allocation.test_item_id]
+              );
+            }
           }
         }
         

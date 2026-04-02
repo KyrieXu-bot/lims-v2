@@ -912,6 +912,18 @@ const CommissionForm = () => {
     }
   };
 
+  const fetchDataRef = useRef(fetchData);
+  fetchDataRef.current = fetchData;
+
+  // 费用结算保存后通知刷新，避免列表仍显示旧的 ti.unpaid_amount
+  useEffect(() => {
+    const onRefetch = () => {
+      fetchDataRef.current();
+    };
+    window.addEventListener('commission-form-refetch-request', onRefetch);
+    return () => window.removeEventListener('commission-form-refetch-request', onRefetch);
+  }, []);
+
   // 处理从通知跳转过来的情况 - 自动查询对应的委托单号
   useEffect(() => {
     if (location.state?.highlightOrderId) {
@@ -1789,7 +1801,7 @@ const CommissionForm = () => {
         '检测设备': item.equipment_name || '',
         '负责人': item.supervisor_name || '',
         '测试人员': item.technician_name || '',
-        '测试样品数量': item.actual_sample_quantity || '',
+        '计费数量': item.actual_sample_quantity || '',
         '测试工时': item.work_hours || '',
         '测试机时': item.machine_hours || '',
         '实际交付日期': formatDate(item.actual_delivery_date),
@@ -1808,7 +1820,7 @@ const CommissionForm = () => {
         '开票预填价': item.invoice_prefill_price !== null && item.invoice_prefill_price !== undefined 
           ? formatCurrency(item.invoice_prefill_price)
           : (calculateInvoicePrefillPrice(item) !== null ? formatCurrency(calculateInvoicePrefillPrice(item)) : ''),
-        '开票未到款金额': formatCurrency(item.unpaid_amount),
+        '开票金额': formatCurrency(item.unpaid_amount),
         '开票备注': item.invoice_note || '',
         '开票状态': item.invoice_status || '未结算'
       }));
@@ -1863,7 +1875,7 @@ const CommissionForm = () => {
         { wch: 15 },  // 检测设备
         { wch: 12 },  // 负责人
         { wch: 12 },  // 测试人员
-        { wch: 12 },  // 测试样品数量
+        { wch: 12 },  // 计费数量
         { wch: 10 },  // 测试工时
         { wch: 10 },  // 测试机时
         { wch: 12 },  // 实际交付日期
@@ -1875,7 +1887,7 @@ const CommissionForm = () => {
         { wch: 12 },  // 开票日期
         { wch: 20 },  // 开票客户名称
         { wch: 15 },  // 开票预填价
-        { wch: 15 },  // 开票未到款金额
+        { wch: 15 },  // 开票金额
         { wch: 20 },  // 开票备注
         { wch: 10 }   // 开票状态
       ];
@@ -2857,8 +2869,6 @@ const CommissionForm = () => {
       // 各类价格信息
       unit_price: resolvedUnitPrice,
       discount_rate: item.discount_rate,
-      final_unit_price: item.final_unit_price,
-      line_total: item.line_total,
       quantity: item.quantity,
       // 复制下单单位
       unit: item.unit,
@@ -2867,7 +2877,6 @@ const CommissionForm = () => {
       // work_hours: item.work_hours,
       is_add_on: 1, // 标记为加测
       is_outsourced: item.is_outsourced,
-      seq_no: item.seq_no,
       sample_preparation: item.sample_preparation,
       note: item.note,
       // 复制加测原因
@@ -2882,14 +2891,12 @@ const CommissionForm = () => {
       // supervisor_id: item.supervisor_id,
       // 不复制实验员，让用户重新选择
       // technician_id: item.technician_id,
-      equipment_id: item.equipment_id,
       arrival_mode: item.arrival_mode,
       sample_arrival_status: item.sample_arrival_status,
       // 不复制计费数量
       // actual_sample_quantity: item.actual_sample_quantity,
       // 不复制交付日期，让用户重新填写
       // actual_delivery_date: item.actual_delivery_date,   
-      field_test_time: item.field_test_time,
       price_note: item.price_note,
       // 不复制指派备注、实验备注、业务备注
       // assignment_note: item.assignment_note,
@@ -2901,9 +2908,9 @@ const CommissionForm = () => {
     copyData.status = 'new';
 
     const params = new URLSearchParams();
-    const numericFields = ['quantity', 'unit_price', 'discount_rate', 'final_unit_price', 'line_total', 
+    const numericFields = ['quantity', 'unit_price', 'discount_rate',
                           'machine_hours', 'work_hours', 'is_add_on', 'is_outsourced', 'department_id', 
-                          'group_id', 'supervisor_id', 'technician_id', 'equipment_id', 'actual_sample_quantity'];
+                          'group_id', 'supervisor_id', 'technician_id'];
     
     Object.keys(copyData).forEach(key => {
       const value = copyData[key];
@@ -4100,7 +4107,7 @@ const CommissionForm = () => {
                     {canAccessSettlement() && renderColumnHeader('settlement_invoice_date', '开票日期', 'invoice-field narrow-col')}
                     {canAccessSettlement() && renderColumnHeader('settlement_customer_name', '开票客户名称', 'invoice-field')}
                     {canAccessSettlement() && renderColumnHeader('invoice_prefill_price', '开票预填价', 'invoice-field')}
-                    {canAccessSettlement() && renderColumnHeader('unpaid_amount', '开票未到款金额', 'invoice-field')}
+                    {canAccessSettlement() && renderColumnHeader('unpaid_amount', '开票金额', 'invoice-field')}
                     {canAccessSettlement() && renderColumnHeader('invoice_note', '开票备注', 'invoice-field note-col')}
                     {canAccessSettlement() && renderColumnHeader('invoice_status', '开票状态', 'invoice-field narrow-col')}
                     <th className="lab-field fixed-right narrow-col">文件管理</th>

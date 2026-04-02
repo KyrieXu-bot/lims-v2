@@ -180,12 +180,25 @@ export default function TestItemEdit() {
         try {
           const copyData = new URLSearchParams(decodeURIComponent(copyParam));
           const copyObj = {};
+          // 只预填“输入框中可见的字段”；其它字段即使 URL 里带了也不回填（避免出现总价/计费数量不一致）
+          const ignoredCopyKeys = new Set([
+            'actual_sample_quantity', // 计费数量（本页面不让预填）
+            'line_total',             // 标准总价（非输入框）
+            'final_unit_price',      // 测试总价（非输入框）
+            'lab_price',             // 实验室报价（非输入框）
+            'equipment_id',          // 未在输入框中展示/编辑
+            'seq_no',                // 序号字段未在输入框中展示/编辑
+            'field_test_time',       // 非输入框字段
+            'machine_hours',
+            'work_hours'
+          ]);
           for (const [key, value] of copyData.entries()) {
+            if (ignoredCopyKeys.has(key)) continue;
             // 处理数字类型字段
             // supervisor_id 和 technician_id 可能是字符串类型的ID，不应该用 parseFloat 处理
-            if (['price_id', 'quantity', 'unit_price', 'discount_rate', 'final_unit_price', 'line_total', 
-                 'machine_hours', 'work_hours', 'is_add_on', 'is_outsourced', 'department_id', 
-                 'group_id', 'equipment_id', 'actual_sample_quantity'].includes(key)) {
+            if (['price_id', 'quantity', 'unit_price', 'discount_rate',
+                 'machine_hours', 'work_hours', 'is_add_on', 'is_outsourced', 'department_id',
+                 'group_id', 'equipment_id'].includes(key)) {
               if (value === '' || value === null || value === undefined) {
                 copyObj[key] = '';
               } else {
