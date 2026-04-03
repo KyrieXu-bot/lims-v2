@@ -247,6 +247,20 @@ router.post('/', requireRole(CREATE_ROLES), async (req, res) => {
     return res.status(400).json({ error: 'order_id, category_name, detail_name are required' });
   }
 
+  // 加测（普通/复制）时样品类型必填（包含“其他”场景的兜底校验）
+  const isAddOnLevel = Number(is_add_on);
+  const normalizedIsAddOn = isAddOnLevel === 2 ? 2 : (isAddOnLevel === 1 ? 1 : 0);
+  if (normalizedIsAddOn === 1 || normalizedIsAddOn === 2) {
+    const st = sample_type == null ? '' : String(sample_type).trim();
+    if (!st) {
+      return res.status(400).json({ error: '样品类型必填' });
+    }
+    // 若前端仍提交了“其他”哨兵值，要求用户在前端手填后再提交
+    if (st === '其他' || st === '5') {
+      return res.status(400).json({ error: '其他样品类型必填，请手动输入' });
+    }
+  }
+
   if (req.user.role === 'leader') {
     const leaderDept = parseNumber(req.user.department_id);
     const targetDept = parseNumber(department_id);
@@ -305,7 +319,7 @@ router.post('/', requireRole(CREATE_ROLES), async (req, res) => {
         line_total || null, 
         machine_hours || 0, 
         work_hours || 0, 
-        Number(is_add_on) || 0, 
+        normalizedIsAddOn,
         Number(is_outsourced) || 0,
         seq_no || null, 
         sample_preparation || null, 

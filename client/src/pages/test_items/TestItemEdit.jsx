@@ -12,6 +12,19 @@ function Field({label, value, onChange, type='text', disabled=false}) {
   )
 }
 
+/** 是否加测：1=普通加测 2=复制加测 */
+function isAddOnTestItemFlag(v) {
+  const n = Number(v);
+  return n === 1 || n === 2;
+}
+
+function formatIsAddOnDisplay(v) {
+  const n = Number(v);
+  if (n === 2) return '复制加测';
+  if (n === 1) return '普通加测';
+  return '否';
+}
+
 const ORDER_UNIT_OPTIONS = [
   { value: '样品数', label: '样品数' },
   { value: '机时', label: '机时' },
@@ -48,6 +61,8 @@ export default function TestItemEdit() {
     sample_name: '',
     material: '',
     sample_type: '',
+    // 当选择“其他”样品类型时，用于承载用户手填的真实类型
+    sample_type_other: '',
     original_no: '',
     test_code: '',
     standard_code: '',
@@ -112,6 +127,32 @@ export default function TestItemEdit() {
   // 样品类型映射
   const typeMappings = { 
     sampleType: { '板材': 1, '棒材': 2, '粉末': 3, '液体': 4, '其他': 5 } 
+  };
+  const reverseSampleType = Object.entries(typeMappings.sampleType).reduce((acc, [label, code]) => {
+    acc[String(code)] = label;
+    return acc;
+  }, {});
+  const knownSampleTypeLabels = Object.keys(typeMappings.sampleType);
+  const getSampleTypeUiModel = (rawValue) => {
+    const raw = rawValue == null ? '' : String(rawValue).trim();
+    if (!raw) return { mode: 'select', selectValue: '', otherInputValue: '' };
+
+    // 兼容后端可能存的 1-5 枚举
+    if (/^\d+$/.test(raw)) {
+      const label = reverseSampleType[raw] || '';
+      if (!label) return { mode: 'otherInput', selectValue: '', otherInputValue: raw };
+      if (label === '其他') return { mode: 'otherInput', selectValue: '', otherInputValue: '' };
+      return { mode: 'select', selectValue: label, otherInputValue: '' };
+    }
+
+    // 兼容后端可能存的中文枚举
+    if (knownSampleTypeLabels.includes(raw)) {
+      if (raw === '其他') return { mode: 'otherInput', selectValue: '', otherInputValue: '' };
+      return { mode: 'select', selectValue: raw, otherInputValue: '' };
+    }
+
+    // 兼容“其他”的手填文本（通常已经被写回 sample_type）
+    return { mode: 'otherInput', selectValue: '', otherInputValue: raw };
   };
 
   useEffect(()=>{
@@ -654,11 +695,29 @@ export default function TestItemEdit() {
     if (!it.unit || String(it.unit).trim() === '') return alert('下单单位必填');
     
     // 验证加测原因：如果是加测项目，必须填写加测原因
-    if ((isAddonRequest || it.is_add_on === 1 || it.is_add_on === '1') && (!it.addon_reason || it.addon_reason.trim() === '')) {
+    if ((isAddonRequest || isAddOnTestItemFlag(it.is_add_on)) && (!it.addon_reason || it.addon_reason.trim() === '')) {
       return alert('加测原因必填，请选择加测原因');
     }
     
     const payload = { ...it };
+
+    // 验证并规范化样品类型：加测时必须填写
+    if (isAddonRequest || isAddOnTestItemFlag(it.is_add_on)) {
+      if (!payload.sample_type || String(payload.sample_type).trim() === '') {
+        return alert('样品类型必填');
+      }
+
+      const st = String(payload.sample_type).trim();
+      const isOther = st === '其他' || st === '5';
+      if (isOther) {
+        const otherText = (payload.sample_type_other || '').trim();
+        if (!otherText) {
+          return alert('其他样品类型必填，请手动输入');
+        }
+        // 提交给后端的 sample_type 存真实输入内容
+        payload.sample_type = otherText;
+      }
+    }
 
     // 兜底：若未显式选择价格项目但有大类/细项，尝试自动匹配并回填 price_id
     if (!payload.price_id && payload.category_name && payload.detail_name) {
@@ -729,9 +788,10 @@ export default function TestItemEdit() {
     if (payload.work_hours !== undefined && payload.work_hours !== null && payload.work_hours !== '') payload.work_hours = Number(payload.work_hours);
     if (payload.quantity !== undefined && payload.quantity !== null && payload.quantity !== '') payload.quantity = Number(payload.quantity);
     if (payload.price_id !== undefined && payload.price_id !== null && payload.price_id !== '') payload.price_id = Number(payload.price_id);
-    // 确保 is_add_on 和 is_outsourced 是数字类型（0 或 1）
+    // 确保 is_add_on 为 0/1/2，is_outsourced 为 0/1
     if (payload.is_add_on !== undefined && payload.is_add_on !== null) {
-      payload.is_add_on = Number(payload.is_add_on) === 1 ? 1 : 0;
+      const n = Number(payload.is_add_on);
+      payload.is_add_on = n === 2 ? 2 : (n === 1 ? 1 : 0);
     }
     if (payload.is_outsourced !== undefined && payload.is_outsourced !== null) {
       payload.is_outsourced = Number(payload.is_outsourced) === 1 ? 1 : 0;
@@ -881,18 +941,44 @@ export default function TestItemEdit() {
           <Field label="样品名称" value={it.sample_name} onChange={v=>setIt({...it, sample_name:v})} disabled={isView} />
           <Field label="材质" value={it.material} onChange={v=>setIt({...it, material:v})} disabled={isView} />
           <div>
-            <label>样品类型</label>
-            <select 
-              className="input" 
-              value={it.sample_type || ''} 
-              onChange={e=>setIt({...it, sample_type: e.target.value})} 
-              disabled={isView}
-            >
-              <option value="">请选择样品类型</option>
-              {Object.entries(typeMappings.sampleType).map(([name, value]) => (
-                <option key={value} value={name}>{name}</option>
-              ))}
-            </select>
+            <label>
+              样品类型{(isAddonRequest || isAddOnTestItemFlag(it.is_add_on)) ? ' *' : ''}
+            </label>
+            {(() => {
+              const ui = getSampleTypeUiModel(it.sample_type);
+              if (ui.mode === 'otherInput') {
+                return (
+                  <input
+                    className="input"
+                    value={it.sample_type_other || ui.otherInputValue || ''}
+                    onChange={e => setIt({ ...it, sample_type: e.target.value, sample_type_other: e.target.value })}
+                    disabled={isView}
+                    placeholder="请输入其他样品类型"
+                  />
+                );
+              }
+
+              return (
+                <select
+                  className="input"
+                  value={ui.selectValue || ''}
+                  onChange={e => {
+                    const v = e.target.value;
+                    setIt(prev => ({
+                      ...prev,
+                      sample_type: v,
+                      sample_type_other: v === '其他' ? '' : '',
+                    }));
+                  }}
+                  disabled={isView}
+                >
+                  <option value="">请选择样品类型</option>
+                  {Object.entries(typeMappings.sampleType).map(([name, value]) => (
+                    <option key={value} value={name}>{name}</option>
+                  ))}
+                </select>
+              );
+            })()}
           </div>
           <Field label="原始编号" value={it.original_no} onChange={v=>setIt({...it, original_no:v})} disabled={isView} />
           <Field label="代码" value={it.test_code} onChange={v=>setIt({...it, test_code:v})} disabled={isView} />
@@ -980,13 +1066,13 @@ export default function TestItemEdit() {
             <label>是否加测</label>
             <input 
               className="input" 
-              value={it.is_add_on === 1 || it.is_add_on === '1' ? '是' : '否'} 
+              value={formatIsAddOnDisplay(it.is_add_on)} 
               disabled 
               style={{background: '#f5f5f5'}} 
             />
             <input type="hidden" name="is_add_on" value={it.is_add_on !== undefined && it.is_add_on !== null ? it.is_add_on : 1} />
           </div>
-          {(isAddonRequest || it.is_add_on === 1 || it.is_add_on === '1') && (
+          {(isAddonRequest || isAddOnTestItemFlag(it.is_add_on)) && (
             <div>
               <label>是否加急</label>
               <select
@@ -1001,7 +1087,7 @@ export default function TestItemEdit() {
               </select>
             </div>
           )}
-          {(isAddonRequest || it.is_add_on === 1 || it.is_add_on === '1') && (
+          {(isAddonRequest || isAddOnTestItemFlag(it.is_add_on)) && (
             <div>
               <label>加测原因</label>
               <select 
@@ -1020,7 +1106,7 @@ export default function TestItemEdit() {
               </select>
             </div>
           )}
-          {(isAddonRequest || it.is_add_on === 1 || it.is_add_on === '1') && (
+          {(isAddonRequest || isAddOnTestItemFlag(it.is_add_on)) && (
             <div>
               <label>加测对象</label>
               <select 

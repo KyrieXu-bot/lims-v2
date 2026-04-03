@@ -11,6 +11,18 @@ const Field = ({label, value, onChange, type='text', disabled=false}) => {
   );
 };
 
+function isAddOnTestItemFlag(v) {
+  const n = Number(v);
+  return n === 1 || n === 2;
+}
+
+function formatIsAddOnDisplay(v) {
+  const n = Number(v);
+  if (n === 2) return '复制加测';
+  if (n === 1) return '普通加测';
+  return '否';
+}
+
 const AddonRequestModal = ({ requestId, onClose, onApprove }) => {
   const [request, setRequest] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -36,6 +48,32 @@ const AddonRequestModal = ({ requestId, onClose, onApprove }) => {
 
   const typeMappings = { 
     sampleType: { '板材': 1, '棒材': 2, '粉末': 3, '液体': 4, '其他': 5 } 
+  };
+  const reverseSampleType = Object.entries(typeMappings.sampleType).reduce((acc, [label, code]) => {
+    acc[String(code)] = label;
+    return acc;
+  }, {});
+  const knownSampleTypeLabels = Object.keys(typeMappings.sampleType);
+  const getSampleTypeUiModel = (rawValue) => {
+    const raw = rawValue == null ? '' : String(rawValue).trim();
+    if (!raw) return { mode: 'select', selectValue: '', otherInputValue: '' };
+
+    // 兼容后端可能存的 1-5 枚举
+    if (/^\d+$/.test(raw)) {
+      const label = reverseSampleType[raw] || '';
+      if (!label) return { mode: 'otherInput', selectValue: '', otherInputValue: raw };
+      if (label === '其他') return { mode: 'otherInput', selectValue: '', otherInputValue: '' };
+      return { mode: 'select', selectValue: label, otherInputValue: '' };
+    }
+
+    // 兼容后端可能存的中文枚举
+    if (knownSampleTypeLabels.includes(raw)) {
+      if (raw === '其他') return { mode: 'otherInput', selectValue: '', otherInputValue: '' };
+      return { mode: 'select', selectValue: raw, otherInputValue: '' };
+    }
+
+    // 兼容“其他”的手填文本（通常已经被写回 sample_type）
+    return { mode: 'otherInput', selectValue: '', otherInputValue: raw };
   };
 
   useEffect(() => {
@@ -252,9 +290,27 @@ const AddonRequestModal = ({ requestId, onClose, onApprove }) => {
     }
 
     // 验证加测原因：如果是加测项目，必须填写加测原因
-    if ((testItemData.is_add_on === 1 || testItemData.is_add_on === '1') && (!testItemData.addon_reason || testItemData.addon_reason.trim() === '')) {
+    if (isAddOnTestItemFlag(testItemData.is_add_on) && (!testItemData.addon_reason || testItemData.addon_reason.trim() === '')) {
       alert('加测原因必填，请选择加测原因');
       return;
+    }
+
+    // 验证样品类型：加测时必须填写
+    if (isAddOnTestItemFlag(testItemData.is_add_on)) {
+      if (!testItemData.sample_type || String(testItemData.sample_type).trim() === '') {
+        alert('样品类型必填，请选择样品类型');
+        return;
+      }
+
+      const st = String(testItemData.sample_type).trim();
+      const isOther = st === '其他' || st === '5';
+      if (isOther) {
+        const otherText = (testItemData.sample_type_other || '').trim();
+        if (!otherText) {
+          alert('其他样品类型必填，请手动输入');
+          return;
+        }
+      }
     }
 
     try {
@@ -265,6 +321,19 @@ const AddonRequestModal = ({ requestId, onClose, onApprove }) => {
         return;
       }
 
+      // 如果选择“其他”，提交时把用户输入的内容写入 sample_type
+      let finalTestItemData = { ...testItemData };
+      if (isAddOnTestItemFlag(finalTestItemData.is_add_on)) {
+        const st = String(finalTestItemData.sample_type || '').trim();
+        const isOther = st === '其他' || st === '5';
+        if (isOther) {
+          finalTestItemData = {
+            ...finalTestItemData,
+            sample_type: (finalTestItemData.sample_type_other || '').trim()
+          };
+        }
+      }
+
       const response = await fetch(`/api/addon-requests/${requestId}/approve`, {
         method: 'PUT',
         headers: {
@@ -272,7 +341,7 @@ const AddonRequestModal = ({ requestId, onClose, onApprove }) => {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          test_item_data: testItemData
+          test_item_data: finalTestItemData
         })
       });
 
@@ -405,18 +474,45 @@ const AddonRequestModal = ({ requestId, onClose, onApprove }) => {
               <Field label="样品名称" value={testItemData.sample_name} onChange={v=>updateField('sample_name', v)} disabled={isFormDisabled} />
               <Field label="材质" value={testItemData.material} onChange={v=>updateField('material', v)} disabled={isFormDisabled} />
               <div>
-                <label>样品类型</label>
-                <select 
-                  className="input" 
-                  value={testItemData.sample_type || ''} 
-                  onChange={e=>updateField('sample_type', e.target.value)}
-                  disabled={isFormDisabled}
-                >
-                  <option value="">请选择样品类型</option>
-                  {Object.entries(typeMappings.sampleType).map(([name, value]) => (
-                    <option key={value} value={name}>{name}</option>
-                  ))}
-                </select>
+                <label>
+                  样品类型{isAddOnTestItemFlag(testItemData.is_add_on) ? ' *' : ''}
+                </label>
+                {(() => {
+                  const ui = getSampleTypeUiModel(testItemData.sample_type);
+                  if (ui.mode === 'otherInput') {
+                    return (
+                      <input
+                        className="input"
+                        value={testItemData.sample_type_other || ui.otherInputValue || ''}
+                        onChange={e => {
+                          const v = e.target.value;
+                          updateField('sample_type', v);
+                          updateField('sample_type_other', v);
+                        }}
+                        disabled={isFormDisabled}
+                        placeholder="请输入其他样品类型"
+                      />
+                    );
+                  }
+
+                  return (
+                    <select
+                      className="input"
+                      value={ui.selectValue || ''}
+                      onChange={e => {
+                        const v = e.target.value;
+                        updateField('sample_type', v);
+                        updateField('sample_type_other', '');
+                      }}
+                      disabled={isFormDisabled}
+                    >
+                      <option value="">请选择样品类型</option>
+                      {Object.entries(typeMappings.sampleType).map(([name, value]) => (
+                        <option key={value} value={name}>{name}</option>
+                      ))}
+                    </select>
+                  );
+                })()}
               </div>
               <Field label="原始编号" value={testItemData.original_no} onChange={v=>updateField('original_no', v)} disabled={isFormDisabled} />
               <Field label="代码" value={testItemData.test_code} onChange={v=>updateField('test_code', v)} disabled={isFormDisabled} />
@@ -489,12 +585,12 @@ const AddonRequestModal = ({ requestId, onClose, onApprove }) => {
                 <label>是否加测</label>
                 <input 
                   className="input" 
-                  value={testItemData.is_add_on === 1 || testItemData.is_add_on === '1' ? '是' : '否'} 
+                  value={formatIsAddOnDisplay(testItemData.is_add_on)} 
                   disabled 
                   style={{background: '#f5f5f5'}} 
                 />
               </div>
-              {(testItemData.is_add_on === 1 || testItemData.is_add_on === '1') && (
+              {isAddOnTestItemFlag(testItemData.is_add_on) && (
                 <div>
                   <label>加测原因</label>
                   <select 

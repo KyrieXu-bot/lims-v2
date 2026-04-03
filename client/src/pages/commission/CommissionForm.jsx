@@ -29,6 +29,19 @@ const ADDON_REASON_OPTIONS = [
   { value: '更换设备', label: '更换设备' }
 ];
 
+/** 委托单登记行：是否为加测行（普通或复制） */
+function isCommissionAddOnRow(v) {
+  const n = Number(v);
+  return n === 1 || n === 2;
+}
+
+function formatExportIsAddOnLabel(v) {
+  const n = Number(v);
+  if (n === 2) return '复制加测';
+  if (n === 1) return '普通加测';
+  return '否';
+}
+
 const SERVICE_URGENCY_DISPLAY_MAP = {
   normal: '不加急',
   urgent_1_5x: '加急1.5倍',
@@ -1793,7 +1806,7 @@ const CommissionForm = () => {
         '客户备注': item.note || '',
         '样品到达方式': item.arrival_mode === 'on_site' ? '现场' : item.arrival_mode === 'delivery' ? '寄样' : '',
         '样品是否已到': item.sample_arrival_status === 'arrived' ? '已到' : item.sample_arrival_status === 'not_arrived' ? '未到' : '',
-        '是否加测': item.is_add_on === 1 || item.is_add_on === '1' ? '是' : '否',
+        '是否加测': formatExportIsAddOnLabel(item.is_add_on),
         '加测原因': item.addon_reason || '',
         '加测对象': item.addon_target === 'sales' ? '业务员' : item.addon_target === 'employee' ? '实验员' : '',
         '服务加急': item.service_urgency || '',
@@ -2875,7 +2888,7 @@ const CommissionForm = () => {
       // 不复制机时和工时
       // machine_hours: item.machine_hours,
       // work_hours: item.work_hours,
-      is_add_on: 1, // 标记为加测
+      is_add_on: 2, // 复制加测
       is_outsourced: item.is_outsourced,
       sample_preparation: item.sample_preparation,
       note: item.note,
@@ -4202,9 +4215,17 @@ const CommissionForm = () => {
                                 fieldName="样品原号"
                               />
                             </div>
-                            {item.is_add_on === 1 && (
+                            {isCommissionAddOnRow(item.is_add_on) && (
                               <div style={{marginTop: '4px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap'}}>
-                                <span className="add-on-badge">加测</span>
+                                <span
+                                  className={
+                                    Number(item.is_add_on) === 2
+                                      ? 'add-on-badge add-on-badge--copy'
+                                      : 'add-on-badge add-on-badge--standard'
+                                  }
+                                >
+                                  {Number(item.is_add_on) === 2 ? '复制加测' : '普通加测'}
+                                </span>
                                 {(user?.role === 'admin' || user?.role === 'supervisor' || user?.role === 'leader') ? (
                                   <div style={{display: 'inline-block', minWidth: '120px'}}>
                                     <RealtimeEditableCell

@@ -201,7 +201,7 @@ router.get('/commission-form', async (req, res) => {
         o.is_transferred,
         -- 收样日期：普通项目用委托单创建时间，加测项目用检测项目创建时间（加测通过当日）
         CASE 
-          WHEN ti.is_add_on = 1 THEN ti.created_at 
+          WHEN ti.is_add_on IN (1, 2) THEN ti.created_at 
           ELSE o.created_at 
         END as order_created_at,
         ti.created_at as test_item_created_at,

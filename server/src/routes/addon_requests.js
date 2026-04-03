@@ -15,6 +15,25 @@ router.post('/', requireAnyRole(['sales', 'leader', 'supervisor', 'employee']), 
     
     // 获取申请数据
     const requestData = req.body;
+
+    // 加测时样品类型必填（包含“其他”场景的兜底校验）
+    const testItemDataForCreate = { ...(requestData.test_item_data || {}) };
+    const createAddonFlag = Number(testItemDataForCreate.is_add_on);
+    if (createAddonFlag === 1 || createAddonFlag === 2) {
+      const st = testItemDataForCreate.sample_type == null ? '' : String(testItemDataForCreate.sample_type).trim();
+      if (!st) {
+        return res.status(400).json({ error: '样品类型必填' });
+      }
+
+      // 如果前端提交的是“其他”哨兵值，则必须提供手填内容
+      if (st === '其他' || st === '5') {
+        const otherText = (testItemDataForCreate.sample_type_other || '').trim();
+        if (!otherText) {
+          return res.status(400).json({ error: '其他样品类型必填，请手动输入' });
+        }
+        testItemDataForCreate.sample_type = otherText;
+      }
+    }
     
     // 插入加测申请记录
     const [result] = await pool.query(
@@ -24,7 +43,7 @@ router.post('/', requireAnyRole(['sales', 'leader', 'supervisor', 'employee']), 
       [
         user.user_id,
         requestData.order_id || null,
-        JSON.stringify(requestData.test_item_data),
+        JSON.stringify(testItemDataForCreate),
         requestData.note || null
       ]
     );
@@ -248,7 +267,24 @@ router.put('/:id/approve', requireRole('admin'), async (req, res) => {
     }
 
     // 使用管理员提交的数据（可能已修改）
-    const finalTestItemData = req.body.test_item_data || testItemData;
+    let finalTestItemData = { ...(req.body.test_item_data || testItemData) };
+
+    // 加测时样品类型必填（包含“其他”场景的兜底校验）
+    const approveAddonFlag = Number(finalTestItemData.is_add_on);
+    if (approveAddonFlag === 1 || approveAddonFlag === 2) {
+      const st = finalTestItemData.sample_type == null ? '' : String(finalTestItemData.sample_type).trim();
+      if (!st) {
+        return res.status(400).json({ error: '样品类型必填' });
+      }
+
+      if (st === '其他' || st === '5') {
+        const otherText = (finalTestItemData.sample_type_other || '').trim();
+        if (!otherText) {
+          return res.status(400).json({ error: '其他样品类型必填，请手动输入' });
+        }
+        finalTestItemData.sample_type = otherText;
+      }
+    }
 
     // 验证委托单是否存在
     if (request.order_id) {
@@ -327,7 +363,7 @@ router.put('/:id/approve', requireRole('admin'), async (req, res) => {
         finalTestItemData.line_total || null,
         finalTestItemData.machine_hours || 0,
         finalTestItemData.work_hours || 0,
-        1, // is_add_on = 1 表示加测
+        approveAddonFlag === 2 ? 2 : 1, // 1=普通加测 2=复制加测（加测申请路径默认 1）
         finalTestItemData.is_outsourced || 0,
         finalTestItemData.seq_no || null,
         finalTestItemData.sample_preparation || null,
