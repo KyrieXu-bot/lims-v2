@@ -327,6 +327,12 @@ const CommissionForm = () => {
   const [cancellationType, setCancellationType] = useState(null); // 'cancel' 或 'delete'
   const [cancellationReason, setCancellationReason] = useState('');
   const [submittingCancellation, setSubmittingCancellation] = useState(false);
+  const [showTransferModal, setShowTransferModal] = useState(false);
+  const [transferItem, setTransferItem] = useState(null);
+  const [transferNewOrderId, setTransferNewOrderId] = useState('');
+  const [transferReason, setTransferReason] = useState('');
+  const [transferMode, setTransferMode] = useState('direct_sales');
+  const [submittingTransfer, setSubmittingTransfer] = useState(false);
   const [columnVisibility, setColumnVisibility] = useState(() => {
     if (typeof window !== 'undefined') {
       try {
@@ -1634,6 +1640,89 @@ const CommissionForm = () => {
       alert(result.message || '撤回成功');
     } catch (e) {
       alert(e.message || '撤回失败');
+    }
+  };
+
+  const getBeijingNow = () => {
+    return new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }));
+  };
+
+  const getTransferAllowedPrefixes = () => {
+    const now = getBeijingNow();
+    const year = now.getFullYear();
+    const month = now.getMonth() + 1;
+    const day = now.getDate();
+    const currentPrefix = `JC${String(year).slice(-2)}${String(month).padStart(2, '0')}`;
+    if (day >= 6) {
+      return [currentPrefix];
+    }
+    const prevDate = new Date(year, month - 2, 1);
+    const prevPrefix = `JC${String(prevDate.getFullYear()).slice(-2)}${String(prevDate.getMonth() + 1).padStart(2, '0')}`;
+    return [prevPrefix, currentPrefix];
+  };
+
+  const getTransferRequestModeForItem = (item) => {
+    const orderId = String(item?.order_id || '').trim().toUpperCase();
+    const allowedPrefixes = getTransferAllowedPrefixes();
+    const isNormalWindow = allowedPrefixes.some(prefix => orderId.startsWith(prefix));
+    return isNormalWindow ? 'direct_sales' : 'leader_then_sales';
+  };
+
+  const canCurrentUserInitiateTransfer = (item) => {
+    if (!item || item.status === 'cancelled') return false;
+    if (!['leader', 'supervisor', 'employee'].includes(user?.role)) return false;
+    const mode = getTransferRequestModeForItem(item);
+    if (mode === 'leader_then_sales') {
+      return user?.role === 'supervisor';
+    }
+    return true;
+  };
+
+  const handleSubmitTransferRequest = async () => {
+    const newId = typeof transferNewOrderId === 'string' ? transferNewOrderId.trim() : '';
+    if (!newId) {
+      alert('请输入新单号');
+      return;
+    }
+    const reason = typeof transferReason === 'string' ? transferReason.trim() : '';
+    if (transferMode === 'leader_then_sales' && !reason) {
+      alert('超期转单申请必须填写转单原因');
+      return;
+    }
+    if (!transferItem?.test_item_id) return;
+    try {
+      setSubmittingTransfer(true);
+      const userLocal = JSON.parse(localStorage.getItem('lims_user') || 'null');
+      if (!userLocal?.token) {
+        alert('请先登录');
+        return;
+      }
+      const response = await fetch('/api/order-transfer-requests', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${userLocal.token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          test_item_id: transferItem.test_item_id,
+          target_order_id: newId,
+          transfer_reason: reason || null
+        })
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(result.error || '提交失败');
+      }
+      alert(result.message || '申请已提交');
+      setShowTransferModal(false);
+      setTransferItem(null);
+      setTransferNewOrderId('');
+      setTransferReason('');
+      setTransferMode('direct_sales');
+    } catch (e) {
+      alert(e.message || '提交失败');
+    } finally {
+      setSubmittingTransfer(false);
     }
   };
 
@@ -5308,6 +5397,35 @@ const CommissionForm = () => {
                           >
                             查看
                           </button>
+                          {canCurrentUserInitiateTransfer(item) && (
+                              <button
+                                type="button"
+                                className="btn btn-primary"
+                                onClick={() => {
+                                  setTransferItem(item);
+                                  setTransferNewOrderId('');
+                                  setTransferReason('');
+                                  setTransferMode(getTransferRequestModeForItem(item));
+                                  setShowTransferModal(true);
+                                }}
+                                disabled={!item.current_assignee}
+                                title={
+                                  item.current_assignee
+                                    ? (getTransferRequestModeForItem(item) === 'leader_then_sales'
+                                      ? '超期转单申请（组长发起）'
+                                      : '申请转单')
+                                    : '未设置业务负责人，无法申请转单'
+                                }
+                                style={{
+                                  padding: '2px 6px',
+                                  fontSize: '11px',
+                                  minWidth: 'auto',
+                                  lineHeight: '1.2'
+                                }}
+                              >
+                                转单
+                              </button>
+                            )}
                           {/* 只有admin、supervisor、leader角色显示其他操作（复制按钮单独对实验员开放） */}
                           {(user?.role === 'admin' || user?.role === 'supervisor' || user?.role === 'leader') && (
                             <>
@@ -5947,6 +6065,123 @@ const CommissionForm = () => {
           onClose={handleCloseTransferModal}
           onSearchOrder={handleSearchOrderFromTransfer}
         />
+      )}
+
+      {/* 转单申请弹窗 */}
+      {showTransferModal && transferItem && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            zIndex: 20000
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setShowTransferModal(false);
+              setTransferItem(null);
+              setTransferNewOrderId('');
+              setTransferReason('');
+              setTransferMode('direct_sales');
+            }
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: 'white',
+              padding: '20px',
+              borderRadius: '8px',
+              width: '480px',
+              maxWidth: '90%',
+              position: 'relative',
+              zIndex: 20001
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 style={{ marginTop: 0, marginBottom: '16px' }}>转单申请</h2>
+            {transferMode === 'leader_then_sales' && (
+              <p style={{ margin: '0 0 12px', color: '#b54708', fontSize: '13px' }}>
+                当前单号不在常规转单窗口，需走“组长发起 → 室主任审批 → 业务审批”流程。
+              </p>
+            )}
+            <p style={{ margin: '0 0 12px', color: '#555', fontSize: '14px' }}>请输入新单号</p>
+            <input
+              type="text"
+              value={transferNewOrderId}
+              onChange={(e) => setTransferNewOrderId(e.target.value)}
+              placeholder="新委托单号"
+              style={{
+                width: '100%',
+                padding: '10px 12px',
+                border: '1px solid #ddd',
+                borderRadius: '4px',
+                fontSize: '14px',
+                boxSizing: 'border-box'
+              }}
+              autoComplete="off"
+            />
+            {transferMode === 'leader_then_sales' && (
+              <div style={{ marginTop: '12px' }}>
+                <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
+                  转单原因 <span style={{ color: 'red' }}>*</span>
+                </label>
+                <textarea
+                  value={transferReason}
+                  onChange={(e) => setTransferReason(e.target.value)}
+                  placeholder="请输入转单原因"
+                  style={{
+                    width: '100%',
+                    minHeight: '90px',
+                    padding: '8px',
+                    border: '1px solid #ddd',
+                    borderRadius: '4px',
+                    fontSize: '14px',
+                    fontFamily: 'inherit',
+                    resize: 'vertical',
+                    boxSizing: 'border-box'
+                  }}
+                />
+              </div>
+            )}
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'flex-end',
+                gap: '10px',
+                marginTop: '20px'
+              }}
+            >
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => {
+                  setShowTransferModal(false);
+                  setTransferItem(null);
+                  setTransferNewOrderId('');
+                  setTransferReason('');
+                  setTransferMode('direct_sales');
+                }}
+                disabled={submittingTransfer}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={handleSubmitTransferRequest}
+                disabled={submittingTransfer}
+              >
+                {submittingTransfer ? '提交中…' : '申请'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* 取消/删除申请弹窗 */}

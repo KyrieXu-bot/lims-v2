@@ -666,7 +666,7 @@ router.get('/flow-sequence/:orderId', async (req, res) => {
       WHERE ti.order_id = ? AND ti.seq_no IS NOT NULL AND ti.status != 'cancelled'
       ORDER BY ti.seq_no ASC`,
       [orderId]
-    );
+    ); 
     
     res.json(rows);
   } catch (e) {

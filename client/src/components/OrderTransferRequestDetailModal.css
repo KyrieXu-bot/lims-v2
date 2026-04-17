@@ -1,0 +1,85 @@
+.order-transfer-detail-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 21000;
+  padding: 16px;
+}
+
+.order-transfer-detail-panel {
+  background: #fff;
+  border-radius: 8px;
+  max-width: 720px;
+  width: 100%;
+  max-height: 90vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+}
+
+.order-transfer-detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid #eee;
+}
+
+.order-transfer-detail-header h2 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.order-transfer-detail-close {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  color: #666;
+}
+
+.order-transfer-detail-body {
+  padding: 16px 20px;
+  overflow-y: auto;
+}
+
+.order-transfer-detail-section {
+  margin-bottom: 20px;
+}
+
+.order-transfer-detail-section h3 {
+  margin: 0 0 10px;
+  font-size: 0.95rem;
+  color: #333;
+}
+
+.order-transfer-readonly-grid {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 8px 12px;
+  font-size: 13px;
+}
+
+.order-transfer-readonly-grid dt {
+  margin: 0;
+  color: #666;
+  font-weight: normal;
+}
+
+.order-transfer-readonly-grid dd {
+  margin: 0;
+  color: #111;
+  word-break: break-word;
+}
+
+.order-transfer-detail-footer {
+  padding: 12px 20px 16px;
+  border-top: 1px solid #eee;
+  display: flex;
+  justify-content: flex-end;
+}

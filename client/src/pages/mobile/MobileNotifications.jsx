@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSocket } from '../../hooks/useSocket.js';
 import AddonRequestModal from '../../components/AddonRequestModal.jsx';
+import OrderTransferRequestDetailModal from '../../components/OrderTransferRequestDetailModal.jsx';
 import { requestNotificationPermission, showLocalNotification, checkNotificationPermission } from '../../utils/notificationService.js';
 import './MobileNotifications.css';
 
@@ -42,11 +43,13 @@ const MobileNotifications = () => {
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all'); // all, unread, read
-  const [typeFilter, setTypeFilter] = useState('all'); // all, raw_data_upload, addon_request
+  const [typeFilter, setTypeFilter] = useState('all');
   const navigate = useNavigate();
   const { socket } = useSocket(null);
   const [showAddonRequestModal, setShowAddonRequestModal] = useState(false);
   const [selectedRequestId, setSelectedRequestId] = useState(null);
+  const [showOrderTransferModal, setShowOrderTransferModal] = useState(false);
+  const [selectedOrderTransferRequestId, setSelectedOrderTransferRequestId] = useState(null);
 
   // 加载通知列表
   const loadNotifications = async () => {
@@ -191,8 +194,36 @@ const MobileNotifications = () => {
     }
   };
 
+  const getOrderTransferRequestId = (notification) => {
+    if (notification.related_order_transfer_request_id) {
+      return notification.related_order_transfer_request_id;
+    }
+    if (notification.content) {
+      const match = notification.content.match(/申请ID：(\d+)/);
+      if (match) return parseInt(match[1], 10);
+    }
+    return null;
+  };
+
+  const openOrderTransferDetail = (notification) => {
+    const rid = getOrderTransferRequestId(notification);
+    if (!rid) {
+      alert('无法获取转单申请ID');
+      return;
+    }
+    if (!notification.is_read) {
+      markAsRead(notification.notification_id);
+    }
+    setSelectedOrderTransferRequestId(rid);
+    setShowOrderTransferModal(true);
+  };
+
   // 处理通知点击（移动端逻辑：统一跳转到委托单页面并搜索）
   const handleNotificationClick = async (notification) => {
+    if (notification.type === 'order_transfer_request') {
+      openOrderTransferDetail(notification);
+      return;
+    }
     if (!notification.is_read) {
       markAsRead(notification.notification_id);
     }
@@ -261,6 +292,7 @@ const MobileNotifications = () => {
     const typeMap = {
       'raw_data_upload': '原始数据上传',
       'addon_request': '加测申请',
+      'order_transfer_request': '转单申请',
       'system': '系统通知',
       'other': '其他'
     };
@@ -271,6 +303,7 @@ const MobileNotifications = () => {
     const iconMap = {
       'raw_data_upload': '📄',
       'addon_request': '➕',
+      'order_transfer_request': '🔀',
       'system': '🔔',
       'other': '📌'
     };
@@ -320,6 +353,12 @@ const MobileNotifications = () => {
           >
             加测申请
           </button>
+          <button
+            className={`mobile-filter-btn ${typeFilter === 'order_transfer_request' ? 'active' : ''}`}
+            onClick={() => setTypeFilter('order_transfer_request')}
+          >
+            转单申请
+          </button>
         </div>
         <button className="mobile-mark-all-read-btn" onClick={markAllAsRead}>
           全部已读
@@ -358,7 +397,9 @@ const MobileNotifications = () => {
                     <span className="mobile-notification-type">{getTypeLabel(notification.type)}</span>
                   </div>
                   {/* 点击提示 - 仅在非加测申请类型显示 */}
-                  {notification.type !== 'addon_request' && (notification.related_order_id || notification.order_id_display) && (
+                  {notification.type !== 'addon_request' &&
+                    notification.type !== 'order_transfer_request' &&
+                    (notification.related_order_id || notification.order_id_display) && (
                     <div className="mobile-notification-hint">
                       <span className="mobile-hint-text">点击查看</span>
                       <span className="mobile-hint-arrow">→</span>
@@ -387,6 +428,19 @@ const MobileNotifications = () => {
                     </button>
                   </div>
                 )}
+                {notification.type === 'order_transfer_request' && (
+                  <div className="mobile-notification-action">
+                    <button
+                      className="mobile-view-request-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openOrderTransferDetail(notification);
+                      }}
+                    >
+                      查看详情
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           ))}
@@ -403,6 +457,17 @@ const MobileNotifications = () => {
           }}
           onApprove={() => {
             loadNotifications();
+          }}
+        />
+      )}
+
+      {showOrderTransferModal && selectedOrderTransferRequestId != null && (
+        <OrderTransferRequestDetailModal
+          requestId={selectedOrderTransferRequestId}
+          apiBase={getApiBase()}
+          onClose={() => {
+            setShowOrderTransferModal(false);
+            setSelectedOrderTransferRequestId(null);
           }}
         />
       )}

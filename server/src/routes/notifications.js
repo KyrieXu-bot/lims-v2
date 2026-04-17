@@ -41,12 +41,18 @@ router.get('/', async (req, res) => {
               ar.status as addon_request_status,
               cr.request_id as related_cancellation_request_id,
               cr.status as cancellation_request_status,
-              cr.request_type as cancellation_request_type
+              cr.request_type as cancellation_request_type,
+              otr.status as order_transfer_request_status,
+              otr.target_order_id as order_transfer_target_order_id,
+              otr.current_step as order_transfer_current_step,
+              otr.approval_flow as order_transfer_approval_flow,
+              otr.transfer_reason as order_transfer_reason
        FROM notifications n
        LEFT JOIN orders o ON n.related_order_id = o.order_id
        LEFT JOIN test_items ti ON n.related_test_item_id = ti.test_item_id
        LEFT JOIN project_files pf ON n.related_file_id = pf.file_id
        LEFT JOIN addon_requests ar ON n.related_addon_request_id = ar.request_id
+       LEFT JOIN order_transfer_requests otr ON otr.request_id = n.related_order_transfer_request_id
        LEFT JOIN cancellation_requests cr ON (
          cr.test_item_id = n.related_test_item_id 
          AND cr.status IN ('pending', 'approved', 'executed')
@@ -179,44 +185,93 @@ export async function createNotification(pool, {
   related_file_id = null,
   related_addon_request_id = null,
   test_item_display_name = null,
-  test_item_display_id = null
+  test_item_display_id = null,
+  related_order_transfer_request_id = null
 }) {
-  try {
-    const hasDisplayFields = test_item_display_name != null || test_item_display_id != null;
-    if (hasDisplayFields) {
-      try {
-        const [result] = await pool.query(
-          `INSERT INTO notifications 
-           (user_id, title, content, type, related_order_id, related_test_item_id, related_file_id, related_addon_request_id, test_item_display_name, test_item_display_id) 
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [user_id, title, content, type, related_order_id, related_test_item_id, related_file_id, related_addon_request_id, test_item_display_name, test_item_display_id]
-        );
-        return result.insertId;
-      } catch (err) {
-        if (err.code === 'ER_BAD_FIELD_ERROR' || err.message?.includes('Unknown column')) {
-          // 表尚未执行 migration，不带 display 字段插入
-          const [result] = await pool.query(
-            `INSERT INTO notifications 
-             (user_id, title, content, type, related_order_id, related_test_item_id, related_file_id, related_addon_request_id) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            [user_id, title, content, type, related_order_id, related_test_item_id, related_file_id, related_addon_request_id]
-          );
-          return result.insertId;
-        }
-        throw err;
-      }
-    }
-    const [result] = await pool.query(
-      `INSERT INTO notifications 
-       (user_id, title, content, type, related_order_id, related_test_item_id, related_file_id, related_addon_request_id) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [user_id, title, content, type, related_order_id, related_test_item_id, related_file_id, related_addon_request_id]
-    );
-    return result.insertId;
-  } catch (error) {
-    console.error('创建通知失败:', error);
-    throw error;
+  const baseCols = [
+    'user_id',
+    'title',
+    'content',
+    'type',
+    'related_order_id',
+    'related_test_item_id',
+    'related_file_id',
+    'related_addon_request_id'
+  ];
+  const baseVals = [
+    user_id,
+    title,
+    content,
+    type,
+    related_order_id,
+    related_test_item_id,
+    related_file_id,
+    related_addon_request_id
+  ];
+
+  const hasDisplay =
+    test_item_display_name != null || test_item_display_id != null;
+  const hasOtr = related_order_transfer_request_id != null;
+
+  const attempts = [];
+  if (hasDisplay && hasOtr) {
+    attempts.push({
+      cols: [
+        ...baseCols,
+        'test_item_display_name',
+        'test_item_display_id',
+        'related_order_transfer_request_id'
+      ],
+      vals: [
+        ...baseVals,
+        test_item_display_name,
+        test_item_display_id,
+        related_order_transfer_request_id
+      ]
+    });
   }
+  if (hasDisplay) {
+    attempts.push({
+      cols: [...baseCols, 'test_item_display_name', 'test_item_display_id'],
+      vals: [...baseVals, test_item_display_name, test_item_display_id]
+    });
+  }
+  if (hasOtr) {
+    attempts.push({
+      cols: [...baseCols, 'related_order_transfer_request_id'],
+      vals: [...baseVals, related_order_transfer_request_id]
+    });
+  }
+  attempts.push({ cols: baseCols, vals: baseVals });
+
+  const tried = new Set();
+  for (const { cols, vals } of attempts) {
+    const key = cols.join(',');
+    if (tried.has(key)) continue;
+    tried.add(key);
+    try {
+      const placeholders = cols.map(() => '?').join(', ');
+      const [result] = await pool.query(
+        `INSERT INTO notifications (${cols.join(', ')}) VALUES (${placeholders})`,
+        vals
+      );
+      return result.insertId;
+    } catch (err) {
+      const retriable =
+        err.code === 'ER_BAD_FIELD_ERROR' ||
+        err.message?.includes('Unknown column') ||
+        err.code === 'WARN_DATA_TRUNCATED' ||
+        err.code === 'ER_TRUNCATED_WRONG_VALUE_FOR_FIELD';
+      if (retriable) {
+        continue;
+      }
+      console.error('创建通知失败:', err);
+      throw err;
+    }
+  }
+  const err = new Error('创建通知失败：请检查 notifications 表是否已增加类型与关联字段（如 order_transfer_request、related_order_transfer_request_id）');
+  console.error(err.message);
+  throw err;
 }
 
 export default router;

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSocket } from '../hooks/useSocket.js';
 import AddonRequestModal from '../components/AddonRequestModal.jsx';
+import OrderTransferRequestDetailModal from '../components/OrderTransferRequestDetailModal.jsx';
 import './Notifications.css';
 
 // 获取API基础URL（与api.js中的逻辑一致）
@@ -60,6 +61,8 @@ const Notifications = () => {
   const { socket } = useSocket(null);
   const [showAddonRequestModal, setShowAddonRequestModal] = useState(false);
   const [selectedRequestId, setSelectedRequestId] = useState(null);
+  const [showOrderTransferModal, setShowOrderTransferModal] = useState(false);
+  const [selectedOrderTransferRequestId, setSelectedOrderTransferRequestId] = useState(null);
   const [user, setUser] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem('lims_user') || 'null');
@@ -209,8 +212,36 @@ const Notifications = () => {
     }
   };
 
+  const getOrderTransferRequestId = (notification) => {
+    if (notification.related_order_transfer_request_id) {
+      return notification.related_order_transfer_request_id;
+    }
+    if (notification.content) {
+      const match = notification.content.match(/申请ID：(\d+)/);
+      if (match) return parseInt(match[1], 10);
+    }
+    return null;
+  };
+
+  const openOrderTransferDetail = (notification) => {
+    const rid = getOrderTransferRequestId(notification);
+    if (!rid) {
+      alert('无法获取转单申请ID，请刷新页面重试');
+      return;
+    }
+    if (!notification.is_read) {
+      markAsRead(notification.notification_id);
+    }
+    setSelectedOrderTransferRequestId(rid);
+    setShowOrderTransferModal(true);
+  };
+
   // 处理通知点击
   const handleNotificationClick = (notification) => {
+    if (notification.type === 'order_transfer_request') {
+      openOrderTransferDetail(notification);
+      return;
+    }
     if (!notification.is_read) {
       markAsRead(notification.notification_id);
     }
@@ -243,6 +274,7 @@ const Notifications = () => {
       'addon_request': '加测申请',
       'cancel_request': '取消申请',
       'delete_request': '删除申请',
+      'order_transfer_request': '转单申请',
       'system': '系统通知',
       'other': '其他'
     };
@@ -296,9 +328,87 @@ const Notifications = () => {
     return statusMap[status] || null;
   };
 
+  const getOrderTransferStatusText = (notification) => {
+    const status = notification.order_transfer_request_status;
+    const step = notification.order_transfer_current_step;
+    if (!status) return null;
+    if (status === 'approved') return { text: '已通过', className: 'status-approved' };
+    if (status === 'rejected') return { text: '已拒绝', className: 'status-cancelled' };
+    if (status === 'pending') {
+      if (step === 'leader_review') return { text: '待室主任审批', className: 'status-pending' };
+      if (step === 'sales_review') return { text: '待业务审批', className: 'status-pending' };
+      if (step === 'xwf_review') return { text: '待许文凤审批', className: 'status-pending' };
+      return { text: '待处理', className: 'status-pending' };
+    }
+    return null;
+  };
+
   const handleRequestApproved = () => {
     // 刷新通知列表
     loadNotifications();
+  };
+
+  const handleApproveOrderTransfer = async (notification) => {
+    const rid = getOrderTransferRequestId(notification);
+    if (!rid) {
+      alert('无法获取申请ID');
+      return;
+    }
+    try {
+      const u = JSON.parse(localStorage.getItem('lims_user') || 'null');
+      if (!u?.token) {
+        alert('请先登录');
+        return;
+      }
+      const apiBase = getApiBase();
+      const response = await fetch(`${apiBase}/api/order-transfer-requests/${rid}/approve`, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${u.token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || '操作失败');
+      }
+      alert(data.message || '已同意转单');
+      loadNotifications();
+    } catch (e) {
+      alert(e.message || '操作失败');
+    }
+  };
+
+  const handleRejectOrderTransfer = async (notification) => {
+    if (!window.confirm('确定不同意该转单申请吗？')) return;
+    const rid = getOrderTransferRequestId(notification);
+    if (!rid) {
+      alert('无法获取申请ID');
+      return;
+    }
+    try {
+      const u = JSON.parse(localStorage.getItem('lims_user') || 'null');
+      if (!u?.token) {
+        alert('请先登录');
+        return;
+      }
+      const apiBase = getApiBase();
+      const response = await fetch(`${apiBase}/api/order-transfer-requests/${rid}/reject`, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${u.token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || '操作失败');
+      }
+      alert(data.message || '已拒绝');
+      loadNotifications();
+    } catch (e) {
+      alert(e.message || '操作失败');
+    }
   };
 
   // 处理取消/删除申请通过
@@ -546,6 +656,15 @@ const Notifications = () => {
             删除申请
           </button>
           <button
+            className={`filter-btn ${typeFilter === 'order_transfer_request' ? 'active' : ''}`}
+            onClick={() => {
+              setTypeFilter('order_transfer_request');
+              setPage(1);
+            }}
+          >
+            转单申请
+          </button>
+          <button
             className={`filter-btn ${typeFilter === 'system' ? 'active' : ''}`}
             onClick={() => {
               setTypeFilter('system');
@@ -583,6 +702,12 @@ const Notifications = () => {
                           {getRequestStatusText(notification.addon_request_status)?.text || notification.addon_request_status}
                         </span>
                       )}
+                      {notification.type === 'order_transfer_request' &&
+                        notification.order_transfer_request_status && (
+                          <span className={`request-status-badge ${getOrderTransferStatusText(notification)?.className || ''}`}>
+                            {getOrderTransferStatusText(notification)?.text || notification.order_transfer_request_status}
+                          </span>
+                        )}
                     </div>
                     <div className="notification-card-actions">
                       {notification.type === 'addon_request' && notification.addon_request_status !== 'approved' && (
@@ -608,6 +733,47 @@ const Notifications = () => {
                         </button>
                       )}
                       {/* 取消/删除申请：业务员可以批准（pending状态） */}
+                      {notification.type === 'order_transfer_request' && (
+                        <button
+                          className="btn-view-request"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openOrderTransferDetail(notification);
+                          }}
+                        >
+                          查看详情
+                        </button>
+                      )}
+                      {notification.type === 'order_transfer_request' &&
+                        notification.order_transfer_request_status === 'pending' &&
+                        ((notification.order_transfer_current_step === 'leader_review' &&
+                          (user?.role === 'leader' || user?.role === 'admin')) ||
+                          (notification.order_transfer_current_step === 'xwf_review' &&
+                            (user?.user_id === 'JC0092' || user?.role === 'admin')) ||
+                          (notification.order_transfer_current_step !== 'leader_review' &&
+                            notification.order_transfer_current_step !== 'xwf_review' &&
+                            (user?.role === 'sales' || user?.role === 'admin'))) && (
+                          <>
+                            <button
+                              className="btn-view-request"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleApproveOrderTransfer(notification);
+                              }}
+                            >
+                              同意转单
+                            </button>
+                            <button
+                              className="btn-view-request btn-revert-action"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleRejectOrderTransfer(notification);
+                              }}
+                            >
+                              不同意转单
+                            </button>
+                          </>
+                        )}
                       {(notification.type === 'cancel_request' || notification.type === 'delete_request') && 
                        notification.cancellation_request_status === 'pending' && 
                        (user?.role === 'sales' || user?.role === 'admin') && (
@@ -657,7 +823,7 @@ const Notifications = () => {
                             markAsRead(notification.notification_id);
                           }}
                         >
-                          标记已读
+                          {notification.type === 'order_transfer_request' ? '已读' : '标记已读'}
                         </button>
                       )}
                       <button
@@ -673,12 +839,34 @@ const Notifications = () => {
                   </div>
                   <div className="notification-card-body">
                     <p>{notification.content}</p>
-                    {(notification.type === 'addon_request' || notification.type === 'cancel_request' || notification.type === 'delete_request') &&
-                     (notification.order_id_display || getTestItemDisplayName(notification) || getTestItemDisplayId(notification) != null) && (
+                    {(notification.type === 'addon_request' ||
+                      notification.type === 'cancel_request' ||
+                      notification.type === 'delete_request' ||
+                      notification.type === 'order_transfer_request') &&
+                     (notification.order_id_display ||
+                       getTestItemDisplayName(notification) ||
+                       getTestItemDisplayId(notification) != null ||
+                       notification.order_transfer_target_order_id) && (
                       <div className="notification-meta">
                         {notification.order_id_display && (
                           <span>委托单号: {notification.order_id_display}</span>
                         )}
+                        {notification.type === 'order_transfer_request' &&
+                          notification.order_transfer_target_order_id && (
+                            <>
+                              {notification.order_id_display && <span className="meta-sep">｜</span>}
+                              <span>拟转新单号: {notification.order_transfer_target_order_id}</span>
+                            </>
+                          )}
+                        {notification.type === 'order_transfer_request' &&
+                          notification.order_transfer_reason && (
+                            <>
+                              {(notification.order_id_display || notification.order_transfer_target_order_id) && (
+                                <span className="meta-sep">｜</span>
+                              )}
+                              <span>转单原因: {notification.order_transfer_reason}</span>
+                            </>
+                          )}
                         {(() => {
                           const displayName = getTestItemDisplayName(notification);
                           const displayId = getTestItemDisplayId(notification);
@@ -694,7 +882,10 @@ const Notifications = () => {
                         })()}
                       </div>
                     )}
-                    {notification.order_id_display && !['addon_request', 'cancel_request', 'delete_request'].includes(notification.type) && (
+                    {notification.order_id_display &&
+                      !['addon_request', 'cancel_request', 'delete_request', 'order_transfer_request'].includes(
+                        notification.type
+                      ) && (
                       <div className="notification-meta">
                         <span>委托单号: {notification.order_id_display}</span>
                       </div>
@@ -738,6 +929,17 @@ const Notifications = () => {
             setSelectedRequestId(null);
           }}
           onApprove={handleRequestApproved}
+        />
+      )}
+
+      {showOrderTransferModal && selectedOrderTransferRequestId != null && (
+        <OrderTransferRequestDetailModal
+          requestId={selectedOrderTransferRequestId}
+          apiBase={getApiBase()}
+          onClose={() => {
+            setShowOrderTransferModal(false);
+            setSelectedOrderTransferRequestId(null);
+          }}
         />
       )}
     </div>
