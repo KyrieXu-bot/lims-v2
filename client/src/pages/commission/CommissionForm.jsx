@@ -329,7 +329,6 @@ const CommissionForm = () => {
   const [submittingCancellation, setSubmittingCancellation] = useState(false);
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [transferItem, setTransferItem] = useState(null);
-  const [transferNewOrderId, setTransferNewOrderId] = useState('');
   const [transferReason, setTransferReason] = useState('');
   const [transferMode, setTransferMode] = useState('direct_sales');
   const [submittingTransfer, setSubmittingTransfer] = useState(false);
@@ -784,6 +783,12 @@ const CommissionForm = () => {
     return false;
   };
 
+  const isItemBusinessConfirmed = (item) =>
+    item &&
+    (item.business_confirmed === 1 ||
+      item.business_confirmed === true ||
+      item.business_confirmed === '1');
+
   const canEditField = (field, item = null) => {
     const role = user?.role;
     if (!role) return false;
@@ -794,21 +799,14 @@ const CommissionForm = () => {
     if (item && item.status === 'cancelled') {
       return false;
     }
-    // 如果业务已确认测试总价，则实验室相关字段禁止再编辑（除admin外）
-    const isBusinessConfirmed =
-      item &&
-      (item.business_confirmed === 1 ||
-        item.business_confirmed === true ||
-        item.business_confirmed === '1');
-    const isLabDataField = [
-      'unit_price',
-      'field_test_time',
-      'equipment_name',
-      'actual_sample_quantity',
-      'machine_hours',
-      'work_hours'
-    ].includes(field);
-    if (isBusinessConfirmed && isLabDataField && role !== 'admin') {
+    // 业务已确认价格后整行锁定；仅管理员可编辑开票预填价、开票备注及预填价确认
+    if (isItemBusinessConfirmed(item)) {
+      if (
+        role === 'admin' &&
+        ['invoice_prefill_price', 'invoice_note', 'invoice_prefill_confirmed'].includes(field)
+      ) {
+        return true;
+      }
       return false;
     }
     if (role === 'admin') {
@@ -844,6 +842,23 @@ const CommissionForm = () => {
     }
     return false;
   };
+
+  const INVOICE_EDIT_FIELDS_AFTER_LOCK = new Set(['invoice_prefill_price', 'invoice_note', 'invoice_prefill_confirmed']);
+
+  /** 保留占位：当前不对只读字段做额外弱化展示 */
+  const getAdminReadonlyFieldProps = (item, fieldKey) => {
+    return {};
+  };
+
+  const mergeAdminLock = (item, fieldKey, baseClass = '') => {
+    const a = getAdminReadonlyFieldProps(item, fieldKey);
+    const className = [baseClass, a.className].filter(Boolean).join(' ').trim();
+    if (!a.title) return { className: className || undefined };
+    return { className, title: a.title };
+  };
+
+  const withReadonlyFieldProps = (item, fieldKey, extraClassName = '') =>
+    mergeAdminLock(item, fieldKey, ['readonly-field', extraClassName].filter(Boolean).join(' ').trim());
   
   // WebSocket连接
   const {
@@ -1679,11 +1694,6 @@ const CommissionForm = () => {
   };
 
   const handleSubmitTransferRequest = async () => {
-    const newId = typeof transferNewOrderId === 'string' ? transferNewOrderId.trim() : '';
-    if (!newId) {
-      alert('请输入新单号');
-      return;
-    }
     const reason = typeof transferReason === 'string' ? transferReason.trim() : '';
     if (transferMode === 'leader_then_sales' && !reason) {
       alert('超期转单申请必须填写转单原因');
@@ -1705,7 +1715,6 @@ const CommissionForm = () => {
         },
         body: JSON.stringify({
           test_item_id: transferItem.test_item_id,
-          target_order_id: newId,
           transfer_reason: reason || null
         })
       });
@@ -1716,7 +1725,6 @@ const CommissionForm = () => {
       alert(result.message || '申请已提交');
       setShowTransferModal(false);
       setTransferItem(null);
-      setTransferNewOrderId('');
       setTransferReason('');
       setTransferMode('direct_sales');
     } catch (e) {
@@ -1776,6 +1784,10 @@ const CommissionForm = () => {
 
   // 暂停/继续
   const handleTogglePause = async (item) => {
+    if (isItemBusinessConfirmed(item)) {
+      alert('业务已确认价格，不能修改此字段');
+      return;
+    }
     try {
       const userLocal = JSON.parse(localStorage.getItem('lims_user') || 'null');
       const newValue = item.abnormal_condition ? null : '暂停';
@@ -3121,6 +3133,15 @@ const CommissionForm = () => {
 
       // 获取当前项，用于后续计算和合并
       const currentItem = data.find(x => x.test_item_id === testItemId) || {};
+      const isLocked = isItemBusinessConfirmed(currentItem);
+      if (isLocked) {
+        const allowedWhenLocked = ['invoice_prefill_price', 'invoice_note', 'invoice_prefill_confirmed'];
+        if (!allowedWhenLocked.includes(field) || user?.role !== 'admin') {
+          setSavingStatus(prev => ({ ...prev, [statusKey]: 'idle' }));
+          alert('业务已确认价格，不能修改此字段');
+          return;
+        }
+      }
       let updateData = {};
       
       // 先设置基本字段值
@@ -4315,7 +4336,7 @@ const CommissionForm = () => {
                                 >
                                   {Number(item.is_add_on) === 2 ? '复制加测' : '普通加测'}
                                 </span>
-                                {(user?.role === 'admin' || user?.role === 'supervisor' || user?.role === 'leader') ? (
+                                {(user?.role === 'admin' || user?.role === 'supervisor' || user?.role === 'leader') && canEditField('addon_reason', item) ? (
                                   <div style={{display: 'inline-block', minWidth: '120px'}}>
                                     <RealtimeEditableCell
                                       value={item.addon_reason || ''}
@@ -4437,7 +4458,7 @@ const CommissionForm = () => {
                                           {parts.join('，')}
                                         </span>
                                       )}
-                                      {canEditSeqNo() && (
+                                      {canEditSeqNo() && canEditField('seq_no', item) && (
                                         <button
                                           onClick={(e) => {
                                             e.stopPropagation();
@@ -4542,7 +4563,7 @@ const CommissionForm = () => {
                         </div>
                       </td>
                       <td className={getColumnCellClass('price_note', 'order-creator-field price-note-col')} data-column-key="price_note">
-                        {user?.role === 'admin' ? (
+                        {user?.role === 'admin' && canEditField('price_note', item) ? (
                           <div className="editable-field-container">
                             <RealtimeEditableCell
                               value={item.price_note}
@@ -4559,7 +4580,9 @@ const CommissionForm = () => {
                             <SavingIndicator testItemId={item.test_item_id} field="price_note" />
                           </div>
                         ) : (
-                          <span className="readonly-field">{item.price_note !== null && item.price_note !== undefined ? Number(item.price_note).toLocaleString() : ''}</span>
+                          <span {...withReadonlyFieldProps(item, 'price_note')}>
+                            {item.price_note !== null && item.price_note !== undefined ? Number(item.price_note).toLocaleString() : ''}
+                          </span>
                         )}
                       </td>
                       <td className={getColumnCellClass('quantity', 'order-creator-field quantity-col')} data-column-key="quantity">
@@ -4580,7 +4603,9 @@ const CommissionForm = () => {
                             <SavingIndicator testItemId={item.test_item_id} field="quantity" />
                           </div>
                         ) : (
-                          <span className="readonly-field">{item.quantity || ''}</span>
+                          <span {...withReadonlyFieldProps(item, 'quantity')}>
+                            {item.quantity || ''}
+                          </span>
                         )}
                       </td>
                       <td className={getColumnCellClass('unit', 'order-creator-field narrow-col order-unit-col')} data-column-key="unit">
@@ -4612,7 +4637,9 @@ const CommissionForm = () => {
                               <SavingIndicator testItemId={item.test_item_id} field="unit" />
                             </>
                           ) : (
-                            <span className="readonly-field">{item.unit || ''}</span>
+                            <span {...withReadonlyFieldProps(item, 'unit')}>
+                              {item.unit || ''}
+                            </span>
                           )}
                         </div>
                       </td>
@@ -4635,29 +4662,38 @@ const CommissionForm = () => {
                             <SavingIndicator testItemId={item.test_item_id} field="assignee_name" />
                           </div>
                         ) : (
-                          <span className="readonly-field">{item.assignee_name || ''}</span>
+                          <span {...withReadonlyFieldProps(item, 'assignee_name')}>
+                            {item.assignee_name || ''}
+                          </span>
                         )}
                       </td>
                       <td className={getColumnCellClass('discount_rate', 'order-creator-field discount-col')} data-column-key="discount_rate">
-                        <div className="editable-field-container">
-                          <RealtimeEditableCell
-                            value={item.discount_rate !== null && item.discount_rate !== undefined ? Number(item.discount_rate).toFixed(1) : ''}
-                            type="number"
-                            onSave={handleSaveEdit}
-                            field="discount_rate"
-                            testItemId={item.test_item_id}
-                            placeholder="折扣(0-100)"
-                            isFieldBeingEdited={isFieldBeingEdited}
-                            getEditingUser={getEditingUser}
-                            emitUserEditing={emitUserEditing}
-                            emitUserStopEditing={emitUserStopEditing}
-                            suffix="%"
-                          />
-                          <SavingIndicator testItemId={item.test_item_id} field="discount_rate" />
-                        </div>
+                        {canEditField('discount_rate', item) ? (
+                          <div className="editable-field-container">
+                            <RealtimeEditableCell
+                              value={item.discount_rate !== null && item.discount_rate !== undefined ? Number(item.discount_rate).toFixed(1) : ''}
+                              type="number"
+                              onSave={handleSaveEdit}
+                              field="discount_rate"
+                              testItemId={item.test_item_id}
+                              placeholder="折扣(0-100)"
+                              isFieldBeingEdited={isFieldBeingEdited}
+                              getEditingUser={getEditingUser}
+                              emitUserEditing={emitUserEditing}
+                              emitUserStopEditing={emitUserStopEditing}
+                              suffix="%"
+                            />
+                            <SavingIndicator testItemId={item.test_item_id} field="discount_rate" />
+                          </div>
+                        ) : (
+                          <span {...withReadonlyFieldProps(item, 'discount_rate')}>
+                            {item.discount_rate !== null && item.discount_rate !== undefined ? Number(item.discount_rate).toFixed(1) : ''}
+                            {item.discount_rate !== null && item.discount_rate !== undefined ? '%' : ''}
+                          </span>
+                        )}
                       </td>
                       <td className={getColumnCellClass('customer_note', 'order-creator-field note-col')} data-column-key="customer_note">
-                        {user?.role === 'admin' ? (
+                        {user?.role === 'admin' && canEditField('note', item) ? (
                           <div className="editable-field-container">
                             <RealtimeEditableCell
                               value={item.note}
@@ -4674,17 +4710,27 @@ const CommissionForm = () => {
                             <SavingIndicator testItemId={item.test_item_id} field="note" />
                           </div>
                         ) : (
-                          <DetailViewLink 
-                            text={item.note || ''}
-                            maxLength={30}
-                            fieldName="客户备注"
-                          />
+                          <span {...mergeAdminLock(item, 'note', 'readonly-cell-wrap')}>
+                            <DetailViewLink 
+                              text={item.note || ''}
+                              maxLength={30}
+                              fieldName="客户备注"
+                            />
+                          </span>
                         )}
                       </td>
-                      <td className={getColumnCellClass('order_created_at', 'order-creator-field narrow-col')} data-column-key="order_created_at">{formatDate(item.order_created_at)}</td>
-                      <td className={getColumnCellClass('test_item_created_at', 'order-creator-field narrow-col')} data-column-key="test_item_created_at">{formatDate(item.test_item_created_at)}</td>
+                      <td className={getColumnCellClass('order_created_at', 'order-creator-field narrow-col')} data-column-key="order_created_at">
+                        <span {...mergeAdminLock(item, 'order_created_at')}>
+                          {formatDate(item.order_created_at)}
+                        </span>
+                      </td>
+                      <td className={getColumnCellClass('test_item_created_at', 'order-creator-field narrow-col')} data-column-key="test_item_created_at">
+                        <span {...mergeAdminLock(item, 'test_item_created_at')}>
+                          {formatDate(item.test_item_created_at)}
+                        </span>
+                      </td>
                       <td className={getColumnCellClass('arrival_mode', 'order-creator-field narrow-col')} data-column-key="arrival_mode">
-                        {user?.role === 'admin' ? (
+                        {user?.role === 'admin' && canEditField('arrival_mode', item) ? (
                           <div className="editable-field-container">
                             <RealtimeEditableCell
                               value={item.arrival_mode}
@@ -4705,13 +4751,13 @@ const CommissionForm = () => {
                             <SavingIndicator testItemId={item.test_item_id} field="arrival_mode" />
                           </div>
                         ) : (
-                          <span className="readonly-field">
+                          <span {...withReadonlyFieldProps(item, 'arrival_mode')}>
                             {item.arrival_mode === 'on_site' ? '现场' : item.arrival_mode === 'delivery' ? '寄样' : ''}
                           </span>
                         )}
                       </td>
                       <td className={getColumnCellClass('sample_arrival_status', 'order-creator-field narrow-col')} data-column-key="sample_arrival_status">
-                        {user?.role === 'admin' ? (
+                        {user?.role === 'admin' && canEditField('sample_arrival_status', item) ? (
                           <div className="editable-field-container">
                             <RealtimeEditableCell
                               value={item.sample_arrival_status}
@@ -4732,7 +4778,7 @@ const CommissionForm = () => {
                             <SavingIndicator testItemId={item.test_item_id} field="sample_arrival_status" />
                           </div>
                         ) : (
-                          <span className="readonly-field">
+                          <span {...withReadonlyFieldProps(item, 'sample_arrival_status')}>
                             {item.sample_arrival_status === 'arrived' ? '已到' : item.sample_arrival_status === 'not_arrived' ? '未到' : ''}
                           </span>
                         )}
@@ -4750,6 +4796,10 @@ const CommissionForm = () => {
                               type="select"
                               options={SERVICE_URGENCY_OPTIONS}
                               onSave={async (field, value, testItemId) => {
+                                if (isItemBusinessConfirmed(item)) {
+                                  alert('业务已确认价格，不能修改此字段');
+                                  return;
+                                }
                                 // 服务加急需要更新test_items的service_urgency字段
                                 try {
                                   const userLocal = JSON.parse(localStorage.getItem('lims_user') || 'null');
@@ -4842,7 +4892,9 @@ const CommissionForm = () => {
                             <SavingIndicator testItemId={item.test_item_id} field="service_urgency" />
                           </div>
                         ) : (
-                          <span className="readonly-field">{item.service_urgency || ''}</span>
+                          <span {...withReadonlyFieldProps(item, 'service_urgency')}>
+                            {item.service_urgency || ''}
+                          </span>
                         )}
                       </td>
                       <td className={getColumnCellClass('supervisor_name', 'lab-field narrow-col')} data-column-key="supervisor_name">
@@ -4865,7 +4917,9 @@ const CommissionForm = () => {
                             <SavingIndicator testItemId={item.test_item_id} field="supervisor_name" />
                           </div>
                         ) : (
-                          <span className="readonly-field">{item.supervisor_name || ''}</span>
+                          <span {...withReadonlyFieldProps(item, 'supervisor_name')}>
+                            {item.supervisor_name || ''}
+                          </span>
                         )}
                       </td>
                       <td
@@ -4889,7 +4943,9 @@ const CommissionForm = () => {
                             <SavingIndicator testItemId={item.test_item_id} field="unit_price" />
                           </div>
                         ) : (
-                          <span className="readonly-field">{formatCurrency(item.standard_price)}</span>
+                          <span {...withReadonlyFieldProps(item, 'unit_price')}>
+                            {formatCurrency(item.standard_price)}
+                          </span>
                         )}
                       </td>
                       <td className={getColumnCellClass('technician_name', 'lab-field narrow-col')} data-column-key="technician_name">
@@ -4912,7 +4968,9 @@ const CommissionForm = () => {
                             <SavingIndicator testItemId={item.test_item_id} field="technician_name" />
                           </div>
                         ) : (
-                          <span className="readonly-field">{item.technician_name || ''}</span>
+                          <span {...withReadonlyFieldProps(item, 'technician_name')}>
+                            {item.technician_name || ''}
+                          </span>
                         )}
                       </td>
                       <td className={getColumnCellClass('assignment_note', 'lab-field note-col')} data-column-key="assignment_note">
@@ -4934,7 +4992,9 @@ const CommissionForm = () => {
                               <SavingIndicator testItemId={item.test_item_id} field="assignment_note" />
                             </>
                           ) : (
-                            <DetailViewLink text={item.assignment_note || ''} maxLength={30} fieldName="指派备注" />
+                            <span {...mergeAdminLock(item, 'assignment_note', 'readonly-cell-wrap')}>
+                              <DetailViewLink text={item.assignment_note || ''} maxLength={30} fieldName="指派备注" />
+                            </span>
                           )}
                         </div>
                       </td>
@@ -4959,7 +5019,9 @@ const CommissionForm = () => {
                               <SavingIndicator testItemId={item.test_item_id} field="field_test_time" />
                             </>
                           ) : (
-                            <span className="readonly-field">{formatDateTime(item.field_test_time)}</span>
+                            <span {...withReadonlyFieldProps(item, 'field_test_time')}>
+                              {formatDateTime(item.field_test_time)}
+                            </span>
                           )}
                         </div>
                       </td>
@@ -4983,7 +5045,9 @@ const CommissionForm = () => {
                               <SavingIndicator testItemId={item.test_item_id} field="equipment_name" />
                             </>
                           ) : (
-                            <span className="readonly-field">{item.equipment_name || ''}</span>
+                            <span {...withReadonlyFieldProps(item, 'equipment_name')}>
+                              {item.equipment_name || ''}
+                            </span>
                           )}
                         </div>
                       </td>
@@ -5006,14 +5070,18 @@ const CommissionForm = () => {
                               <SavingIndicator testItemId={item.test_item_id} field="actual_sample_quantity" />
                             </>
                           ) : (
-                            <span className="readonly-field">{item.actual_sample_quantity ?? ''}</span>
+                            <span {...withReadonlyFieldProps(item, 'actual_sample_quantity')}>
+                              {item.actual_sample_quantity ?? ''}
+                            </span>
                           )}
                         </div>
                       </td>
                       <td className={getColumnCellClass('work_hours', 'lab-field narrow-col')} data-column-key="work_hours">
                         <div className="editable-field-container">
                           {(!canEditField('work_hours', item) || (item.status === 'completed' && !['admin','leader'].includes(user?.role))) ? (
-                            <span className="readonly-field">{item.work_hours ?? ''}</span>
+                            <span {...withReadonlyFieldProps(item, 'work_hours')}>
+                              {item.work_hours ?? ''}
+                            </span>
                           ) : (
                             <>
                               <RealtimeEditableCell
@@ -5036,7 +5104,9 @@ const CommissionForm = () => {
                       <td className={getColumnCellClass('machine_hours', 'lab-field narrow-col')} data-column-key="machine_hours">
                         <div className="editable-field-container">
                           {(!canEditField('machine_hours', item) || (item.status === 'completed' && !['admin','leader'].includes(user?.role))) ? (
-                            <span className="readonly-field">{item.machine_hours ?? ''}</span>
+                            <span {...withReadonlyFieldProps(item, 'machine_hours')}>
+                              {item.machine_hours ?? ''}
+                            </span>
                           ) : (
                             <>
                               <RealtimeEditableCell
@@ -5075,24 +5145,22 @@ const CommissionForm = () => {
                               <SavingIndicator testItemId={item.test_item_id} field="test_notes" />
                             </>
                           ) : (
-                            <DetailViewLink text={item.test_notes || ''} maxLength={30} fieldName="实验备注" />
+                            <span {...mergeAdminLock(item, 'test_notes', 'readonly-cell-wrap')}>
+                              <DetailViewLink text={item.test_notes || ''} maxLength={30} fieldName="实验备注" />
+                            </span>
                           )}
                         </div>
                       </td>
                       <td className={getColumnCellClass('line_total', 'lab-field narrow-col')} data-column-key="line_total">
-                        <span className="readonly-field">{formatCurrency(item.line_total)}</span>
+                        <span {...withReadonlyFieldProps(item, 'line_total')}>
+                          {formatCurrency(item.line_total)}
+                        </span>
                       </td>
                       <td className={getColumnCellClass('final_unit_price', 'lab-field narrow-col')} data-column-key="final_unit_price">
                         <div className="editable-field-container">
-                          {(((item.business_confirmed === 1 || item.business_confirmed === true || item.business_confirmed === '1') && user?.role === 'admin')
-                            || ((!(item.business_confirmed === 1 || item.business_confirmed === true || item.business_confirmed === '1')) && user?.user_id === item.current_assignee)) ? (
+                          {!isItemBusinessConfirmed(item) && user?.user_id === item.current_assignee ? (
                             <>
                               {(() => {
-                                const isBusinessConfirmed =
-                                  item.business_confirmed === 1 ||
-                                  item.business_confirmed === true ||
-                                  item.business_confirmed === '1';
-                                const isAdminEditingConfirmed = isBusinessConfirmed && user?.role === 'admin';
                                 // 权限检查：如果6个必填字段有一个是空值，则不能填写测试总价也不能点击确认按钮
                                 // 检查条件：1. 业务员角色 2. 组长角色且指派自己做实验（supervisor_id === technician_id === user_id）
                                 const isSales = user?.role === 'sales';
@@ -5106,10 +5174,8 @@ const CommissionForm = () => {
                                 // 如果既不是业务员也不是组长指派自己做实验，则可以编辑（不受限制）
                                 // 如果是业务员或组长指派自己做实验，则必须6个字段都完整才能编辑
                                 const needsCheck = isSales || isSupervisorAsTechnician;
-                                const canEditPrice = isAdminEditingConfirmed
-                                  ? true
-                                  : (!needsCheck || requiredFieldsCheck.allFilled);
-                                const showConfirmButton = !isBusinessConfirmed;
+                                const canEditPrice = !needsCheck || requiredFieldsCheck.allFilled;
+                                const showConfirmButton = true;
                                 
                                 // 根据角色显示不同的提示信息
                                 const errorMessage = isSales 
@@ -5174,8 +5240,12 @@ const CommissionForm = () => {
                               })()}
                             </>
                           ) : (
-                            <span 
-                              className={`readonly-field ${shouldHighlightPrice(item.final_unit_price, item.line_total) ? 'price-highlight-red' : ''}`}
+                            <span
+                              {...withReadonlyFieldProps(
+                                item,
+                                'final_unit_price',
+                                shouldHighlightPrice(item.final_unit_price, item.line_total) ? 'price-highlight-red' : ''
+                              )}
                             >
                               {formatCurrency(item.final_unit_price)}
                               {(item.business_confirmed === 1 || item.business_confirmed === true || item.business_confirmed === '1') && (
@@ -5186,14 +5256,18 @@ const CommissionForm = () => {
                         </div>
                       </td>
                       <td className={getColumnCellClass('lab_price', 'lab-field narrow-col')} data-column-key="lab_price">
-                        <span className="readonly-field">{formatCurrency(item.lab_price)}</span>
+                        <span {...withReadonlyFieldProps(item, 'lab_price')}>
+                          {formatCurrency(item.lab_price)}
+                        </span>
                       </td>
                       <td className={getColumnCellClass('actual_delivery_date', 'lab-field')} data-column-key="actual_delivery_date">
-                        <span className="readonly-field">{formatDate(item.actual_delivery_date)}</span>
+                        <span {...withReadonlyFieldProps(item, 'actual_delivery_date')}>
+                          {formatDate(item.actual_delivery_date)}
+                        </span>
                       </td>
                       <td className={getColumnCellClass('business_note', 'lab-field note-col')} data-column-key="business_note">
                         <div className="editable-field-container">
-                          {(user?.role === 'admin' || user?.role === 'sales' || user?.role === 'leader') ? (
+                          {canEditField('business_note', item) ? (
                             <>
                               <RealtimeEditableCell
                                 value={item.business_note || ''}
@@ -5210,12 +5284,20 @@ const CommissionForm = () => {
                               <SavingIndicator testItemId={item.test_item_id} field="business_note" />
                             </>
                           ) : (
-                            <DetailViewLink text={item.business_note || ''} maxLength={30} fieldName="业务备注" />
+                            <span {...mergeAdminLock(item, 'business_note', 'readonly-cell-wrap')}>
+                              <DetailViewLink text={item.business_note || ''} maxLength={30} fieldName="业务备注" />
+                            </span>
                           )}
                         </div>
                       </td>
                       <td className={getColumnCellClass('status', 'lab-field narrow-col')} data-column-key="status">
-                        <span className={`status status-${item.status}`}>
+                        <span
+                          {...mergeAdminLock(
+                            item,
+                            'row_status',
+                            `status status-${item.status || ''}`.trim()
+                          )}
+                        >
                           {item.status === 'new' && '新建'}
                           {item.status === 'assigned' && '已分配'}
                           {item.status === 'running' && '进行中'}
@@ -5225,26 +5307,36 @@ const CommissionForm = () => {
                         </span>
                       </td>
                       <td className={getColumnCellClass('abnormal_condition', 'lab-field narrow-col')} data-column-key="abnormal_condition">
-                        <span className="readonly-field">{item.abnormal_condition || ''}</span>
+                        <span {...withReadonlyFieldProps(item, 'abnormal_condition')}>
+                          {item.abnormal_condition || ''}
+                        </span>
                       </td>
                       {canAccessSettlement() && (
                         <>
                           <td className={getColumnCellClass('invoice_number', 'invoice-field narrow-col')} data-column-key="invoice_number">
                             {item.invoice_number ? (
-                              <DetailViewLink 
-                                text={item.invoice_number} 
-                                maxLength={20} 
-                                fieldName="票号" 
-                              />
+                              <span {...mergeAdminLock(item, 'invoice_number', 'readonly-cell-wrap')}>
+                                <DetailViewLink 
+                                  text={item.invoice_number} 
+                                  maxLength={20} 
+                                  fieldName="票号" 
+                                />
+                              </span>
                             ) : (
-                              <span className="readonly-field">-</span>
+                              <span {...withReadonlyFieldProps(item, 'invoice_number')}>
+                                -
+                              </span>
                             )}
                           </td>
                           <td className={getColumnCellClass('settlement_invoice_date', 'invoice-field narrow-col')} data-column-key="settlement_invoice_date">
-                            {item.settlement_invoice_date ? formatDate(item.settlement_invoice_date) : '-'}
+                            <span {...mergeAdminLock(item, 'settlement_invoice_date')}>
+                              {item.settlement_invoice_date ? formatDate(item.settlement_invoice_date) : '-'}
+                            </span>
                           </td>
                           <td className={getColumnCellClass('settlement_customer_name', 'invoice-field')} data-column-key="settlement_customer_name">
-                            {item.settlement_customer_name || '-'}
+                            <span {...mergeAdminLock(item, 'settlement_customer_name')}>
+                              {item.settlement_customer_name || '-'}
+                            </span>
                           </td>
                           <td className={getColumnCellClass('invoice_prefill_price', 'invoice-field')} data-column-key="invoice_prefill_price">
                             <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
@@ -5255,7 +5347,7 @@ const CommissionForm = () => {
                                   : '-'}</span>
                               ) : (
                                 <>
-                                  {canEditSettlement() ? (
+                                  {canEditSettlement() && canEditField('invoice_prefill_price', item) ? (
                                     <>
                                       {/* 未确认，显示可编辑的input输入框 */}
                                       <input
@@ -5339,12 +5431,14 @@ const CommissionForm = () => {
                             </div>
                           </td>
                           <td className={getColumnCellClass('unpaid_amount', 'invoice-field')} data-column-key="unpaid_amount">
-                            {item.unpaid_amount !== null && item.unpaid_amount !== undefined && item.unpaid_amount !== '' 
-                              ? formatCurrency(item.unpaid_amount) 
-                              : '-'}
+                            <span {...mergeAdminLock(item, 'unpaid_amount')}>
+                              {item.unpaid_amount !== null && item.unpaid_amount !== undefined && item.unpaid_amount !== '' 
+                                ? formatCurrency(item.unpaid_amount) 
+                                : '-'}
+                            </span>
                           </td>
                           <td className={getColumnCellClass('invoice_note', 'invoice-field note-col')} data-column-key="invoice_note">
-                            {canEditSettlement() ? (
+                            {canEditSettlement() && canEditField('invoice_note', item) ? (
                               <div className="editable-field-container">
                                 <RealtimeEditableCell
                                   value={item.invoice_note || ''}
@@ -5361,11 +5455,15 @@ const CommissionForm = () => {
                                 <SavingIndicator testItemId={item.test_item_id} field="invoice_note" />
                               </div>
                             ) : (
-                              <span className="readonly-field">{item.invoice_note || '-'}</span>
+                              <span {...withReadonlyFieldProps(item, 'invoice_note')}>
+                                {item.invoice_note || '-'}
+                              </span>
                             )}
                           </td>
                           <td className={getColumnCellClass('invoice_status', 'invoice-field narrow-col')} data-column-key="invoice_status">
-                            <span className="readonly-field">{item.invoice_status || '未结算'}</span>
+                            <span {...withReadonlyFieldProps(item, 'invoice_status')}>
+                              {item.invoice_status || '未结算'}
+                            </span>
                           </td>
                         </>
                       )}
@@ -5403,7 +5501,6 @@ const CommissionForm = () => {
                                 className="btn btn-primary"
                                 onClick={() => {
                                   setTransferItem(item);
-                                  setTransferNewOrderId('');
                                   setTransferReason('');
                                   setTransferMode(getTransferRequestModeForItem(item));
                                   setShowTransferModal(true);
@@ -5459,10 +5556,12 @@ const CommissionForm = () => {
                               <button 
                                 className="btn btn-warning"
                                 onClick={() => {
+                                  if (isItemBusinessConfirmed(item)) return;
                                   saveCurrentViewState();
                                   navigate(`/test-items/${item.test_item_id}`);
                                 }}
-                                title="编辑检测项目"
+                                disabled={isItemBusinessConfirmed(item)}
+                                title={isItemBusinessConfirmed(item) ? '确认价格后不可编辑' : '编辑检测项目'}
                                 style={{
                                   padding: '2px 6px',
                                   fontSize: '11px',
@@ -5470,7 +5569,9 @@ const CommissionForm = () => {
                                   backgroundColor: '#ffc107',
                                   color: '#000',
                                   border: '1px solid #ffc107',
-                                  lineHeight: '1.2'
+                                  lineHeight: '1.2',
+                                  opacity: isItemBusinessConfirmed(item) ? 0.6 : 1,
+                                  cursor: isItemBusinessConfirmed(item) ? 'not-allowed' : 'pointer'
                                 }}
                               >
                                 编辑
@@ -6086,7 +6187,6 @@ const CommissionForm = () => {
             if (e.target === e.currentTarget) {
               setShowTransferModal(false);
               setTransferItem(null);
-              setTransferNewOrderId('');
               setTransferReason('');
               setTransferMode('direct_sales');
             }
@@ -6107,25 +6207,34 @@ const CommissionForm = () => {
             <h2 style={{ marginTop: 0, marginBottom: '16px' }}>转单申请</h2>
             {transferMode === 'leader_then_sales' && (
               <p style={{ margin: '0 0 12px', color: '#b54708', fontSize: '13px' }}>
-                当前单号不在常规转单窗口，需走“组长发起 → 室主任审批 → 业务审批”流程。
+                当前单号不在常规转单窗口，需走「组长发起 → 室主任审批 → 业务审批 → 许文凤审批」流程；新委托单号由开单员线下开立，本系统不填写。
               </p>
             )}
-            <p style={{ margin: '0 0 12px', color: '#555', fontSize: '14px' }}>请输入新单号</p>
-            <input
-              type="text"
-              value={transferNewOrderId}
-              onChange={(e) => setTransferNewOrderId(e.target.value)}
-              placeholder="新委托单号"
+            {transferMode === 'direct_sales' && (
+              <p style={{ margin: '0 0 12px', color: '#555', fontSize: '13px' }}>
+                请核对下方原委托单号与检测项目名称；新委托单号由开单员线下开立，本系统不填写。
+              </p>
+            )}
+            <div
               style={{
-                width: '100%',
-                padding: '10px 12px',
-                border: '1px solid #ddd',
-                borderRadius: '4px',
+                marginBottom: '16px',
+                padding: '12px 14px',
+                backgroundColor: '#f5f5f5',
+                borderRadius: '6px',
                 fontSize: '14px',
-                boxSizing: 'border-box'
+                lineHeight: 1.6
               }}
-              autoComplete="off"
-            />
+            >
+              <div style={{ marginBottom: '6px' }}>
+                <strong>原委托单号：</strong>
+                {transferItem.order_id || '未知'}
+              </div>
+              <div>
+                <strong>检测项目名称：</strong>
+                {[transferItem.category_name, transferItem.detail_name].filter(Boolean).join(' - ') ||
+                  '检测项目'}
+              </div>
+            </div>
             {transferMode === 'leader_then_sales' && (
               <div style={{ marginTop: '12px' }}>
                 <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
@@ -6163,7 +6272,6 @@ const CommissionForm = () => {
                 onClick={() => {
                   setShowTransferModal(false);
                   setTransferItem(null);
-                  setTransferNewOrderId('');
                   setTransferReason('');
                   setTransferMode('direct_sales');
                 }}
@@ -6177,7 +6285,7 @@ const CommissionForm = () => {
                 onClick={handleSubmitTransferRequest}
                 disabled={submittingTransfer}
               >
-                {submittingTransfer ? '提交中…' : '申请'}
+                {submittingTransfer ? '提交中…' : '确认申请'}
               </button>
             </div>
           </div>

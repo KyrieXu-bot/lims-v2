@@ -116,8 +116,12 @@ const OrderTransferRequestDetailModal = ({ requestId, apiBase = '', onClose }) =
           : fmt(req?.status);
   const flowText =
     req?.approval_flow === 'leader_then_sales'
-      ? '超期流程（组长 -> 室主任 -> 业务 -> 许文凤）'
-      : '常规流程（实验室 -> 业务 -> 许文凤）';
+      ? '超期流程（组长 → 室主任 → 业务 → 许文凤，通过后通知开单员知晓）'
+      : '常规流程（实验室 → 业务，通过后通知开单员知晓）';
+  const targetOrderTrim =
+    req?.target_order_id != null && String(req.target_order_id).trim() !== ''
+      ? String(req.target_order_id).trim()
+      : '';
   const stepText =
     req?.current_step === 'leader_review'
       ? '室主任审批中'
@@ -157,8 +161,17 @@ const OrderTransferRequestDetailModal = ({ requestId, apiBase = '', onClose }) =
                   <dd>{flowText}</dd>
                   <dt>当前节点</dt>
                   <dd>{stepText}</dd>
-                  <dt>拟转新单号</dt>
-                  <dd>{fmt(req.target_order_id)}</dd>
+                  {targetOrderTrim ? (
+                    <>
+                      <dt>拟转新单号（历史填写）</dt>
+                      <dd>{fmt(targetOrderTrim)}</dd>
+                    </>
+                  ) : (
+                    <>
+                      <dt>新委托单号</dt>
+                      <dd>由开单员线下开立，本申请未在系统填写</dd>
+                    </>
+                  )}
                   <dt>转单原因</dt>
                   <dd>{fmt(req.transfer_reason)}</dd>
                   <dt>申请人</dt>

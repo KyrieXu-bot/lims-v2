@@ -2794,3 +2794,13 @@
   background: #fef2f2;
   border-top: 1px solid #fecaca;
 }
+
+/* 业务已确认后，管理员视角下不可再编辑的只读区：弱化、悬停由 title 提示 */
+.admin-locked-readonly {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.readonly-cell-wrap {
+  display: inline;
+}

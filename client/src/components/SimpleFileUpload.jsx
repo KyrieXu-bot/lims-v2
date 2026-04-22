@@ -76,21 +76,23 @@ const SimpleFileUpload = ({
     return !Number.isNaN(num) && num >= 0;
   };
 
-  // 检查原始数据上传所需的6个必填字段是否都已填写
+  // 检查原始数据上传所需必填字段（与 CommissionForm 一致：现场测试时间不参与是否可上传的判断）
   const checkRawDataRequiredFields = (item) => {
     if (!item) return { allFilled: false };
-    
-    const fieldTestTimeFilled = hasValue(item.field_test_time);
+
     const equipmentFilled = hasValue(item.equipment_id) || hasValue(item.equipment_name);
     const quantityFilled = hasNonNegativeNumber(item.actual_sample_quantity);
     const unitFilled = hasValue(item.unit);
     const workHoursFilled = hasNonNegativeNumber(item.work_hours);
     const machineHoursFilled = hasNonNegativeNumber(item.machine_hours);
-    
+
     return {
-      allFilled: fieldTestTimeFilled && equipmentFilled && quantityFilled && unitFilled && 
-                 workHoursFilled && machineHoursFilled,
-      fieldTestTimeFilled,
+      allFilled:
+        equipmentFilled &&
+        quantityFilled &&
+        unitFilled &&
+        workHoursFilled &&
+        machineHoursFilled,
       equipmentFilled,
       quantityFilled,
       unitFilled,
@@ -103,21 +105,16 @@ const SimpleFileUpload = ({
     const selectedFiles = Array.from(e.target.files);
     if (selectedFiles.length === 0) return;
 
-    // 如果是上传原始数据，需要检查6个必填字段
-    // 检查条件：1. 工程师角色 2. 组长角色且指派自己做实验（supervisor_id === technician_id === userId）
+    // 如果是上传原始数据，需要检查必填字段（不含现场测试时间）
+    // 检查条件：1. 工程师 2. 组长（不论是否自兼实验员）
     if (selectedCategory === 'raw_data') {
       const isEmployee = userRole === 'employee';
-      const isSupervisorAsTechnician = userRole === 'supervisor' && 
-                                       testItemData?.supervisor_id && 
-                                       testItemData?.technician_id &&
-                                       testItemData.supervisor_id === testItemData.technician_id &&
-                                       testItemData.supervisor_id === userId;
-      
-      if (isEmployee || isSupervisorAsTechnician) {
+      const isSupervisor = userRole === 'supervisor';
+
+      if (isEmployee || isSupervisor) {
         const requiredFieldsCheck = checkRawDataRequiredFields(testItemData);
         if (!requiredFieldsCheck.allFilled) {
           const missingFields = [];
-          if (!requiredFieldsCheck.fieldTestTimeFilled) missingFields.push('现场测试时间');
           if (!requiredFieldsCheck.equipmentFilled) missingFields.push('检测设备');
           if (!requiredFieldsCheck.quantityFilled) missingFields.push('计费数量');
           if (!requiredFieldsCheck.unitFilled) missingFields.push('单位');

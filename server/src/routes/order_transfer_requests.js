@@ -51,6 +51,12 @@ function normalizeOrderId(v) {
   return String(v).trim().toUpperCase();
 }
 
+/** 新单号由开单员线下确定时为空，通知文案中不展示拟转新单号 */
+function formatTargetOrderFragment(targetOrderId) {
+  const t = targetOrderId != null ? String(targetOrderId).trim() : '';
+  return t ? `，拟转新单号：${t}` : '';
+}
+
 function getTransferRequestMode(orderId, now = getBeijingNow()) {
   const normalized = normalizeOrderId(orderId);
   const allowed = getAllowedTransferPrefixes(now);
@@ -182,8 +188,8 @@ router.post('/', requireAnyRole(['leader', 'supervisor', 'employee']), async (re
     const target_order_id = typeof rawTarget === 'string' ? rawTarget.trim() : '';
     const transfer_reason = typeof rawReason === 'string' ? rawReason.trim() : '';
 
-    if (!test_item_id || !target_order_id) {
-      return res.status(400).json({ error: '缺少必要参数：test_item_id、新单号（target_order_id）' });
+    if (!test_item_id) {
+      return res.status(400).json({ error: '缺少必要参数：test_item_id' });
     }
 
     const [testItemRows] = await pool.query(
@@ -248,9 +254,10 @@ router.post('/', requireAnyRole(['leader', 'supervisor', 'employee']), async (re
         : testItem.category_name || testItem.detail_name || '检测项目';
 
     const reasonSuffix = transfer_reason ? `。转单原因：${transfer_reason}` : '';
-    const content = `${user.name || user.user_id} 申请将检测项目转至新单号 ${target_order_id}。原委托单号：${
+    const tgtFrag = formatTargetOrderFragment(target_order_id);
+    const content = `${user.name || user.user_id} 提交转单申请。原委托单号：${
       testItem.order_id_display || testItem.order_id || '未知'
-    }。检测项目：${itemLabel}${reasonSuffix}。申请ID：${requestId}`;
+    }。检测项目：${itemLabel}${tgtFrag}${reasonSuffix}。申请ID：${requestId}`;
 
     const io = getIO();
     if (requiresLeaderFlow) {
@@ -403,7 +410,7 @@ router.put('/:id/approve', requireAuth, async (req, res) => {
       );
       const salesContent = `室主任已通过转单申请，等待业务员审批。原委托单号：${
         request.order_id_display || request.order_id || '未知'
-      }，拟转新单号：${request.target_order_id}。${itemLabel}${reasonSuffix}。申请ID：${id}`;
+      }。${itemLabel}${formatTargetOrderFragment(request.target_order_id)}${reasonSuffix}。申请ID：${id}`;
       await notifyUser(pool, io, {
         user_id: request.current_assignee,
         title: '转单申请待业务审批',
@@ -437,7 +444,7 @@ router.put('/:id/approve', requireAuth, async (req, res) => {
         );
         const xwfContent = `业务员已通过转单申请，等待许文凤审批。原委托单号：${
           request.order_id_display || request.order_id || '未知'
-        }，拟转新单号：${request.target_order_id}。${itemLabel}${reasonSuffix}。申请ID：${id}`;
+        }。${itemLabel}${formatTargetOrderFragment(request.target_order_id)}${reasonSuffix}。申请ID：${id}`;
         await notifyUser(pool, io, {
           user_id: 'JC0092',
           title: '转单申请待许文凤审批',
@@ -471,10 +478,10 @@ router.put('/:id/approve', requireAuth, async (req, res) => {
 
       const clerkContent = `业务员已同意转单申请。原委托单号：${
         request.order_id_display || request.order_id || '未知'
-      }，拟转新单号：${request.target_order_id}。${itemLabel}${reasonSuffix}。申请ID：${id}`;
+      }。${itemLabel}${formatTargetOrderFragment(request.target_order_id)}${reasonSuffix}。申请ID：${id}`;
       const applicantContent = `您的转单申请已审批通过。原委托单号：${
         request.order_id_display || request.order_id || '未知'
-      }，拟转新单号：${request.target_order_id}。${itemLabel}${reasonSuffix}。申请ID：${id}`;
+      }。${itemLabel}${formatTargetOrderFragment(request.target_order_id)}${reasonSuffix}。申请ID：${id}`;
 
       await notifyUser(pool, io, {
         user_id: 'JC0089',
@@ -510,7 +517,7 @@ router.put('/:id/approve', requireAuth, async (req, res) => {
           order_transfer_reason: request.transfer_reason || null
         });
       }
-      return res.json({ success: true, message: '业务员审批通过，已通知马婷与申请人' });
+      return res.json({ success: true, message: '业务员审批通过，已通知开单员与申请人' });
     }
 
     if (request.current_step === 'xwf_review') {
@@ -530,10 +537,10 @@ router.put('/:id/approve', requireAuth, async (req, res) => {
       );
       const mtContent = `许文凤已通过转单申请，请知晓。原委托单号：${
         request.order_id_display || request.order_id || '未知'
-      }，拟转新单号：${request.target_order_id}。${itemLabel}${reasonSuffix}。申请ID：${id}`;
+      }。${itemLabel}${formatTargetOrderFragment(request.target_order_id)}${reasonSuffix}。申请ID：${id}`;
       const applicantContent = `您的转单申请已全部审批通过。原委托单号：${
         request.order_id_display || request.order_id || '未知'
-      }，拟转新单号：${request.target_order_id}。${itemLabel}${reasonSuffix}。申请ID：${id}`;
+      }。${itemLabel}${formatTargetOrderFragment(request.target_order_id)}${reasonSuffix}。申请ID：${id}`;
       await notifyUser(pool, io, {
         user_id: 'JC0089',
         title: '转单申请已通过',
@@ -568,7 +575,7 @@ router.put('/:id/approve', requireAuth, async (req, res) => {
           order_transfer_reason: request.transfer_reason || null
         });
       }
-      return res.json({ success: true, message: '许文凤审批通过，已通知马婷与申请人' });
+      return res.json({ success: true, message: '许文凤审批通过，已通知开单员与申请人' });
     }
 
     return res.status(400).json({ error: '当前申请不在可审批阶段' });
