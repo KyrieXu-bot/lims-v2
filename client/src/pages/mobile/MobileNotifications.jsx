@@ -4,40 +4,8 @@ import { useSocket } from '../../hooks/useSocket.js';
 import AddonRequestModal from '../../components/AddonRequestModal.jsx';
 import OrderTransferRequestDetailModal from '../../components/OrderTransferRequestDetailModal.jsx';
 import { requestNotificationPermission, showLocalNotification, checkNotificationPermission } from '../../utils/notificationService.js';
+import { getApiBase } from '../../api.js';
 import './MobileNotifications.css';
-
-// 获取API基础URL（与api.js中的逻辑一致）
-function getApiBase() {
-  if (import.meta.env.VITE_API_BASE) {
-    return import.meta.env.VITE_API_BASE;
-  }
-  if (import.meta.env.VITE_API_BASE_URL) {
-    return import.meta.env.VITE_API_BASE_URL;
-  }
-  
-  const isNative = typeof window !== 'undefined' 
-    && window.Capacitor 
-    && typeof window.Capacitor.isNativePlatform === 'function'
-    && window.Capacitor.isNativePlatform();
-  
-  if (isNative) {
-    return 'https://jicuijiance.mat-jitri.cn';
-  }
-  
-  if (typeof window !== 'undefined' && window.location && window.location.host === 'localhost' && window.Capacitor) {
-    return 'https://jicuijiance.mat-jitri.cn';
-  }
-  
-  if (import.meta.env.DEV) {
-    return 'http://localhost:3001';
-  }
-  
-  if (typeof window !== 'undefined' && window.location && !window.Capacitor) {
-    return '';
-  }
-  
-  return 'http://192.168.9.46:3004';
-}
 
 const MobileNotifications = () => {
   const [notifications, setNotifications] = useState([]);
@@ -194,6 +162,34 @@ const MobileNotifications = () => {
     }
   };
 
+  /** 从通知解析委托单号，用于与网页端一致跳转到委托单并搜索 */
+  const getOrderIdForSearch = (notification) => {
+    let id = notification.order_id_display || notification.related_order_id;
+    if (id) return String(id).trim();
+    if (notification.content) {
+      const m1 = notification.content.match(/委托单[号]?\s*[：:]\s*([A-Za-z0-9\-_.]+)/);
+      if (m1) return m1[1].trim();
+    }
+    return null;
+  };
+
+  const navigateToCommissionWithNotification = (notification) => {
+    const orderIdToSearch = getOrderIdForSearch(notification);
+    if (!orderIdToSearch) return false;
+    if (!notification.is_read) {
+      markAsRead(notification.notification_id);
+    }
+    sessionStorage.setItem('mobile_commission_notification_search', orderIdToSearch);
+    navigate(`/mobile/commission-form?q=${encodeURIComponent(orderIdToSearch)}`, {
+      state: {
+        searchQuery: orderIdToSearch,
+        highlightOrderId: notification.related_order_id,
+        highlightTestItemId: notification.related_test_item_id
+      }
+    });
+    return true;
+  };
+
   const getOrderTransferRequestId = (notification) => {
     if (notification.related_order_transfer_request_id) {
       return notification.related_order_transfer_request_id;
@@ -224,29 +220,23 @@ const MobileNotifications = () => {
       openOrderTransferDetail(notification);
       return;
     }
+    // 加测：优先跳委托单并带搜索词（与网页一致）；无单号再开详情弹窗
+    if (notification.type === 'addon_request') {
+      if (!navigateToCommissionWithNotification(notification)) {
+        handleViewRequest(notification);
+      }
+      return;
+    }
     if (!notification.is_read) {
       markAsRead(notification.notification_id);
     }
 
-    // 如果是加测申请，打开申请详情
-    if (notification.type === 'addon_request') {
-      handleViewRequest(notification);
-      return;
-    }
-
-    // 统一处理：如果有关联的委托单，跳转到委托单页面并自动搜索
-    // 使用 order_id_display（委托单号）进行搜索，和网页端保持一致
-    // 在Android环境中，使用URL参数和sessionStorage双重保障，确保搜索关键词不会丢失
-    if (notification.related_order_id || notification.order_id_display) {
-      const orderIdToSearch = notification.order_id_display || notification.related_order_id;
-      
-      // 保存到sessionStorage（在Android环境中更可靠）
+    const orderIdToSearch = getOrderIdForSearch(notification);
+    if (orderIdToSearch) {
       sessionStorage.setItem('mobile_commission_notification_search', orderIdToSearch);
-      
-      // 使用URL参数传递搜索关键词（在Android环境中更可靠）
       navigate(`/mobile/commission-form?q=${encodeURIComponent(orderIdToSearch)}`, {
         state: {
-          searchQuery: orderIdToSearch, // 同时传递state作为备用
+          searchQuery: orderIdToSearch,
           highlightOrderId: notification.related_order_id,
           highlightTestItemId: notification.related_test_item_id
         }
@@ -255,20 +245,27 @@ const MobileNotifications = () => {
   };
 
   const handleViewRequest = (notification) => {
+    // 与浏览器一致：有委托单则先跳主页并自动搜索
+    if (navigateToCommissionWithNotification(notification)) {
+      return;
+    }
+
     let requestId = notification.related_addon_request_id || notification.addon_request_id;
-    
     if (!requestId && notification.content) {
-      const match = notification.content.match(/申请ID：(\d+)/);
+      const match = notification.content.match(/申请ID[：:]\s*(\d+)/);
       if (match) {
-        requestId = parseInt(match[1]);
+        requestId = parseInt(match[1], 10);
       }
     }
-    
+
     if (requestId) {
+      if (!notification.is_read) {
+        markAsRead(notification.notification_id);
+      }
       setSelectedRequestId(requestId);
       setShowAddonRequestModal(true);
     } else {
-      alert('无法获取申请ID，请刷新页面重试');
+      alert('无法定位该加测申请，请从委托单页按单号搜索');
     }
   };
 

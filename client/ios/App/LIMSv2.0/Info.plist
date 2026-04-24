@@ -58,5 +58,9 @@
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>用于扫描二维码和条形码，快速搜索委托单。</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>用于从相册选择图片或视频，以在委托单等场景中上传附件。</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>用于将文件保存到相册（如有保存操作时需要）。</string>
 </dict>
 </plist>

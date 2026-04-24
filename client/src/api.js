@@ -1,7 +1,7 @@
 // 统一的后端 API 根地址
 // 优先级：环境变量 > 原生环境检测 > 根据当前页面协议 > 默认值
 
-function getApiBase() {
+export function getApiBase() {
   // 1. 优先使用环境变量（支持 VITE_API_BASE 和 VITE_API_BASE_URL）
   if (import.meta.env.VITE_API_BASE) {
     return import.meta.env.VITE_API_BASE;

@@ -1,5 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { api } from '../api.js';
+import { api, getApiBase } from '../api.js';
+
+function addonRequestsApiPath(suffix) {
+  const path = suffix.startsWith('/') ? suffix : `/${suffix}`;
+  const base = getApiBase();
+  if (base == null || base === '') return path;
+  return `${String(base).replace(/\/$/, '')}${path}`;
+}
 import './AddonRequestModal.css';
 
 const Field = ({label, value, onChange, type='text', disabled=false}) => {
@@ -114,14 +121,23 @@ const AddonRequestModal = ({ requestId, onClose, onApprove }) => {
         return;
       }
 
-      const response = await fetch(`/api/addon-requests/${requestId}`, {
+      const response = await fetch(addonRequestsApiPath(`/api/addon-requests/${requestId}`), {
         headers: {
           'Authorization': `Bearer ${user.token}`
         }
       });
 
       if (!response.ok) {
-        throw new Error('加载申请失败');
+        let detail = response.statusText || '';
+        try {
+          const errBody = await response.json();
+          if (errBody && (errBody.error || errBody.message)) {
+            detail = errBody.error || errBody.message;
+          }
+        } catch (_) {
+          /* 忽略非 JSON 响应体 */
+        }
+        throw new Error(detail || `加载申请失败 (${response.status})`);
       }
 
       const data = await response.json();
@@ -334,7 +350,7 @@ const AddonRequestModal = ({ requestId, onClose, onApprove }) => {
         }
       }
 
-      const response = await fetch(`/api/addon-requests/${requestId}/approve`, {
+      const response = await fetch(addonRequestsApiPath(`/api/addon-requests/${requestId}/approve`), {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${user.token}`,

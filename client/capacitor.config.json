@@ -2,6 +2,9 @@
   "appId": "com.jitri.lims",
   "appName": "limsV2.0",
   "webDir": "dist",
+  "ios": {
+    "scheme": "LIMSv2.0"
+  },
   "server": {
     "cleartext": true
   },
