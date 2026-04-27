@@ -210,6 +210,7 @@ router.post('/generate-wh-report', async (req, res) => {
       `SELECT 
          ti.test_item_id,
          ti.order_id,
+         ti.group_id,
          ti.original_no,
          CONCAT(ti.category_name, ' - ', ti.detail_name) AS test_item,
          ti.standard_code AS test_method,
@@ -311,6 +312,18 @@ router.post('/generate-wh-report', async (req, res) => {
     }));
     const totalCount = tiRows.reduce((sum, it) => sum + (it.quantity || 0), 0);
 
+    // test location：按多选数组中第一个项目的 group_id 判断
+    const firstSelectedTestItemId = test_item_ids[0];
+    const firstSelectedItem = tiRows.find(
+      (item) => String(item.test_item_id) === String(firstSelectedTestItemId)
+    );
+    const firstGroupId = Number(firstSelectedItem?.group_id);
+    const testLocation = firstGroupId === 1
+      ? '1号楼-B108'
+      : firstGroupId === 2
+        ? '1号楼-S103'
+        : '';
+
     let leaderAccount = '';
     try {
       const [leaders] = await pool.query(
@@ -393,6 +406,7 @@ router.post('/generate-wh-report', async (req, res) => {
       customer_address: order.customer_address || '',
       test_items: sanitizedItems,
       total_count: totalCount,
+      test_location: testLocation,
       // 签名字段（作为图片文件路径，用于模板中的 {@signature_manager} 语法）
       // 如果图片不存在，值为 null，getImage 会返回 null，图片模块会跳过该图片
       signature_manager: signatureManagerPath,
