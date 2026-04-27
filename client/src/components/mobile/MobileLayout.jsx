@@ -3,6 +3,24 @@ import { useNavigate, useLocation, NavLink } from 'react-router-dom';
 import MobileScanSearchModal from './MobileScanSearchModal.jsx';
 import './MobileLayout.css';
 
+const ClipboardIcon = () => (
+  <svg viewBox="0 0 24 24" aria-hidden className="mobile-bottom-nav-svg">
+    <path d="M9 3h6a2 2 0 0 1 2 2v1h1a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h1V5a2 2 0 0 1 2-2Zm0 3h6V5H9v1Zm-2 2H6v11h12V8h-1v1a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1V8Z" />
+  </svg>
+);
+
+const BellIcon = () => (
+  <svg viewBox="0 0 24 24" aria-hidden className="mobile-bottom-nav-svg">
+    <path d="M12 3a5 5 0 0 1 5 5v2.7c0 .8.3 1.6.8 2.2l1.4 1.6a1 1 0 0 1-.8 1.7H5.6a1 1 0 0 1-.8-1.7l1.4-1.6c.5-.6.8-1.4.8-2.2V8a5 5 0 0 1 5-5Zm0 18a3 3 0 0 0 2.8-2h-5.6A3 3 0 0 0 12 21Z" />
+  </svg>
+);
+
+const UserIcon = () => (
+  <svg viewBox="0 0 24 24" aria-hidden className="mobile-bottom-nav-svg">
+    <path d="M12 12a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9Zm0 2c-4.2 0-7.5 2.6-8.4 6.2a1 1 0 0 0 1 1.3h14.8a1 1 0 0 0 1-1.3C19.5 16.6 16.2 14 12 14Z" />
+  </svg>
+);
+
 const MobileLayout = ({ children }) => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -20,18 +38,18 @@ const MobileLayout = ({ children }) => {
     {
       path: '/mobile/commission-form',
       label: '委托单',
-      icon: '📋'
+      icon: <ClipboardIcon />
     },
     {
       path: '/mobile/notifications',
       label: '通知',
-      icon: '🔔',
+      icon: <BellIcon />,
       badge: true // 显示未读数量
     },
     {
       path: '/mobile/profile',
       label: '我的',
-      icon: '👤'
+      icon: <UserIcon />
     }
   ];
 
@@ -164,22 +182,26 @@ const MobileLayout = ({ children }) => {
 
       {/* 底部导航栏 */}
       <nav className="mobile-bottom-nav">
-        {bottomNavItems.map(item => {
-          const isActive = location.pathname === item.path;
-          return (
-            <NavLink
-              key={item.path}
-              to={item.path}
-              className={`mobile-bottom-nav-item ${isActive ? 'active' : ''}`}
-            >
-              <span className="mobile-bottom-nav-icon">{item.icon}</span>
-              <span className="mobile-bottom-nav-label">{item.label}</span>
-              {item.badge && (
-                <span className="mobile-bottom-nav-badge" id="notification-badge" />
-              )}
-            </NavLink>
-          );
-        })}
+        <div className="mobile-bottom-nav-shell">
+          {bottomNavItems.map(item => {
+            const isActive = location.pathname === item.path;
+            return (
+              <NavLink
+                key={item.path}
+                to={item.path}
+                className={`mobile-bottom-nav-item ${isActive ? 'active' : ''}`}
+              >
+                <span className="mobile-bottom-nav-icon-wrap">
+                  <span className="mobile-bottom-nav-icon">{item.icon}</span>
+                </span>
+                <span className="mobile-bottom-nav-label">{item.label}</span>
+                {item.badge && (
+                  <span className="mobile-bottom-nav-badge" id="notification-badge" />
+                )}
+              </NavLink>
+            );
+          })}
+        </div>
       </nav>
     </div>
   );

@@ -210,7 +210,7 @@
   flex: 1;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  padding-bottom: 70px; /* 为底部导航栏留出空间（增加一些余量） */
+  padding-bottom: 92px; /* 为浮动底栏留出空间 */
 }
 
 /* 底部导航栏 */
@@ -220,13 +220,23 @@
   left: 0;
   right: 0;
   display: flex;
-  background: #fff;
-  border-top: 1px solid #e0e0e0;
-  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.05);
+  justify-content: center;
   z-index: 100;
-  /* 为 iOS 底部安全区域留出空间 */
-  padding-bottom: env(safe-area-inset-bottom, 0);
-  min-height: 60px;
+  background: transparent;
+  padding: 0 12px calc(env(safe-area-inset-bottom, 0) + 8px);
+  box-sizing: border-box;
+}
+
+.mobile-bottom-nav-shell {
+  width: 100%;
+  max-width: 520px;
+  display: flex;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid #e9edf5;
+  border-radius: 999px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  padding: 6px 10px 8px;
+  backdrop-filter: blur(8px);
 }
 
 .mobile-bottom-nav-item {
@@ -235,38 +245,82 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 6px 4px 8px;
+  padding: 2px 4px 0;
   color: #666;
   text-decoration: none;
   position: relative;
   transition: color 0.2s;
   min-width: 0; /* 允许内容收缩 */
+  -webkit-tap-highlight-color: transparent;
+  background: transparent !important;
+  border: none !important;
 }
 
 .mobile-bottom-nav-item.active {
-  color: #2c5aa0;
+  color: #111827;
+  background: transparent !important;
+  border: none !important;
+}
+
+.mobile-bottom-nav .mobile-bottom-nav-item:hover,
+.mobile-bottom-nav .mobile-bottom-nav-item:focus,
+.mobile-bottom-nav .mobile-bottom-nav-item:focus-visible,
+.mobile-bottom-nav .mobile-bottom-nav-item.active:hover,
+.mobile-bottom-nav .mobile-bottom-nav-item.active:focus {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  outline: none;
+}
+
+.mobile-bottom-nav-icon-wrap {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.12s;
+}
+
+.mobile-bottom-nav-item:active .mobile-bottom-nav-icon-wrap {
+  transform: scale(0.96);
 }
 
 .mobile-bottom-nav-icon {
-  font-size: 22px;
-  margin-bottom: 2px;
   flex-shrink: 0;
+  line-height: 1;
+  color: currentColor;
+}
+
+.mobile-bottom-nav-svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+  fill: currentColor;
 }
 
 .mobile-bottom-nav-label {
-  font-size: 11px;
+  margin-top: 1px;
+  font-size: 12px;
+  font-weight: 500;
   line-height: 1.2;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 100%;
+  display: block;
+  opacity: 0.95;
+  color: currentColor;
+}
+
+.mobile-bottom-nav-item.active .mobile-bottom-nav-label {
+  font-weight: 600;
+  opacity: 1;
 }
 
 .mobile-bottom-nav-badge {
   position: absolute;
-  top: 6px;
+  top: 4px;
   right: 50%;
-  transform: translateX(12px);
+  transform: translateX(14px);
   width: 8px;
   height: 8px;
   background: #dc3545;

@@ -165,6 +165,13 @@ const handleMulterError = (err, req, res, next) => {
 router.use(requireAuth);
 
 const UPLOAD_ROLES = ['admin', 'leader', 'supervisor', 'employee', 'viewer'];
+const RAW_UPLOAD_REQUIRED_ROLES = new Set(['leader', 'supervisor', 'employee']);
+const hasFilledValue = (value) => value !== null && value !== undefined && !(typeof value === 'string' && value.trim() === '');
+const hasNonNegativeNumber = (value) => {
+  if (value === null || value === undefined || value === '') return false;
+  const num = Number(value);
+  return Number.isFinite(num) && num >= 0;
+};
 
 // 上传文件
 router.post('/upload', 
@@ -201,6 +208,29 @@ router.post('/upload',
     const originalName = decodeFileName(req.file.originalname);
     
     const pool = await getPool();
+    if (category === 'raw_data' && test_item_id && RAW_UPLOAD_REQUIRED_ROLES.has(user.role)) {
+      const [testItems] = await pool.query(
+        `SELECT equipment_id, actual_sample_quantity, unit, work_hours, machine_hours
+         FROM test_items WHERE test_item_id = ? LIMIT 1`,
+        [test_item_id]
+      );
+      if (testItems.length === 0) {
+        if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+        return res.status(404).json({ error: '检测项目不存在' });
+      }
+      const ti = testItems[0];
+      const ready =
+        hasFilledValue(ti.equipment_id) &&
+        hasNonNegativeNumber(ti.actual_sample_quantity) &&
+        hasFilledValue(ti.unit) &&
+        hasNonNegativeNumber(ti.work_hours) &&
+        hasNonNegativeNumber(ti.machine_hours);
+      if (!ready) {
+        if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+        return res.status(400).json({ error: '上传原始数据前，请先填写检测设备、计费数量、单位、测试工时、测试机时' });
+      }
+    }
+
     const [result] = await pool.query(
       `INSERT INTO project_files 
        (category, filename, filepath, order_id, test_item_id, sample_id, uploaded_by) 
@@ -381,6 +411,21 @@ router.get('/download/:id', requireAnyRole(['admin', 'leader', 'supervisor', 'em
     }
     
     const file = rows[0];
+
+    if (req.user.role === 'sales' && file.category === 'raw_data' && file.test_item_id) {
+      const [testItems] = await pool.query(
+        `SELECT current_assignee, business_confirmed FROM test_items WHERE test_item_id = ? LIMIT 1`,
+        [file.test_item_id]
+      );
+      if (testItems.length > 0) {
+        const ti = testItems[0];
+        const isCurrentAssignee = Number(ti.current_assignee) === Number(req.user.user_id);
+        const isBusinessConfirmed = ti.business_confirmed === 1 || ti.business_confirmed === true || ti.business_confirmed === '1';
+        if (isCurrentAssignee && !isBusinessConfirmed) {
+          return res.status(403).json({ error: '请先确认合同价格再下载原始数据' });
+        }
+      }
+    }
     
     if (!fs.existsSync(file.filepath)) {
       return res.status(404).json({ error: '文件已被删除' });

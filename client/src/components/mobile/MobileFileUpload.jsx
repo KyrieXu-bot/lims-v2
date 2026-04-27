@@ -65,6 +65,7 @@ const MobileFileUpload = ({
   userRole,
   businessConfirmed,
   currentAssignee,
+  testItemData,
   onFileUploaded,
   enableUpload = false, // 手机端默认不允许上传，仅保留下载
 }) => {
@@ -83,6 +84,35 @@ const MobileFileUpload = ({
   ];
 
   const canUpload = enableUpload && ['admin', 'leader', 'supervisor', 'employee', 'sales'].includes(userRole);
+
+  const hasValue = (value) => {
+    if (value === null || value === undefined) return false;
+    if (typeof value === 'string' && value.trim() === '') return false;
+    return true;
+  };
+
+  const hasNonNegativeNumber = (value) => {
+    if (value === null || value === undefined || value === '') return false;
+    const num = Number(value);
+    return !Number.isNaN(num) && num >= 0;
+  };
+
+  const checkRawDataRequiredFields = (item) => {
+    if (!item) return { allFilled: false };
+    const equipmentFilled = hasValue(item.equipment_id) || hasValue(item.equipment_name);
+    const quantityFilled = hasNonNegativeNumber(item.actual_sample_quantity);
+    const unitFilled = hasValue(item.unit);
+    const workHoursFilled = hasNonNegativeNumber(item.work_hours);
+    const machineHoursFilled = hasNonNegativeNumber(item.machine_hours);
+    return {
+      allFilled: equipmentFilled && quantityFilled && unitFilled && workHoursFilled && machineHoursFilled,
+      equipmentFilled,
+      quantityFilled,
+      unitFilled,
+      workHoursFilled,
+      machineHoursFilled
+    };
+  };
 
   useEffect(() => {
     if (testItemId) {
@@ -325,6 +355,23 @@ const MobileFileUpload = ({
   // 统一的文件上传处理函数
   const handleFilesUpload = async (selectedFiles) => {
     if (selectedFiles.length === 0) return;
+
+    if (selectedCategory === 'raw_data') {
+      const shouldValidateRawUpload = userRole === 'employee' || userRole === 'supervisor' || userRole === 'leader';
+      if (shouldValidateRawUpload) {
+        const check = checkRawDataRequiredFields(testItemData);
+        if (!check.allFilled) {
+          const missing = [];
+          if (!check.equipmentFilled) missing.push('检测设备');
+          if (!check.quantityFilled) missing.push('计费数量');
+          if (!check.unitFilled) missing.push('单位');
+          if (!check.workHoursFilled) missing.push('测试工时');
+          if (!check.machineHoursFilled) missing.push('测试机时');
+          alert(`上传原始数据前，请先填写以下必填项：\n${missing.join('、')}`);
+          return;
+        }
+      }
+    }
 
     setUploading(true);
     const initialProgress = {};

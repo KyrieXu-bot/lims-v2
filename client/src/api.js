@@ -491,7 +491,7 @@ export const api = {
   },
 
   // 委托单登记表API
-  async getCommissionFormData({ q = '', page = 1, pageSize = 100, status, order_id } = {}) {
+  async getCommissionFormData({ q = '', page = 1, pageSize = 100, status, order_id, month_filter, my_items } = {}) {
     const params = new URLSearchParams({ q, page, pageSize });
     // 支持多个状态筛选（数组或单个值）
     if (status) {
@@ -502,7 +502,15 @@ export const api = {
       }
     }
     if (order_id) params.set('order_id', order_id);
+    if (month_filter) params.set('month_filter', month_filter);
+    if (my_items !== undefined) params.set('my_items', my_items ? 'true' : 'false');
     const r = await fetch(`${API_BASE}/api/commission-form/commission-form?${params.toString()}`, { headers: this.authHeaders() });
+    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
+    return r.json();
+  },
+
+  async getCommissionFormMonthOptions() {
+    const r = await fetch(`${API_BASE}/api/commission-form/month-options`, { headers: this.authHeaders() });
     if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
     return r.json();
   },

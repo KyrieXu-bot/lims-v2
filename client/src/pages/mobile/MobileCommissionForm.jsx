@@ -6,6 +6,50 @@ import MobileFileUpload from '../../components/mobile/MobileFileUpload.jsx';
 import Toast from '../../components/Toast.jsx';
 import './MobileCommissionForm.css';
 
+const getServiceUrgencyMultiplier = (serviceUrgency) => {
+  if (serviceUrgency === '加急1.5倍') return 1.5;
+  if (serviceUrgency === '特急2倍') return 2;
+  return 1;
+};
+
+const toNonNegativeNumber = (value) => {
+  if (value === null || value === undefined || value === '') return null;
+  const num = Number(value);
+  if (Number.isNaN(num) || num < 0) return null;
+  return num;
+};
+
+const calculateFinalUnitPrice = (item) => {
+  const priceNote = toNonNegativeNumber(item.price_note);
+  const discountRate = toNonNegativeNumber(item.discount_rate);
+  const actualQuantity = toNonNegativeNumber(item.actual_sample_quantity);
+  if (priceNote === null || discountRate === null || actualQuantity === null || discountRate > 100) {
+    return null;
+  }
+  const urgency = getServiceUrgencyMultiplier(item.service_urgency);
+  return Number((priceNote * (discountRate / 100) * actualQuantity * urgency).toFixed(2));
+};
+
+const calculateLineTotal = (item) => {
+  const standardPrice = toNonNegativeNumber(item.standard_price ?? item.unit_price);
+  const actualQuantity = toNonNegativeNumber(item.actual_sample_quantity);
+  const discountRate = toNonNegativeNumber(item.discount_rate);
+  if (standardPrice === null || actualQuantity === null || discountRate === null || discountRate > 100) {
+    return null;
+  }
+  const urgency = getServiceUrgencyMultiplier(item.service_urgency);
+  return Number((standardPrice * actualQuantity * (discountRate / 100) * urgency).toFixed(2));
+};
+
+const calculateLabPrice = (finalUnitPrice, lineTotal) => {
+  const finalPrice = toNonNegativeNumber(finalUnitPrice);
+  const total = toNonNegativeNumber(lineTotal);
+  if (finalPrice === null || total === null || total === 0) return null;
+  const ratio = finalPrice / total;
+  if (ratio > 0.7) return finalPrice;
+  return Number((total * 0.7).toFixed(2));
+};
+
 const MobileCommissionForm = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -46,6 +90,11 @@ const MobileCommissionForm = () => {
   const [hasMore, setHasMore] = useState(true);
   const [searchQuery, setSearchQuery] = useState(getInitialSearchQuery);
   const [statusFilter, setStatusFilter] = useState([]);
+  const [monthFilter, setMonthFilter] = useState('');
+  const [monthOptions, setMonthOptions] = useState([]);
+  const [myItemsOnly, setMyItemsOnly] = useState(false);
+  const [showStatusDropdown, setShowStatusDropdown] = useState(false);
+  const [forceSearchTick, setForceSearchTick] = useState(0);
   const [selectedItem, setSelectedItem] = useState(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const pageSize = 100;
@@ -88,7 +137,9 @@ const MobileCommissionForm = () => {
         q: searchQuery,
         page: currentPage,
         pageSize: pageSize,
-        status: statusParams // 传递数组，支持多个状态筛选
+        status: statusParams, // 传递数组，支持多个状态筛选
+        month_filter: monthFilter || undefined,
+        my_items: myItemsOnly
       });
 
       const newData = result.data || [];
@@ -141,7 +192,9 @@ const MobileCommissionForm = () => {
         q: searchQuery,
         page: nextPage,
         pageSize: pageSize,
-        status: statusParams
+        status: statusParams,
+        month_filter: monthFilter || undefined,
+        my_items: myItemsOnly
       });
 
       const newData = result.data || [];
@@ -162,7 +215,7 @@ const MobileCommissionForm = () => {
       loadingMoreRef.current = false;
       setLoadingMore(false);
     }
-  }, [page, searchQuery, statusFilter]);
+  }, [page, searchQuery, statusFilter, monthFilter, myItemsOnly]);
 
   // 滚动监听
   useEffect(() => {
@@ -225,7 +278,20 @@ const MobileCommissionForm = () => {
       console.log('触发fetchData，searchQuery:', searchQuery, 'statusFilter:', statusFilter);
       fetchData(true);
     }
-  }, [searchQuery, statusFilter]);
+  }, [searchQuery, statusFilter, monthFilter, myItemsOnly, forceSearchTick]);
+
+  useEffect(() => {
+    if (!user?.token) return;
+    const loadMonthOptions = async () => {
+      try {
+        const months = await api.getCommissionFormMonthOptions();
+        setMonthOptions(Array.isArray(months) ? months : []);
+      } catch (error) {
+        console.error('加载月份选项失败:', error);
+      }
+    };
+    loadMonthOptions();
+  }, [user?.token]);
 
   // 监听实时更新
   useEffect(() => {
@@ -258,6 +324,8 @@ const MobileCommissionForm = () => {
     { value: 'new', label: '新建' },
     { value: 'assigned', label: '已分配' },
     { value: 'running', label: '进行中' },
+    { value: 'waiting_review', label: '待审核' },
+    { value: 'report_uploaded', label: '待传数据' },
     { value: 'completed', label: '已完成' },
     { value: 'cancelled', label: '已取消' }
   ];
@@ -268,6 +336,22 @@ const MobileCommissionForm = () => {
         ? prev.filter(s => s !== status)
         : [...prev, status]
     );
+  };
+
+  const selectedStatusLabel =
+    statusFilter.length === 0
+      ? '全部状态'
+      : `已选${statusFilter.length}项`;
+
+  const handleResetSearch = () => {
+    setSearchQuery('');
+    setStatusFilter([]);
+    setMonthFilter('');
+    setMyItemsOnly(false);
+  };
+
+  const handleHardSearch = () => {
+    setForceSearchTick((prev) => prev + 1);
   };
 
   const getStatusBadgeClass = (status) => {
@@ -296,30 +380,119 @@ const MobileCommissionForm = () => {
     return statusMap[status] || status;
   };
 
+  const isBusinessConfirmed = (record) =>
+    record?.business_confirmed === 1 || record?.business_confirmed === true || record?.business_confirmed === '1';
+
+  const hasCnasSeal = (item) => {
+    const seals = item?.report_seals;
+    if (!seals) return false;
+    return String(seals).toUpperCase().includes('CNAS');
+  };
+
+  const getUrgencyTag = (serviceUrgency) => {
+    if (serviceUrgency === '加急1.5倍') return '加急';
+    if (serviceUrgency === '特急2倍') return '特急';
+    return '';
+  };
+
+  const getFlowNeighbors = (item) => {
+    if (!item?.order_id || item?.seq_no === null || item?.seq_no === undefined) {
+      return { prev: '-', next: '-' };
+    }
+    const sameOrder = data
+      .filter((x) => x.order_id === item.order_id && x.seq_no !== null && x.seq_no !== undefined)
+      .sort((a, b) => Number(a.seq_no) - Number(b.seq_no));
+    const currentIndex = sameOrder.findIndex((x) => x.test_item_id === item.test_item_id);
+    if (currentIndex === -1) return { prev: '-', next: '-' };
+    const prevItem = currentIndex > 0 ? sameOrder[currentIndex - 1] : null;
+    const nextItem = currentIndex < sameOrder.length - 1 ? sameOrder[currentIndex + 1] : null;
+    return {
+      prev: prevItem ? (prevItem.group_name || prevItem.detail_name || `#${prevItem.seq_no}`) : '-',
+      next: nextItem ? (nextItem.group_name || nextItem.detail_name || `#${nextItem.seq_no}`) : '-'
+    };
+  };
+
   return (
     <div className="mobile-commission-form">
       {/* 搜索栏 */}
       <div className="mobile-search-bar">
-        <input
-          type="text"
-          placeholder="搜索项目编号、委托单位..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="mobile-search-input"
-        />
+        <div className="mobile-search-input-wrap">
+          <input
+            type="text"
+            placeholder="搜索项目编号、委托单位..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="mobile-search-input"
+          />
+          <div className="mobile-search-actions">
+            <button className="mobile-search-action-btn" onClick={handleHardSearch}>
+              搜索
+            </button>
+            <button className="mobile-search-action-btn" onClick={handleResetSearch}>
+              重置
+            </button>
+            {user?.role === 'sales' && (
+              <button
+                className={`mobile-search-action-btn ${myItemsOnly ? 'active' : ''}`}
+                onClick={() => setMyItemsOnly(prev => !prev)}
+              >
+                我的
+              </button>
+            )}
+          </div>
+        </div>
       </div>
 
-      {/* 状态筛选 */}
-      <div className="mobile-status-filters">
-        {statusOptions.map(option => (
+      {/* 状态/月份筛选 */}
+      <div className="mobile-filter-row">
+        <select
+          className="mobile-filter-select mobile-month-filter"
+          value={monthFilter}
+          onChange={(e) => setMonthFilter(e.target.value)}
+        >
+          <option value="">全部月份</option>
+          {monthOptions.map((month) => (
+            <option key={month} value={month}>{month}</option>
+          ))}
+        </select>
+
+        <div className="mobile-status-dropdown">
           <button
-            key={option.value}
-            className={`mobile-status-filter-btn ${statusFilter.includes(option.value) ? 'active' : ''}`}
-            onClick={() => toggleStatusFilter(option.value)}
+            className="mobile-filter-select mobile-filter-select-btn"
+            onClick={() => setShowStatusDropdown((prev) => !prev)}
           >
-            {option.label}
+            <span>{selectedStatusLabel}</span>
+            <span className="mobile-filter-caret">{showStatusDropdown ? '▲' : '▼'}</span>
           </button>
-        ))}
+          {showStatusDropdown && (
+            <div className="mobile-status-dropdown-panel">
+              {statusOptions.map((option) => (
+                <label key={option.value} className="mobile-status-option">
+                  <input
+                    type="checkbox"
+                    checked={statusFilter.includes(option.value)}
+                    onChange={() => toggleStatusFilter(option.value)}
+                  />
+                  <span>{option.label}</span>
+                </label>
+              ))}
+              <div className="mobile-status-dropdown-footer">
+                <button
+                  className="mobile-status-clear-btn"
+                  onClick={() => setStatusFilter([])}
+                >
+                  清空
+                </button>
+                <button
+                  className="mobile-status-done-btn"
+                  onClick={() => setShowStatusDropdown(false)}
+                >
+                  完成
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* 列表 */}
@@ -330,53 +503,84 @@ const MobileCommissionForm = () => {
       ) : (
         <div className="mobile-commission-list">
           {data.map(item => (
-            <div
-              key={item.test_item_id}
-              className="mobile-commission-card"
-              onClick={() => handleItemClick(item)}
-            >
-              <div className="mobile-card-header">
-                <div className="mobile-card-title">
-                  <span className="mobile-test-code">{item.order_id_display || item.order_id || '未编号'}</span>
-                  <span className={`mobile-status-badge ${getStatusBadgeClass(item.status)}`}>
-                    {getStatusLabel(item.status)}
-                  </span>
+            (() => {
+              const flow = getFlowNeighbors(item);
+              const urgencyTag = getUrgencyTag(item.service_urgency);
+              return (
+                <div
+                  key={item.test_item_id}
+                  className="mobile-commission-card"
+                  onClick={() => handleItemClick(item)}
+                >
+                  <div className="mobile-card-header">
+                    <div className="mobile-card-title">
+                      <span className="mobile-test-code">{item.order_id_display || item.order_id || '未编号'}</span>
+                      <div className="mobile-card-status-group">
+                        {hasCnasSeal(item) && (
+                          <span className="mobile-cnas-badge">CNAS</span>
+                        )}
+                        <span className={`mobile-status-badge ${getStatusBadgeClass(item.status)}`}>
+                          {getStatusLabel(item.status)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mobile-card-body">
+                    {item.customer_name && (
+                      <div className="mobile-card-row">
+                        <span className="mobile-card-label">委托单位:</span>
+                        <span className="mobile-card-value">{item.customer_name}</span>
+                      </div>
+                    )}
+                    {item.detail_name && (
+                      <div className="mobile-card-row">
+                        <span className="mobile-card-label">检测项目:</span>
+                        <span className="mobile-card-value">{item.detail_name}</span>
+                      </div>
+                    )}
+                    {item.supervisor_name && (
+                      <div className="mobile-card-row">
+                        <span className="mobile-card-label">负责人:</span>
+                        <span className="mobile-card-value">{item.supervisor_name}</span>
+                      </div>
+                    )}
+                    {item.technician_name && (
+                      <div className="mobile-card-row">
+                        <span className="mobile-card-label">测试人员:</span>
+                        <span className="mobile-card-value">{item.technician_name}</span>
+                      </div>
+                    )}
+                    {item.final_unit_price !== null && item.final_unit_price !== undefined && (
+                      <div className="mobile-card-row">
+                        <span className="mobile-card-label">测试总价:</span>
+                        <span className="mobile-card-value mobile-price">
+                          ¥{Number(item.final_unit_price).toFixed(2)}
+                          {isBusinessConfirmed(item) && <span className="mobile-price-check-icon" title="业务已确认">✓</span>}
+                        </span>
+                      </div>
+                    )}
+                    {item.seq_no !== null && item.seq_no !== undefined && (
+                      <div className="mobile-card-row">
+                        <span className="mobile-card-label">流转:</span>
+                        <span className="mobile-card-value">前{flow.prev}、后{flow.next}</span>
+                      </div>
+                    )}
+                    {Number(item.is_add_on) > 0 && (
+                      <div className="mobile-card-row">
+                        <span className="mobile-card-label">加测:</span>
+                        <span className="mobile-card-value">{item.addon_reason || '加测项目'}</span>
+                      </div>
+                    )}
+                    {urgencyTag && (
+                      <div className={`mobile-card-urgency-tag ${urgencyTag === '特急' ? 'very-urgent' : 'urgent'}`}>
+                        {urgencyTag}
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-              
-              <div className="mobile-card-body">
-                {item.customer_name && (
-                  <div className="mobile-card-row">
-                    <span className="mobile-card-label">委托单位:</span>
-                    <span className="mobile-card-value">{item.customer_name}</span>
-                  </div>
-                )}
-                {item.detail_name && (
-                  <div className="mobile-card-row">
-                    <span className="mobile-card-label">检测项目:</span>
-                    <span className="mobile-card-value">{item.detail_name}</span>
-                  </div>
-                )}
-                {item.supervisor_name && (
-                  <div className="mobile-card-row">
-                    <span className="mobile-card-label">负责人:</span>
-                    <span className="mobile-card-value">{item.supervisor_name}</span>
-                  </div>
-                )}
-                {item.technician_name && (
-                  <div className="mobile-card-row">
-                    <span className="mobile-card-label">测试人员:</span>
-                    <span className="mobile-card-value">{item.technician_name}</span>
-                  </div>
-                )}
-                {item.final_unit_price !== null && item.final_unit_price !== undefined && (
-                  <div className="mobile-card-row">
-                    <span className="mobile-card-label">测试总价:</span>
-                    <span className="mobile-card-value mobile-price">¥{Number(item.final_unit_price).toFixed(2)}</span>
-                  </div>
-                )}
-              </div>
-            </div>
+              );
+            })()
           ))}
           
           {/* 加载更多提示 */}
@@ -428,6 +632,45 @@ const MobileCommissionDetail = ({ item, onClose, onUpdate }) => {
 
   // 计算组长部门ID
   const leaderDepartmentId = user?.department_id ? Number(user.department_id) : null;
+  const isBusinessConfirmed = formData?.business_confirmed === 1 || formData?.business_confirmed === true || formData?.business_confirmed === '1';
+  const normalizeId = (id) => {
+    if (id === null || id === undefined || id === '') return null;
+    const n = Number(id);
+    return Number.isNaN(n) ? null : n;
+  };
+  const isCurrentSalesAssigneeById =
+    normalizeId(user?.user_id) !== null &&
+    normalizeId(formData?.current_assignee) !== null &&
+    normalizeId(user?.user_id) === normalizeId(formData?.current_assignee);
+  const isCurrentSalesAssigneeByName =
+    !!user?.name &&
+    !!formData?.assignee_name &&
+    String(user.name).trim() === String(formData.assignee_name).trim();
+  const isCurrentSalesAssignee =
+    user?.role === 'sales' &&
+    (isCurrentSalesAssigneeById || isCurrentSalesAssigneeByName);
+  const hasValue = (value) => value !== null && value !== undefined && !(typeof value === 'string' && value.trim() === '');
+  const hasNonNegativeNumber = (value) => {
+    if (value === null || value === undefined || value === '') return false;
+    const num = Number(value);
+    return !Number.isNaN(num) && num >= 0;
+  };
+  const checkRawDataRequiredFields = (current) => {
+    const equipmentFilled = hasValue(current?.equipment_id) || hasValue(current?.equipment_name);
+    const quantityFilled = hasNonNegativeNumber(current?.actual_sample_quantity);
+    const unitFilled = hasValue(current?.unit);
+    const workHoursFilled = hasNonNegativeNumber(current?.work_hours);
+    const machineHoursFilled = hasNonNegativeNumber(current?.machine_hours);
+    const standardTotalFilled = hasNonNegativeNumber(current?.line_total);
+    const unitMismatchReviewed = Number(current?.unit_mismatch_reviewed ?? 0);
+    // 与浏览器端保持一致：业务确认价格依赖标准总价（line_total）是否可用，
+    // 不直接要求 unit_price 必填；单位不一致待处理状态不应误判为“实验数据未填写”。
+    const pricingReady = standardTotalFilled || unitMismatchReviewed === 1;
+    return {
+      allFilled: equipmentFilled && quantityFilled && unitFilled && workHoursFilled && machineHoursFilled && pricingReady
+    };
+  };
+  const salesCanEditPrice = !isCurrentSalesAssignee || checkRawDataRequiredFields(formData).allFilled;
 
   // 加载选项列表
   useEffect(() => {
@@ -503,7 +746,20 @@ const MobileCommissionDetail = ({ item, onClose, onUpdate }) => {
   // 当item变化时，更新formData
   useEffect(() => {
     if (item) {
-      setFormData(item);
+      const nextData = { ...item };
+      const confirmed = nextData.business_confirmed === 1 || nextData.business_confirmed === true || nextData.business_confirmed === '1';
+      if (!confirmed) {
+        const calculatedFinal = calculateFinalUnitPrice(nextData);
+        const calculatedLineTotal = calculateLineTotal(nextData);
+        const calculatedLabPrice = calculateLabPrice(
+          calculatedFinal !== null ? calculatedFinal : nextData.final_unit_price,
+          calculatedLineTotal !== null ? calculatedLineTotal : nextData.line_total
+        );
+        if (calculatedFinal !== null) nextData.final_unit_price = calculatedFinal;
+        if (calculatedLineTotal !== null) nextData.line_total = calculatedLineTotal;
+        if (calculatedLabPrice !== null) nextData.lab_price = calculatedLabPrice;
+      }
+      setFormData(nextData);
     }
   }, [item?.test_item_id]);
 
@@ -529,13 +785,18 @@ const MobileCommissionDetail = ({ item, onClose, onUpdate }) => {
     if (formData && formData.status === 'cancelled') {
       return false;
     }
+    if (isBusinessConfirmed) {
+      return false;
+    }
     if (role === 'admin') {
       return true;
     }
     if (role === 'leader') {
-      return canLeaderEditItem(formData);
+      if (!canLeaderEditItem(formData)) return false;
+      return ['unit_price', 'technician_name', 'assignment_note'].includes(field);
     }
     if (role === 'sales') {
+      if (!isCurrentSalesAssignee) return false;
       return ['final_unit_price', 'business_note'].includes(field);
     }
     if (role === 'employee') {
@@ -546,24 +807,16 @@ const MobileCommissionDetail = ({ item, onClose, onUpdate }) => {
       ].includes(field);
     }
     if (role === 'supervisor') {
-      const baseFields = [
-        'supervisor_name', 'unit_price', 'technician_name', 'assignment_note',
-        'field_test_time', 'equipment_name'
-      ];
-      // 如果组长将自己分配为实验员，则额外允许编辑计费数量、单位、机时、工时、价格
-      if (formData && formData.technician_name === user?.name) {
-        const extendedFields = [
-          ...baseFields,
-          'actual_sample_quantity', 'unit', 'work_hours', 'machine_hours', 'final_unit_price'
-        ];
-        return extendedFields.includes(field);
-      }
-      return baseFields.includes(field);
+      return ['unit_price', 'technician_name', 'assignment_note'].includes(field);
     }
     return false;
   };
 
   const handleFieldChange = async (field, value) => {
+    if (isBusinessConfirmed) {
+      alert('业务已确认价格，当前项目已锁定不可修改');
+      return;
+    }
     const newData = { ...formData, [field]: value };
     setFormData(newData);
 
@@ -636,6 +889,19 @@ const MobileCommissionDetail = ({ item, onClose, onUpdate }) => {
       else {
         updateData[field] = value;
       }
+
+      const pricingShouldRecalc = field === 'actual_sample_quantity';
+      if (pricingShouldRecalc) {
+        const calculatedFinal = calculateFinalUnitPrice(newData);
+        const calculatedLineTotal = calculateLineTotal(newData);
+        const nextFinalPrice = calculatedFinal !== null ? calculatedFinal : newData.final_unit_price;
+        const nextLineTotal = calculatedLineTotal !== null ? calculatedLineTotal : newData.line_total;
+        const calculatedLabPrice = calculateLabPrice(nextFinalPrice, nextLineTotal);
+
+        if (calculatedFinal !== null) updateData.final_unit_price = calculatedFinal;
+        if (calculatedLineTotal !== null) updateData.line_total = calculatedLineTotal;
+        if (calculatedLabPrice !== null) updateData.lab_price = calculatedLabPrice;
+      }
       
       await api.updateTestItem(item.test_item_id, updateData);
       // 更新 formData 中的其他字段（如状态等自动更新的字段）
@@ -649,6 +915,44 @@ const MobileCommissionDetail = ({ item, onClose, onUpdate }) => {
       alert('保存失败: ' + error.message);
       // 恢复原值
       setFormData(formData);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleBusinessConfirm = async () => {
+    if (!isCurrentSalesAssignee) return;
+    if (!salesCanEditPrice) {
+      alert('实验数据未填写');
+      return;
+    }
+    if (isBusinessConfirmed) {
+      alert('该项目已确认价格');
+      return;
+    }
+
+    const finalUnitPrice = toNonNegativeNumber(formData.final_unit_price);
+    const lineTotal = toNonNegativeNumber(formData.line_total);
+    const labPrice = calculateLabPrice(finalUnitPrice, lineTotal);
+    if (finalUnitPrice === null || lineTotal === null) {
+      alert('请先补全计费数量后再确认价格');
+      return;
+    }
+
+    try {
+      setSaving(true);
+      const payload = {
+        final_unit_price: finalUnitPrice,
+        line_total: lineTotal,
+        business_confirmed: 1
+      };
+      if (labPrice !== null) payload.lab_price = labPrice;
+      await api.updateTestItem(item.test_item_id, payload);
+      setFormData((prev) => ({ ...prev, ...payload }));
+      setShowToast(true);
+      if (onUpdate) onUpdate();
+    } catch (error) {
+      alert('确认失败: ' + error.message);
     } finally {
       setSaving(false);
     }
@@ -714,6 +1018,89 @@ const MobileCommissionDetail = ({ item, onClose, onUpdate }) => {
     );
   };
 
+  const renderReadonlyField = (label, value) => (
+    <div className="mobile-form-field">
+      <label className="mobile-form-label">{label}</label>
+      <div className="mobile-form-readonly">{value || '-'}</div>
+    </div>
+  );
+
+  const renderFinalPriceField = () => {
+    const isEditable = canEditField('final_unit_price');
+    const value = formData.final_unit_price ?? '';
+    const canEditPriceInput = isEditable && salesCanEditPrice;
+    const showMissingTip = isCurrentSalesAssignee && !salesCanEditPrice;
+
+    return (
+      <div className="mobile-form-field">
+        <label className="mobile-form-label">测试总价</label>
+        <div className="mobile-final-price-row">
+          {canEditPriceInput ? (
+            <input
+              type="number"
+              className="mobile-form-input mobile-final-price-input"
+              value={value}
+              onChange={(e) => handleFieldChange('final_unit_price', e.target.value)}
+              placeholder="请输入测试总价"
+            />
+          ) : (
+            <div className="mobile-form-readonly mobile-final-price-input">{value || '-'}</div>
+          )}
+          {isCurrentSalesAssignee && (
+            isBusinessConfirmed ? (
+              <div className="mobile-form-readonly mobile-price-confirm-status">
+                已确认 <span className="mobile-price-check-icon" title="业务已确认">✓</span>
+              </div>
+            ) : (
+              <button
+                className={`mobile-status-filter-btn active mobile-price-confirm-btn ${!salesCanEditPrice ? 'disabled' : ''}`}
+                onClick={handleBusinessConfirm}
+                disabled={!salesCanEditPrice}
+                title={!salesCanEditPrice ? '实验数据未填写' : '确认测试总价'}
+              >
+                确认
+              </button>
+            )
+          )}
+        </div>
+        {showMissingTip && (
+          <div className="mobile-price-missing-tip">实验数据未填写</div>
+        )}
+      </div>
+    );
+  };
+
+  const renderUnitPriceField = () => {
+    const isEditable = canEditField('unit_price');
+    const resolvedUnitPrice = formData.standard_price ?? formData.unit_price;
+    const value = resolvedUnitPrice ?? '';
+    const hasDisplayValue = value !== null && value !== undefined && value !== '';
+    const mismatchStatus = Number(formData.unit_mismatch_reviewed ?? 0);
+    const readonlyClass =
+      hasDisplayValue && mismatchStatus === 1
+        ? 'mobile-form-readonly mobile-unit-price-mismatch'
+        : hasDisplayValue && mismatchStatus === 2
+          ? 'mobile-form-readonly mobile-unit-price-reviewed'
+          : 'mobile-form-readonly';
+
+    return (
+      <div className="mobile-form-field">
+        <label className="mobile-form-label">标准单价</label>
+        {isEditable ? (
+          <input
+            type="number"
+            className="mobile-form-input"
+            value={value}
+            onChange={(e) => handleFieldChange('unit_price', e.target.value)}
+            placeholder="请输入标准单价"
+          />
+        ) : (
+          <div className={readonlyClass}>{value || '-'}</div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="mobile-detail-modal">
       <div className="mobile-detail-overlay" onClick={onClose} />
@@ -728,7 +1115,7 @@ const MobileCommissionDetail = ({ item, onClose, onUpdate }) => {
             className={`mobile-detail-tab ${activeTab === 'basic' ? 'active' : ''}`}
             onClick={() => setActiveTab('basic')}
           >
-            基本信息
+            开单信息
           </button>
           <button
             className={`mobile-detail-tab ${activeTab === 'test' ? 'active' : ''}`}
@@ -753,15 +1140,18 @@ const MobileCommissionDetail = ({ item, onClose, onUpdate }) => {
         <div className="mobile-detail-body">
           {activeTab === 'basic' && (
             <div className="mobile-detail-section">
-              <div className="mobile-form-field">
-                <label className="mobile-form-label">委托单号</label>
-                <div className="mobile-form-readonly">
-                  {formData.order_id_display || formData.order_id || '-'}
-                </div>
-              </div>
+              {renderReadonlyField('委托单号', formData.order_id_display || formData.order_id)}
+              {renderReadonlyField('开单单位', formData.customer_commissioner_name || formData.commissioner_name)}
               {renderField('委托单位', 'customer_name')}
+              {renderReadonlyField('委托联系人', formData.customer_contact_name)}
+              {renderReadonlyField('付款联系人', formData.payer_contact_name)}
+              {renderReadonlyField('归属部门', formData.department_name || formData.department_id)}
               {renderField('检测项目', 'detail_name')}
               {renderField('项目编号', 'test_code')}
+              {renderReadonlyField('数量', formData.quantity)}
+              {renderReadonlyField('折扣', formData.discount_rate)}
+              {renderReadonlyField('服务加急', formData.service_urgency)}
+              {renderReadonlyField('业务报价', formData.price_note)}
               {renderField('负责人', 'supervisor_name', 'select', supervisorOptions)}
               {renderField('业务负责人', 'assignee_name', 'select', assigneeOptions)}
               {renderField('状态', 'status', 'select', [
@@ -779,22 +1169,25 @@ const MobileCommissionDetail = ({ item, onClose, onUpdate }) => {
           {activeTab === 'test' && (
             <div className="mobile-detail-section">
               {renderField('测试人员', 'technician_name', 'select', technicianOptions)}
+              {renderUnitPriceField()}
               {renderField('检测设备', 'equipment_name', 'select', equipmentOptions)}
               {renderField('现场测试时间', 'field_test_time', 'datetime-local')}
               {renderField('计费数量', 'actual_sample_quantity', 'number')}
               {renderField('单位', 'unit')}
               {renderField('测试工时', 'work_hours', 'number')}
               {renderField('测试机时', 'machine_hours', 'number')}
-              {renderField('测试总价', 'final_unit_price', 'number')}
+              {renderFinalPriceField()}
+              {renderField('标准总价', 'line_total', 'number')}
+              {renderField('实验室报价', 'lab_price', 'number')}
             </div>
           )}
 
           {activeTab === 'notes' && (
             <div className="mobile-detail-section">
+              {renderField('客户备注', 'customer_note', 'textarea')}
               {renderField('指派备注', 'assignment_note', 'textarea')}
               {renderField('实验备注', 'test_notes', 'textarea')}
               {renderField('业务备注', 'business_note', 'textarea')}
-              {renderField('客户备注', 'customer_note', 'textarea')}
             </div>
           )}
 
@@ -806,6 +1199,7 @@ const MobileCommissionDetail = ({ item, onClose, onUpdate }) => {
                 userRole={user?.role}
                 businessConfirmed={formData.business_confirmed}
                 currentAssignee={formData.current_assignee}
+                testItemData={formData}
                 enableUpload={true}
                 onFileUploaded={() => {
                   // 文件上传后可以刷新数据

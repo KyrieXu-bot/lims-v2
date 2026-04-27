@@ -472,7 +472,7 @@ router.put('/:id', requireRole(EDIT_ROLES), async (req, res) => {
       const [oldRows] = await pool.query(
         `SELECT order_id, price_id, supervisor_id, technician_id, current_assignee, department_id,
                 unit_price, final_unit_price, price_note, discount_rate, machine_hours, work_hours,
-                actual_sample_quantity, line_total
+                actual_sample_quantity, line_total, business_confirmed, status
          FROM test_items
          WHERE test_item_id = ?`,
         [req.params.id]
@@ -484,6 +484,12 @@ router.put('/:id', requireRole(EDIT_ROLES), async (req, res) => {
       }
       
       const oldData = oldRows[0];
+
+      const isBusinessConfirmed = oldData.business_confirmed === 1 || oldData.business_confirmed === true || oldData.business_confirmed === '1';
+      if (isBusinessConfirmed) {
+        await pool.query('ROLLBACK');
+        return res.status(403).json({ error: '该检测项目已确认价格，所有字段已锁定不可修改' });
+      }
 
       if (req.user.role === 'leader' && !canLeaderAccessDepartment(req.user, oldData.department_id)) {
         await pool.query('ROLLBACK');
