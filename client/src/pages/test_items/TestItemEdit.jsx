@@ -45,8 +45,6 @@ export default function TestItemEdit() {
   const hasCopyParam = !!new URLSearchParams(location.search).get('copy');
   // 仅“复制加测申请”（addon_request=1&copy=）时业务报价只读；管理员直接“复制加测”（仅 copy=）允许编辑
   const isFromCopyAddonRequest = isAddonRequest && hasCopyParam;
-  // 加测申请页（非复制预填）：业务报价、折扣率必填，标签显示「*」
-  const addonBizPriceDiscountRequired = isAddonRequest && isNew && !isFromCopyAddonRequest;
   const [it, setIt] = useState({ 
     quantity: 1, 
     status: 'new', 
@@ -125,6 +123,11 @@ export default function TestItemEdit() {
       return {};
     }
   }, []);
+  const roleCode = String(currentUser?.role || '').toLowerCase();
+  // 加测申请页（非复制预填）或管理员新建：业务报价、折扣率必填
+  const addonBizPriceDiscountRequired = isAddonRequest && isNew && !isFromCopyAddonRequest;
+  const adminCreateBizPriceDiscountRequired = isNew && roleCode === 'admin';
+  const bizPriceDiscountRequired = addonBizPriceDiscountRequired || adminCreateBizPriceDiscountRequired;
 
   // 样品类型映射
   const typeMappings = { 
@@ -691,6 +694,9 @@ export default function TestItemEdit() {
 
   async function onSubmit(e) {
     e.preventDefault();
+    if (isAddonRequest && roleCode === 'sales') {
+      return alert('业务员暂无加测申请权限，请联系组长或实验室提交');
+    }
     if (!it.order_id) return alert('委托单号必填');
     if (!it.category_name) return alert('大类必填');
     if (!it.detail_name) return alert('细项必填');
@@ -703,8 +709,8 @@ export default function TestItemEdit() {
     
     const payload = { ...it };
 
-    // 提交加测申请（非复制预填）：业务报价与折扣率必填
-    if (addonBizPriceDiscountRequired) {
+    // 管理员新建 或 提交加测申请（非复制预填）：业务报价与折扣率必填
+    if (bizPriceDiscountRequired) {
       const pn = payload.price_note;
       if (pn === undefined || pn === null || pn === '') {
         return alert('业务报价必填');
@@ -777,7 +783,6 @@ export default function TestItemEdit() {
 
     // 权限校验：管理员新增检测、或实验室用户提交加测申请时
     // 若已填写实验员工号但未填写单价，则禁止提交
-    const roleCode = String(currentUser?.role || '').toLowerCase();
     const isAdminCreate = isNew && roleCode === 'admin';
     const isLabAddonRequest = isAddonRequest && isNew;
     const hasTechnicianAssigned = payload.technician_id !== undefined
@@ -1040,7 +1045,7 @@ export default function TestItemEdit() {
           </div>
           <Field label="单价" value={it.unit_price} onChange={v=>setIt({...it, unit_price:v})} disabled={isView} />
           <div>
-            <label>业务报价{addonBizPriceDiscountRequired ? ' *' : ''}</label>
+            <label>业务报价{bizPriceDiscountRequired ? ' *' : ''}</label>
             <input 
               type="number"
               className="input" 
@@ -1056,7 +1061,7 @@ export default function TestItemEdit() {
             />
           </div>
           <div>
-            <label>折扣率% (0～100){addonBizPriceDiscountRequired ? ' *' : ''}</label>
+            <label>折扣率% (0～100){bizPriceDiscountRequired ? ' *' : ''}</label>
             <input 
               className="input" 
               type="number"

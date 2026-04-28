@@ -247,6 +247,25 @@ router.post('/', requireRole(CREATE_ROLES), async (req, res) => {
     return res.status(400).json({ error: 'order_id, category_name, detail_name are required' });
   }
 
+  // 管理员新建检测项目时，业务报价和折扣率必填
+  if (String(req.user?.role || '').toLowerCase() === 'admin') {
+    if (price_note === undefined || price_note === null || price_note === '') {
+      return res.status(400).json({ error: '业务报价必填' });
+    }
+    const priceNoteNum = Number(price_note);
+    if (!Number.isFinite(priceNoteNum) || priceNoteNum < 0) {
+      return res.status(400).json({ error: '业务报价须为不小于0的数字' });
+    }
+
+    if (discount_rate === undefined || discount_rate === null || discount_rate === '') {
+      return res.status(400).json({ error: '折扣率必填' });
+    }
+    const discountNum = Number(discount_rate);
+    if (!Number.isFinite(discountNum) || discountNum < 0 || discountNum > 100) {
+      return res.status(400).json({ error: '折扣率须为0～100之间的数字' });
+    }
+  }
+
   // 加测（普通/复制）时样品类型必填（包含“其他”场景的兜底校验）
   const isAddOnLevel = Number(is_add_on);
   const normalizedIsAddOn = isAddOnLevel === 2 ? 2 : (isAddOnLevel === 1 ? 1 : 0);

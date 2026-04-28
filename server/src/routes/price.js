@@ -3,11 +3,17 @@ import { getPool } from '../db.js';
 import { requireAuth, requireAnyRole } from '../middleware/auth.js';
 
 const router = Router();
-// 允许管理员、室主任和组长访问价格表
-router.use(requireAuth, requireAnyRole(['admin', 'leader', 'supervisor']));
 
-// options for selects
-router.get('/options', async (req, res) => {
+/** 可维护价格表的角色（增删改） */
+const managePriceRoles = ['admin', 'leader', 'supervisor'];
+/**
+ * 可读价格表的角色：检测端人员可用于加测申请、立项单选检测项目等仅从目录选取条目，
+ * 不开放编辑权限（仍由管理员/室主任/组长维护价格表）。
+ */
+const readPriceRoles = ['admin', 'leader', 'supervisor', 'employee'];
+
+// options for selects（只读）
+router.get('/options', requireAuth, requireAnyRole(readPriceRoles), async (req, res) => {
   const pool = await getPool();
   const [rows] = await pool.query(
     `SELECT price_id, category_name, detail_name FROM price WHERE is_active = 1 ORDER BY category_name, detail_name`
@@ -15,8 +21,8 @@ router.get('/options', async (req, res) => {
   res.json(rows);
 });
 
-// list
-router.get('/', async (req, res) => {
+// list（只读）
+router.get('/', requireAuth, requireAnyRole(readPriceRoles), async (req, res) => {
   const { q = '', page = 1, pageSize = 20, is_active } = req.query;
   const offset = (Number(page)-1) * Number(pageSize);
   const pool = await getPool();
@@ -41,7 +47,7 @@ router.get('/', async (req, res) => {
 });
 
 // create
-router.post('/', async (req, res) => {
+router.post('/', requireAuth, requireAnyRole(managePriceRoles), async (req, res) => {
   const { category_name, detail_name, test_code, standard_code, department_id, group_id,
           unit_price, amount, unit, is_outsourced = 0, is_active = 1, note, active_from, active_to } = req.body || {};
   if (!category_name || !detail_name || unit_price == null) {
@@ -63,8 +69,8 @@ router.post('/', async (req, res) => {
   }
 });
 
-// read one
-router.get('/:id', async (req, res) => {
+// read one（只读）
+router.get('/:id', requireAuth, requireAnyRole(readPriceRoles), async (req, res) => {
   const pool = await getPool();
   const [rows] = await pool.query('SELECT * FROM price WHERE price_id = ?', [req.params.id]);
   if (rows.length === 0) return res.status(404).json({ error: 'Not found' });
@@ -72,7 +78,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // update
-router.put('/:id', async (req, res) => {
+router.put('/:id', requireAuth, requireAnyRole(managePriceRoles), async (req, res) => {
   const { category_name, detail_name, test_code, standard_code, department_id, group_id,
           unit_price, amount, unit, is_outsourced, is_active, note, active_from, active_to } = req.body || {};
   const pool = await getPool();
@@ -102,7 +108,7 @@ router.put('/:id', async (req, res) => {
 });
 
 // delete
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireAuth, requireAnyRole(managePriceRoles), async (req, res) => {
   const pool = await getPool();
   try {
     const [chk] = await pool.query('SELECT price_id FROM price WHERE price_id = ?', [req.params.id]);

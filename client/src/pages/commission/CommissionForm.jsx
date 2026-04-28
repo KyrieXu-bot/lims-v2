@@ -4001,7 +4001,7 @@ const CommissionForm = () => {
                 添加检测
               </button>
             )}
-            {(user?.role === 'sales' || user?.role === 'leader' || user?.role === 'supervisor' || user?.role === 'employee') && (
+            {(user?.role === 'leader' || user?.role === 'supervisor' || user?.role === 'employee') && (
               <button 
                 onClick={() => navigate('/test-items/new?addon_request=1')} 
                 className="btn btn-success"

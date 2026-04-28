@@ -8,7 +8,7 @@ const router = Router();
 router.use(requireAuth);
 
 // 创建加测申请
-router.post('/', requireAnyRole(['sales', 'leader', 'supervisor', 'employee']), async (req, res) => {
+router.post('/', requireAnyRole(['leader', 'supervisor', 'employee']), async (req, res) => {
   try {
     const user = req.user;
     const pool = await getPool();
