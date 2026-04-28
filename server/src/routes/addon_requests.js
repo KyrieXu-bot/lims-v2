@@ -34,6 +34,24 @@ router.post('/', requireAnyRole(['sales', 'leader', 'supervisor', 'employee']), 
         testItemDataForCreate.sample_type = otherText;
       }
     }
+
+    // 加测申请：业务报价、折扣率必填（管理员审批时同样需要，与前台「加测申请」表单一致）
+    const priceNoteRaw = testItemDataForCreate.price_note;
+    if (priceNoteRaw === undefined || priceNoteRaw === null || priceNoteRaw === '') {
+      return res.status(400).json({ error: '业务报价必填' });
+    }
+    const priceNoteNum = Number(priceNoteRaw);
+    if (!Number.isFinite(priceNoteNum) || priceNoteNum < 0) {
+      return res.status(400).json({ error: '业务报价须为不小于0的数字' });
+    }
+    const discountRaw = testItemDataForCreate.discount_rate;
+    if (discountRaw === undefined || discountRaw === null || discountRaw === '') {
+      return res.status(400).json({ error: '折扣率必填' });
+    }
+    const discountNum = Number(discountRaw);
+    if (!Number.isFinite(discountNum) || discountNum < 0 || discountNum > 100) {
+      return res.status(400).json({ error: '折扣率须为0～100之间的数字' });
+    }
     
     // 插入加测申请记录
     const [result] = await pool.query(
@@ -284,6 +302,24 @@ router.put('/:id/approve', requireRole('admin'), async (req, res) => {
         }
         finalTestItemData.sample_type = otherText;
       }
+    }
+
+    // 管理员通过加测申请时：业务报价、折扣率必填
+    const priceNoteRaw = finalTestItemData.price_note;
+    if (priceNoteRaw === undefined || priceNoteRaw === null || priceNoteRaw === '') {
+      return res.status(400).json({ error: '业务报价必填' });
+    }
+    const priceNoteNum = Number(priceNoteRaw);
+    if (!Number.isFinite(priceNoteNum) || priceNoteNum < 0) {
+      return res.status(400).json({ error: '业务报价须为不小于0的数字' });
+    }
+    const discountRaw = finalTestItemData.discount_rate;
+    if (discountRaw === undefined || discountRaw === null || discountRaw === '') {
+      return res.status(400).json({ error: '折扣率必填' });
+    }
+    const discountNum = Number(discountRaw);
+    if (!Number.isFinite(discountNum) || discountNum < 0 || discountNum > 100) {
+      return res.status(400).json({ error: '折扣率须为0～100之间的数字' });
     }
 
     // 验证委托单是否存在

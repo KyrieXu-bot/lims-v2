@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useCallback } from 'react';
+import { Html5Qrcode, Html5QrcodeSupportedFormats as Fmt } from 'html5-qrcode';
 import './MobileScanSearchModal.css';
 
 const REGION_ID = 'mobile-h5qr-camera-region';
@@ -76,8 +77,6 @@ const MobileScanSearchModal = ({ open, onClose, onDecoded }) => {
         }
       }
 
-      const { Html5Qrcode, Html5QrcodeSupportedFormats: Fmt } = await import('html5-qrcode');
-
       const formatsToSupport = [
         Fmt.QR_CODE,
         Fmt.CODE_128,
@@ -128,7 +127,11 @@ const MobileScanSearchModal = ({ open, onClose, onDecoded }) => {
       } catch (err) {
         console.error('打开摄像头失败:', err);
         if (!cancelled) {
-          alert('无法打开摄像头，请检查权限或稍后重试');
+          if (err?.message === 'HTML5_QRCODE_STUB') {
+            alert('当前服务端构建未打包扫码组件。手机 App 请使用含 html5-qrcode 依赖的完整构建。');
+          } else {
+            alert('无法打开摄像头，请检查权限或稍后重试');
+          }
           onClose();
         }
       }

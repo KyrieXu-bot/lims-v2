@@ -329,6 +329,28 @@ const AddonRequestModal = ({ requestId, onClose, onApprove }) => {
       }
     }
 
+    // 管理员审批通过并创建检测项目时：业务报价、折扣率必填
+    const pn = testItemData.price_note;
+    if (pn === undefined || pn === null || pn === '') {
+      alert('业务报价必填');
+      return;
+    }
+    const priceNum = Number(pn);
+    if (Number.isNaN(priceNum) || priceNum < 0) {
+      alert('业务报价须为不小于0的数字');
+      return;
+    }
+    const dr = testItemData.discount_rate;
+    if (dr === undefined || dr === null || dr === '') {
+      alert('折扣率必填');
+      return;
+    }
+    const discountNum = Number(dr);
+    if (Number.isNaN(discountNum) || discountNum < 0 || discountNum > 100) {
+      alert('折扣率须为 0～100 之间的数字');
+      return;
+    }
+
     try {
       setSaving(true);
       const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
@@ -554,7 +576,7 @@ const AddonRequestModal = ({ requestId, onClose, onApprove }) => {
               <Field label="数量" value={testItemData.quantity} onChange={v=>updateField('quantity', v)} disabled={isFormDisabled} />
               <Field label="单价" value={testItemData.unit_price} onChange={v=>updateField('unit_price', v)} disabled={isFormDisabled} />
               <div>
-                <label>业务报价</label>
+                <label>业务报价 *</label>
                 <input 
                   type="number"
                   className="input" 
@@ -570,7 +592,7 @@ const AddonRequestModal = ({ requestId, onClose, onApprove }) => {
                 />
               </div>
               <div>
-                <label>折扣率% (0-100)</label>
+                <label>折扣率%(0～100) *</label>
                 <input 
                   className="input" 
                   type="number"

@@ -817,6 +817,23 @@ const MobileCommissionDetail = ({ item, onClose, onUpdate }) => {
       alert('业务已确认价格，当前项目已锁定不可修改');
       return;
     }
+
+    // 班长/组长分配测试人员前有标准单价及单位一致性卡控（与网页端 CommissionForm 一致）
+    if (field === 'technician_name') {
+      const hasTech = !!(value && String(value).trim());
+      if (hasTech && (user?.role === 'supervisor' || user?.role === 'leader')) {
+        const standardPrice = formData.standard_price ?? formData.unit_price;
+        if (!hasNonNegativeNumber(standardPrice)) {
+          alert('请先填写标准单价，才能分配测试人员');
+          return;
+        }
+        if (Number(formData.unit_mismatch_reviewed ?? 0) === 1) {
+          alert('请先修改标准单价');
+          return;
+        }
+      }
+    }
+
     const newData = { ...formData, [field]: value };
     setFormData(newData);
 
@@ -888,6 +905,9 @@ const MobileCommissionDetail = ({ item, onClose, onUpdate }) => {
       // 其他字段直接保存
       else {
         updateData[field] = value;
+        if (field === 'unit_price' && Number(formData.unit_mismatch_reviewed ?? 0) === 1) {
+          updateData.unit_mismatch_reviewed = 2;
+        }
       }
 
       const pricingShouldRecalc = field === 'actual_sample_quantity';
@@ -1168,7 +1188,43 @@ const MobileCommissionDetail = ({ item, onClose, onUpdate }) => {
 
           {activeTab === 'test' && (
             <div className="mobile-detail-section">
-              {renderField('测试人员', 'technician_name', 'select', technicianOptions)}
+              {(() => {
+                const editableBase = canEditField('technician_name');
+                const mismatchBlock =
+                  editableBase &&
+                  (user?.role === 'supervisor' || user?.role === 'leader') &&
+                  Number(formData.unit_mismatch_reviewed ?? 0) === 1;
+                const isEditableTech = editableBase && !mismatchBlock;
+                const val = formData.technician_name || '';
+                return (
+                  <div className="mobile-form-field">
+                    <label className="mobile-form-label">测试人员</label>
+                    {editableBase ? (
+                      isEditableTech ? (
+                        <select
+                          className="mobile-form-input"
+                          value={val}
+                          onChange={(e) => handleFieldChange('technician_name', e.target.value)}
+                        >
+                          <option value="">请选择</option>
+                          {technicianOptions.map((opt) => (
+                            <option key={opt.value} value={opt.value}>{opt.label}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <>
+                          <div className="mobile-form-readonly">{val || '-'}</div>
+                          <div style={{ fontSize: '11px', color: '#dc3545', marginTop: '6px' }}>
+                            请先修改标准单价
+                          </div>
+                        </>
+                      )
+                    ) : (
+                      <div className="mobile-form-readonly">{val || '-'}</div>
+                    )}
+                  </div>
+                );
+              })()}
               {renderUnitPriceField()}
               {renderField('检测设备', 'equipment_name', 'select', equipmentOptions)}
               {renderField('现场测试时间', 'field_test_time', 'datetime-local')}

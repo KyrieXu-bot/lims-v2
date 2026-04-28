@@ -3167,6 +3167,13 @@ const CommissionForm = () => {
             setSavingStatus(prev => ({ ...prev, [statusKey]: 'idle' }));
             return;
           }
+
+          // unit_mismatch_reviewed：1 = 单位不一致待修改，必须先改标准单价使状态变为 2
+          if (Number(currentItem.unit_mismatch_reviewed ?? 0) === 1) {
+            alert('请先修改标准单价，使单价修改情况变为「已修改」（单位不一致必须先处理），再分配测试人员');
+            setSavingStatus(prev => ({ ...prev, [statusKey]: 'idle' }));
+            return;
+          }
         }
         
         // 根据姓名找到对应的technician_id
@@ -4964,7 +4971,13 @@ const CommissionForm = () => {
                               getEditingUser={getEditingUser}
                               emitUserEditing={emitUserEditing}
                               emitUserStopEditing={emitUserStopEditing}
+                              disabled={(user?.role === 'supervisor' || user?.role === 'leader') && Number(item.unit_mismatch_reviewed ?? 0) === 1}
                             />
+                            {(user?.role === 'supervisor' || user?.role === 'leader') && Number(item.unit_mismatch_reviewed ?? 0) === 1 && (
+                              <div style={{ fontSize: '10px', color: '#dc3545', marginTop: '2px' }}>
+                                请先修改标准单价
+                              </div>
+                            )}
                             <SavingIndicator testItemId={item.test_item_id} field="technician_name" />
                           </div>
                         ) : (

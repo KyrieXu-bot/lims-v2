@@ -45,6 +45,8 @@ export default function TestItemEdit() {
   const hasCopyParam = !!new URLSearchParams(location.search).get('copy');
   // 仅“复制加测申请”（addon_request=1&copy=）时业务报价只读；管理员直接“复制加测”（仅 copy=）允许编辑
   const isFromCopyAddonRequest = isAddonRequest && hasCopyParam;
+  // 加测申请页（非复制预填）：业务报价、折扣率必填，标签显示「*」
+  const addonBizPriceDiscountRequired = isAddonRequest && isNew && !isFromCopyAddonRequest;
   const [it, setIt] = useState({ 
     quantity: 1, 
     status: 'new', 
@@ -701,6 +703,26 @@ export default function TestItemEdit() {
     
     const payload = { ...it };
 
+    // 提交加测申请（非复制预填）：业务报价与折扣率必填
+    if (addonBizPriceDiscountRequired) {
+      const pn = payload.price_note;
+      if (pn === undefined || pn === null || pn === '') {
+        return alert('业务报价必填');
+      }
+      const priceNum = Number(pn);
+      if (Number.isNaN(priceNum) || priceNum < 0) {
+        return alert('业务报价须为不小于0的数字');
+      }
+      const dr = payload.discount_rate;
+      if (dr === undefined || dr === null || dr === '') {
+        return alert('折扣率必填');
+      }
+      const discountNum = Number(dr);
+      if (Number.isNaN(discountNum) || discountNum < 0 || discountNum > 100) {
+        return alert('折扣率须为0～100之间的数字');
+      }
+    }
+
     // 验证并规范化样品类型：加测时必须填写
     if (isAddonRequest || isAddOnTestItemFlag(it.is_add_on)) {
       if (!payload.sample_type || String(payload.sample_type).trim() === '') {
@@ -1018,7 +1040,7 @@ export default function TestItemEdit() {
           </div>
           <Field label="单价" value={it.unit_price} onChange={v=>setIt({...it, unit_price:v})} disabled={isView} />
           <div>
-            <label>业务报价</label>
+            <label>业务报价{addonBizPriceDiscountRequired ? ' *' : ''}</label>
             <input 
               type="number"
               className="input" 
@@ -1034,7 +1056,7 @@ export default function TestItemEdit() {
             />
           </div>
           <div>
-            <label>折扣率% (0-100)</label>
+            <label>折扣率% (0～100){addonBizPriceDiscountRequired ? ' *' : ''}</label>
             <input 
               className="input" 
               type="number"

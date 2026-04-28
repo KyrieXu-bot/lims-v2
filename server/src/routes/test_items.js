@@ -472,7 +472,7 @@ router.put('/:id', requireRole(EDIT_ROLES), async (req, res) => {
       const [oldRows] = await pool.query(
         `SELECT order_id, price_id, supervisor_id, technician_id, current_assignee, department_id,
                 unit_price, final_unit_price, price_note, discount_rate, machine_hours, work_hours,
-                actual_sample_quantity, line_total, business_confirmed, status
+                actual_sample_quantity, line_total, business_confirmed, status, unit_mismatch_reviewed
          FROM test_items
          WHERE test_item_id = ?`,
         [req.params.id]
@@ -498,6 +498,29 @@ router.put('/:id', requireRole(EDIT_ROLES), async (req, res) => {
       
       // 检查请求体中包含哪些字段（只更新明确提供的字段）
       const hasField = (fieldName) => fieldName in req.body;
+
+      const mergedTechnicianId = hasField('technician_id') ? processValue(technician_id) : oldData.technician_id;
+      const assigningTester =
+        mergedTechnicianId !== null &&
+        mergedTechnicianId !== undefined &&
+        String(mergedTechnicianId).trim() !== '';
+
+      let mismatchVal = Number(oldData.unit_mismatch_reviewed ?? 0);
+      if (hasField('unit_mismatch_reviewed')) {
+        const m = Number(unit_mismatch_reviewed);
+        if (Number.isFinite(m)) mismatchVal = m;
+      }
+
+      if (
+        assigningTester &&
+        (req.user.role === 'leader' || req.user.role === 'supervisor') &&
+        mismatchVal === 1
+      ) {
+        await pool.query('ROLLBACK');
+        return res.status(400).json({
+          error: '请先修改标准单价，使单价修改情况变为「已修改」后，再分配测试人员（当前为单位不一致待处理状态）'
+        });
+      }
       
       // 构建动态更新语句
       const updateFields = [];
@@ -798,7 +821,7 @@ router.post('/batch-assign', requireRole(['admin', 'leader', 'supervisor']), asy
       // 获取更新前的数据
       const placeholders = testItemIds.map(() => '?').join(',');
       const [oldRows] = await pool.query(
-        `SELECT test_item_id, supervisor_id, technician_id, current_assignee, department_id FROM test_items WHERE test_item_id IN (${placeholders})`,
+        `SELECT test_item_id, supervisor_id, technician_id, current_assignee, department_id, unit_mismatch_reviewed FROM test_items WHERE test_item_id IN (${placeholders})`,
         testItemIds
       );
 
@@ -808,6 +831,17 @@ router.post('/batch-assign', requireRole(['admin', 'leader', 'supervisor']), asy
           await pool.query('ROLLBACK');
           return res.status(403).json({ error: '无权批量分配其他部门的检测项目' });
         }
+      }
+
+      if (
+        technician_id &&
+        (user.role === 'supervisor' || user.role === 'leader') &&
+        oldRows.some((row) => Number(row.unit_mismatch_reviewed ?? 0) === 1)
+      ) {
+        await pool.query('ROLLBACK');
+        return res.status(400).json({
+          error: '存在「单位不一致待处理」的项目，请先修改标准单价并存档后再分配测试人员'
+        });
       }
       
       // 构建更新字段
