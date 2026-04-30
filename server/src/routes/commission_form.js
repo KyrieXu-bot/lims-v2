@@ -252,6 +252,7 @@ router.get('/commission-form', async (req, res) => {
         ti.note,
         e.equipment_name,
         tech.name as technician_name,
+        ti.technician_id,
         ti.assignment_note,
         ti.actual_sample_quantity,
         ti.work_hours,

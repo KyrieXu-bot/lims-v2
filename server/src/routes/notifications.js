@@ -46,7 +46,8 @@ router.get('/', async (req, res) => {
               otr.target_order_id as order_transfer_target_order_id,
               otr.current_step as order_transfer_current_step,
               otr.approval_flow as order_transfer_approval_flow,
-              otr.transfer_reason as order_transfer_reason
+              otr.transfer_reason as order_transfer_reason,
+              ti.supervisor_id as order_transfer_supervisor_id
        FROM notifications n
        LEFT JOIN orders o ON n.related_order_id = o.order_id
        LEFT JOIN test_items ti ON n.related_test_item_id = ti.test_item_id

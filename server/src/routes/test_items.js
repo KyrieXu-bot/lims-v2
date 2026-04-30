@@ -503,11 +503,19 @@ router.put('/:id', requireRole(EDIT_ROLES), async (req, res) => {
       }
       
       const oldData = oldRows[0];
+      // 检查请求体中包含哪些字段（只更新明确提供的字段）
+      const hasField = (fieldName) => fieldName in req.body;
 
       const isBusinessConfirmed = oldData.business_confirmed === 1 || oldData.business_confirmed === true || oldData.business_confirmed === '1';
       if (isBusinessConfirmed) {
-        await pool.query('ROLLBACK');
-        return res.status(403).json({ error: '该检测项目已确认价格，所有字段已锁定不可修改' });
+        // 价格确认后仅放开状态流转和备注字段，其他字段保持锁定
+        const allowedAfterConfirm = new Set(['status', 'assignment_note', 'test_notes', 'business_note']);
+        const requestedFields = Object.keys(req.body || {});
+        const disallowedFields = requestedFields.filter((field) => !allowedAfterConfirm.has(field));
+        if (disallowedFields.length > 0) {
+          await pool.query('ROLLBACK');
+          return res.status(403).json({ error: '该检测项目已确认价格，仅允许修改状态和备注' });
+        }
       }
 
       if (req.user.role === 'leader' && !canLeaderAccessDepartment(req.user, oldData.department_id)) {
@@ -515,9 +523,6 @@ router.put('/:id', requireRole(EDIT_ROLES), async (req, res) => {
         return res.status(403).json({ error: '无权编辑其他部门的检测项目' });
       }
       
-      // 检查请求体中包含哪些字段（只更新明确提供的字段）
-      const hasField = (fieldName) => fieldName in req.body;
-
       const mergedTechnicianId = hasField('technician_id') ? processValue(technician_id) : oldData.technician_id;
       const assigningTester =
         mergedTechnicianId !== null &&

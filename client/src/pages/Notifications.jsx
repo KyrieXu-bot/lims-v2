@@ -335,6 +335,7 @@ const Notifications = () => {
     if (status === 'approved') return { text: '已通过', className: 'status-approved' };
     if (status === 'rejected') return { text: '已拒绝', className: 'status-cancelled' };
     if (status === 'pending') {
+      if (step === 'supervisor_review') return { text: '待组长审批', className: 'status-pending' };
       if (step === 'leader_review') return { text: '待室主任审批', className: 'status-pending' };
       if (step === 'sales_review') return { text: '待业务审批', className: 'status-pending' };
       if (step === 'xwf_review') return { text: '待许文凤审批', className: 'status-pending' };
@@ -748,10 +749,12 @@ const Notifications = () => {
                         notification.order_transfer_request_status === 'pending' &&
                         ((notification.order_transfer_current_step === 'leader_review' &&
                           (user?.role === 'leader' || user?.role === 'admin')) ||
+                          (notification.order_transfer_current_step === 'supervisor_review' &&
+                            (user?.user_id === notification.order_transfer_supervisor_id ||
+                              user?.role === 'admin')) ||
                           (notification.order_transfer_current_step === 'xwf_review' &&
                             (user?.user_id === 'JC0092' || user?.role === 'admin')) ||
-                          (notification.order_transfer_current_step !== 'leader_review' &&
-                            notification.order_transfer_current_step !== 'xwf_review' &&
+                          (notification.order_transfer_current_step === 'sales_review' &&
                             (user?.role === 'sales' || user?.role === 'admin'))) && (
                           <>
                             <button

@@ -102,13 +102,15 @@ const OrderTransferRequestDetailModal = ({ requestId, apiBase = '', onClose }) =
 
   const statusText =
     req?.status === 'pending'
-      ? (req?.current_step === 'leader_review'
-        ? '待室主任审批'
-        : req?.current_step === 'sales_review'
-          ? '待业务审批'
-          : req?.current_step === 'xwf_review'
-            ? '待许文凤审批'
-            : '待处理')
+      ? (req?.current_step === 'supervisor_review'
+        ? '待组长审批'
+        : req?.current_step === 'leader_review'
+          ? '待室主任审批'
+          : req?.current_step === 'sales_review'
+            ? '待业务审批'
+            : req?.current_step === 'xwf_review'
+              ? '待许文凤审批'
+              : '待处理')
       : req?.status === 'approved'
         ? '已同意'
         : req?.status === 'rejected'
@@ -116,22 +118,26 @@ const OrderTransferRequestDetailModal = ({ requestId, apiBase = '', onClose }) =
           : fmt(req?.status);
   const flowText =
     req?.approval_flow === 'leader_then_sales'
-      ? '超期流程（组长 → 室主任 → 业务 → 许文凤，通过后通知开单员知晓）'
-      : '常规流程（实验室 → 业务，通过后通知开单员知晓）';
+      ? '特殊窗口（组长发起 → 室主任 → 业务 → 许文凤，通过后通知开单员）'
+      : req?.approval_flow === 'direct_sales'
+        ? '常规窗口（一般由实验员 → 组长 → 业务 → 开单员；组长亲自测试且本人发起时可从业务审批起）'
+        : '转单审批流程';
   const targetOrderTrim =
     req?.target_order_id != null && String(req.target_order_id).trim() !== ''
       ? String(req.target_order_id).trim()
       : '';
   const stepText =
-    req?.current_step === 'leader_review'
-      ? '室主任审批中'
-      : req?.current_step === 'sales_review'
-        ? '业务审批中'
-        : req?.current_step === 'xwf_review'
-          ? '许文凤审批中'
-        : req?.current_step === 'done'
-          ? '流程结束'
-          : fmt(req?.current_step);
+    req?.current_step === 'supervisor_review'
+      ? '组长审批中'
+      : req?.current_step === 'leader_review'
+        ? '室主任审批中'
+        : req?.current_step === 'sales_review'
+          ? '业务审批中'
+          : req?.current_step === 'xwf_review'
+            ? '许文凤审批中'
+            : req?.current_step === 'done'
+              ? '流程结束'
+              : fmt(req?.current_step);
 
   return (
     <div

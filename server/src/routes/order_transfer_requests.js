@@ -51,6 +51,17 @@ function normalizeOrderId(v) {
   return String(v).trim().toUpperCase();
 }
 
+/** 组长与检测员为同一人（组长亲自测试） */
+function isSupervisorSelfTechnician(supervisorId, technicianId) {
+  return (
+    supervisorId != null &&
+    technicianId != null &&
+    String(supervisorId).trim() !== '' &&
+    String(technicianId).trim() !== '' &&
+    String(supervisorId) === String(technicianId)
+  );
+}
+
 /** 新单号由开单员线下确定时为空，通知文案中不展示拟转新单号 */
 function formatTargetOrderFragment(targetOrderId) {
   const t = targetOrderId != null ? String(targetOrderId).trim() : '';
@@ -60,6 +71,7 @@ function formatTargetOrderFragment(targetOrderId) {
 function getTransferRequestMode(orderId, now = getBeijingNow()) {
   const normalized = normalizeOrderId(orderId);
   const allowed = getAllowedTransferPrefixes(now);
+  // 与库表 approval_flow ENUM 一致：常规短流程用 direct_sales（勿改长名，否则 INSERT 会截断报错）
   return allowed.some((p) => normalized.startsWith(p)) ? 'direct_sales' : 'leader_then_sales';
 }
 
@@ -91,7 +103,8 @@ async function notifyUser(pool, io, payload) {
       order_transfer_target_order_id: payload.order_transfer_target_order_id,
       order_transfer_current_step: payload.order_transfer_current_step,
       order_transfer_approval_flow: payload.order_transfer_approval_flow,
-      order_transfer_reason: payload.order_transfer_reason ?? null
+      order_transfer_reason: payload.order_transfer_reason ?? null,
+      order_transfer_supervisor_id: payload.order_transfer_supervisor_id ?? null
     });
   }
   return notificationId;
@@ -179,8 +192,8 @@ async function fetchTestItemSnapshot(pool, testItemId) {
   return rows[0] || null;
 }
 
-// 实验室提交转单申请
-router.post('/', requireAnyRole(['leader', 'supervisor', 'employee']), async (req, res) => {
+// 实验室提交转单申请（常规窗口：实验员，或组长与检测员均为本人时可由组长发起；特殊窗口仅组长）
+router.post('/', requireAnyRole(['supervisor', 'employee']), async (req, res) => {
   try {
     const user = req.user;
     const pool = await getPool();
@@ -207,12 +220,32 @@ router.post('/', requireAnyRole(['leader', 'supervisor', 'employee']), async (re
     const testItem = testItemRows[0];
     const transferMode = getTransferRequestMode(testItem.order_id);
     const requiresLeaderFlow = transferMode === 'leader_then_sales';
+    const isEmployeeFlow = transferMode === 'direct_sales';
 
     if (requiresLeaderFlow && user.role !== 'supervisor') {
-      return res.status(403).json({ error: '当前仅支持组长发起超期转单申请' });
+      return res.status(403).json({
+        error:
+          '当前为每月6日及以后的特殊转单窗口，仅组长可发起此类转单申请；实验员不可发起上月单号的转单申请'
+      });
     }
     if (requiresLeaderFlow && !transfer_reason) {
       return res.status(400).json({ error: '超期转单申请必须填写转单原因' });
+    }
+
+    if (isEmployeeFlow) {
+      const selfTestSupervisor =
+        user.role === 'supervisor' &&
+        String(user.user_id) === String(testItem.supervisor_id) &&
+        isSupervisorSelfTechnician(testItem.supervisor_id, testItem.technician_id);
+      if (user.role !== 'employee' && !selfTestSupervisor) {
+        return res.status(403).json({
+          error:
+            '每月5日及以前的常规窗口内一般由实验员发起；若为本组项目且组长与检测员均为本人亲自测试，组长也可发起'
+        });
+      }
+    }
+    if (isEmployeeFlow && !testItem.supervisor_id) {
+      return res.status(400).json({ error: '该项目未设置组长，无法提交转单申请' });
     }
 
     if (!testItem.current_assignee) {
@@ -233,6 +266,17 @@ router.post('/', requireAnyRole(['leader', 'supervisor', 'employee']), async (re
       return res.status(400).json({ error: '该检测项目已有待处理的转单申请' });
     }
 
+    const skipSupervisorReview =
+      isEmployeeFlow &&
+      user.role === 'supervisor' &&
+      String(user.user_id) === String(testItem.supervisor_id) &&
+      isSupervisorSelfTechnician(testItem.supervisor_id, testItem.technician_id);
+
+    let initialEmployeeStep = 'supervisor_review';
+    if (skipSupervisorReview) {
+      initialEmployeeStep = 'sales_review';
+    }
+
     const [result] = await pool.query(
       `INSERT INTO order_transfer_requests 
        (applicant_id, test_item_id, target_order_id, transfer_reason, approval_flow, current_step, status, created_at) 
@@ -243,7 +287,7 @@ router.post('/', requireAnyRole(['leader', 'supervisor', 'employee']), async (re
         target_order_id,
         transfer_reason || null,
         transferMode,
-        requiresLeaderFlow ? 'leader_review' : 'sales_review'
+        requiresLeaderFlow ? 'leader_review' : initialEmployeeStep
       ]
     );
 
@@ -283,11 +327,11 @@ router.post('/', requireAnyRole(['leader', 'supervisor', 'employee']), async (re
           order_transfer_reason: transfer_reason || null
         });
       }
-    } else {
+    } else if (skipSupervisorReview) {
       await notifyUser(pool, io, {
         user_id: testItem.current_assignee,
-        title: '转单申请',
-        content,
+        title: '转单申请待业务审批',
+        content: `${content}（组长亲自测试，已跳过组长重复审批环节）`,
         type: 'order_transfer_request',
         related_order_id: testItem.order_id || null,
         related_test_item_id: test_item_id,
@@ -298,7 +342,26 @@ router.post('/', requireAnyRole(['leader', 'supervisor', 'employee']), async (re
         order_transfer_target_order_id: target_order_id,
         order_transfer_current_step: 'sales_review',
         order_transfer_approval_flow: transferMode,
-        order_transfer_reason: transfer_reason || null
+        order_transfer_reason: transfer_reason || null,
+        order_transfer_supervisor_id: testItem.supervisor_id || null
+      });
+    } else {
+      await notifyUser(pool, io, {
+        user_id: testItem.supervisor_id,
+        title: '转单申请待组长审批',
+        content,
+        type: 'order_transfer_request',
+        related_order_id: testItem.order_id || null,
+        related_test_item_id: test_item_id,
+        related_file_id: null,
+        related_addon_request_id: null,
+        related_order_transfer_request_id: requestId,
+        order_transfer_request_status: 'pending',
+        order_transfer_target_order_id: target_order_id,
+        order_transfer_current_step: 'supervisor_review',
+        order_transfer_approval_flow: transferMode,
+        order_transfer_reason: transfer_reason || null,
+        order_transfer_supervisor_id: testItem.supervisor_id || null
       });
     }
 
@@ -307,7 +370,9 @@ router.post('/', requireAnyRole(['leader', 'supervisor', 'employee']), async (re
       request_id: requestId,
       message: requiresLeaderFlow
         ? '超期转单申请已提交，已通知室主任审批'
-        : '转单申请已提交，已通知业务负责人'
+        : skipSupervisorReview
+          ? '转单申请已提交，已通知业务负责人审批'
+          : '转单申请已提交，已通知组长审批'
     });
   } catch (error) {
     console.error('创建转单申请失败:', error);
@@ -344,13 +409,19 @@ router.get('/:id', async (req, res) => {
       return res.status(404).json({ error: '检测项目不存在' });
     }
 
+    const flow = requestRow.approval_flow;
+    const isEmployeeSupervisorFlow = flow === 'direct_sales';
+
     const canView =
       user.role === 'admin' ||
       requestRow.applicant_id === user.user_id ||
       testItem.current_assignee === user.user_id ||
       (user.role === 'leader' && Number(user.department_id) === Number(testItem.department_id)) ||
       (user.user_id === 'JC0092' && ['pending', 'approved'].includes(requestRow.status)) ||
-      (user.user_id === 'JC0089' && requestRow.status === 'approved');
+      (user.user_id === 'JC0089' && requestRow.status === 'approved') ||
+      (isEmployeeSupervisorFlow &&
+        testItem.supervisor_id === user.user_id &&
+        requestRow.status === 'pending');
 
     if (!canView) {
       return res.status(403).json({ error: '无权查看此申请' });
@@ -366,7 +437,7 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// 审批通过：可能是室主任、业务员或许文凤通过
+// 审批通过：组长 / 室主任 / 业务员 / 许文凤（按流程）
 router.put('/:id/approve', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
@@ -374,7 +445,7 @@ router.put('/:id/approve', requireAuth, async (req, res) => {
     const pool = await getPool();
 
     const [requestRows] = await pool.query(
-      `SELECT otr.*, ti.current_assignee, ti.order_id, ti.department_id, o.order_id as order_id_display
+      `SELECT otr.*, ti.current_assignee, ti.order_id, ti.department_id, ti.supervisor_id, o.order_id as order_id_display
        FROM order_transfer_requests otr
        LEFT JOIN test_items ti ON ti.test_item_id = otr.test_item_id
        LEFT JOIN orders o ON o.order_id = ti.order_id
@@ -392,6 +463,40 @@ router.put('/:id/approve', requireAuth, async (req, res) => {
     const itemLabel =
       (await fetchTestItemSnapshot(pool, request.test_item_id))?.test_item_name || '检测项目';
     const reasonSuffix = request.transfer_reason ? `。转单原因：${request.transfer_reason}` : '';
+
+    if (request.current_step === 'supervisor_review') {
+      const supId = request.supervisor_id;
+      if (user.user_id !== supId && user.role !== 'admin') {
+        return res.status(403).json({ error: '当前仅组长可审批该申请' });
+      }
+      await pool.query(
+        `UPDATE order_transfer_requests
+         SET current_step = 'sales_review'
+         WHERE request_id = ?`,
+        [id]
+      );
+      const salesContent = `组长已通过转单申请，等待业务员审批。原委托单号：${
+        request.order_id_display || request.order_id || '未知'
+      }。${itemLabel}${formatTargetOrderFragment(request.target_order_id)}${reasonSuffix}。申请ID：${id}`;
+      await notifyUser(pool, io, {
+        user_id: request.current_assignee,
+        title: '转单申请待业务审批',
+        content: salesContent,
+        type: 'order_transfer_request',
+        related_order_id: request.order_id || null,
+        related_test_item_id: request.test_item_id,
+        related_file_id: null,
+        related_addon_request_id: null,
+        related_order_transfer_request_id: Number(id),
+        order_transfer_request_status: 'pending',
+        order_transfer_target_order_id: request.target_order_id,
+        order_transfer_current_step: 'sales_review',
+        order_transfer_approval_flow: request.approval_flow,
+        order_transfer_reason: request.transfer_reason || null,
+        order_transfer_supervisor_id: supId || null
+      });
+      return res.json({ success: true, message: '组长审批通过，已通知业务员' });
+    }
 
     if (request.current_step === 'leader_review') {
       if (user.role !== 'leader' && user.role !== 'admin') {
@@ -425,7 +530,8 @@ router.put('/:id/approve', requireAuth, async (req, res) => {
         order_transfer_target_order_id: request.target_order_id,
         order_transfer_current_step: 'sales_review',
         order_transfer_approval_flow: request.approval_flow,
-        order_transfer_reason: request.transfer_reason || null
+        order_transfer_reason: request.transfer_reason || null,
+        order_transfer_supervisor_id: request.supervisor_id || null
       });
       return res.json({ success: true, message: '室主任审批通过，已通知业务员' });
     }
@@ -434,7 +540,7 @@ router.put('/:id/approve', requireAuth, async (req, res) => {
       if (user.role === 'sales' && request.current_assignee !== user.user_id) {
         return res.status(403).json({ error: '无权处理此申请' });
       }
-      // 仅超期流程需要许文凤审批；常规流程业务员通过即完结
+      // 仅超期流程需要许文凤审批；实验员发起流程（及历史 direct_sales）业务员通过即通知开单员
       if (request.approval_flow === 'leader_then_sales') {
         await pool.query(
           `UPDATE order_transfer_requests
@@ -476,7 +582,7 @@ router.put('/:id/approve', requireAuth, async (req, res) => {
         [user.user_id, id]
       );
 
-      const clerkContent = `业务员已同意转单申请。原委托单号：${
+      const clerkContent = `业务审批已通过，请开单员线下执行转单操作。原委托单号：${
         request.order_id_display || request.order_id || '未知'
       }。${itemLabel}${formatTargetOrderFragment(request.target_order_id)}${reasonSuffix}。申请ID：${id}`;
       const applicantContent = `您的转单申请已审批通过。原委托单号：${
@@ -485,7 +591,7 @@ router.put('/:id/approve', requireAuth, async (req, res) => {
 
       await notifyUser(pool, io, {
         user_id: 'JC0089',
-        title: '转单申请已通过',
+        title: '转单申请待开单员执行',
         content: clerkContent,
         type: 'order_transfer_request',
         related_order_id: request.order_id || null,
@@ -593,7 +699,7 @@ router.put('/:id/reject', requireAuth, async (req, res) => {
     const pool = await getPool();
 
     const [requestRows] = await pool.query(
-      `SELECT otr.*, ti.current_assignee, ti.order_id, ti.department_id
+      `SELECT otr.*, ti.current_assignee, ti.order_id, ti.department_id, ti.supervisor_id
        FROM order_transfer_requests otr
        LEFT JOIN test_items ti ON ti.test_item_id = otr.test_item_id
        WHERE otr.request_id = ? AND otr.status = 'pending'`,
@@ -606,7 +712,11 @@ router.put('/:id/reject', requireAuth, async (req, res) => {
 
     const request = requestRows[0];
 
-    if (request.current_step === 'leader_review') {
+    if (request.current_step === 'supervisor_review') {
+      if (user.user_id !== request.supervisor_id && user.role !== 'admin') {
+        return res.status(403).json({ error: '当前仅组长可驳回该申请' });
+      }
+    } else if (request.current_step === 'leader_review') {
       if (user.role !== 'leader' && user.role !== 'admin') {
         return res.status(403).json({ error: '当前仅室主任可驳回该申请' });
       }
@@ -634,12 +744,15 @@ router.put('/:id/reject', requireAuth, async (req, res) => {
 
     const io = getIO();
     const rejectActor = user.name || user.user_id;
+    const stepAtReject = request.current_step;
     const rejectContent =
-      request.current_step === 'leader_review'
+      stepAtReject === 'leader_review'
         ? `您的超期转单申请已被室主任 ${rejectActor} 拒绝。申请ID：${id}`
-        : request.current_step === 'sales_review'
-          ? `您的转单申请已被业务员 ${rejectActor} 拒绝。申请ID：${id}`
-          : `您的转单申请已被许文凤 ${rejectActor} 拒绝。申请ID：${id}`;
+        : stepAtReject === 'supervisor_review'
+          ? `您的转单申请已被组长 ${rejectActor} 拒绝。申请ID：${id}`
+          : stepAtReject === 'sales_review'
+            ? `您的转单申请已被业务员 ${rejectActor} 拒绝。申请ID：${id}`
+            : `您的转单申请已被许文凤 ${rejectActor} 拒绝。申请ID：${id}`;
 
     if (request.applicant_id) {
       const notificationId = await createNotification(pool, {

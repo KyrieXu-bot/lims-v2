@@ -801,13 +801,19 @@ const CommissionForm = () => {
     }
     // 业务已确认价格后整行锁定；仅管理员可编辑开票预填价、开票备注及预填价确认
     if (isItemBusinessConfirmed(item)) {
-      if (
+      // 放开状态字段，允许确认价格后继续进行实验室状态流转
+      if (field === 'status') {
+        // 继续走角色权限判断
+      } else if (['assignment_note', 'test_notes', 'business_note'].includes(field)) {
+        // 放开三类备注，继续走角色权限判断
+      } else if (
         role === 'admin' &&
         ['invoice_prefill_price', 'invoice_note', 'invoice_prefill_confirmed'].includes(field)
       ) {
         return true;
+      } else {
+        return false;
       }
-      return false;
     }
     if (role === 'admin') {
       return true;
@@ -1452,7 +1458,6 @@ const CommissionForm = () => {
 
   // 检查原始数据上传/确认测试总价所需的必填字段是否都已填写
   const checkRawDataRequiredFields = (item) => {
-    const fieldTestTimeFilled = hasValue(item.field_test_time);
     const equipmentFilled = hasValue(item.equipment_id) || hasValue(item.equipment_name);
     const quantityFilled = hasNonNegativeNumber(item.actual_sample_quantity);
     const unitFilled = hasValue(item.unit);
@@ -1510,7 +1515,6 @@ const CommissionForm = () => {
     return responsibleFilled &&
       standardPriceFilled &&
       testerFilled &&
-      fieldTestTimeFilled &&
       equipmentFilled &&
       quantityFilled &&
       unitFilled &&
@@ -1683,14 +1687,27 @@ const CommissionForm = () => {
     return isNormalWindow ? 'direct_sales' : 'leader_then_sales';
   };
 
+  /** 组长与检测员为同一人（含实验员把检测员选为组长） */
+  const isSupervisorSelfTechnicianOnItem = (item) =>
+    item?.supervisor_id &&
+    item?.technician_id &&
+    String(item.supervisor_id) === String(item.technician_id);
+
   const canCurrentUserInitiateTransfer = (item) => {
     if (!item || item.status === 'cancelled') return false;
-    if (!['leader', 'supervisor', 'employee'].includes(user?.role)) return false;
+    if (!['supervisor', 'employee'].includes(user?.role)) return false;
     const mode = getTransferRequestModeForItem(item);
     if (mode === 'leader_then_sales') {
       return user?.role === 'supervisor';
     }
-    return true;
+    if (!item.supervisor_id) return false;
+    if (user?.role === 'employee') return true;
+    if (user?.role === 'supervisor') {
+      return (
+        String(item.supervisor_id) === String(user?.user_id) && isSupervisorSelfTechnicianOnItem(item)
+      );
+    }
+    return false;
   };
 
   const handleSubmitTransferRequest = async () => {
@@ -3136,7 +3153,10 @@ const CommissionForm = () => {
       const isLocked = isItemBusinessConfirmed(currentItem);
       if (isLocked) {
         const allowedWhenLocked = ['invoice_prefill_price', 'invoice_note', 'invoice_prefill_confirmed'];
-        if (!allowedWhenLocked.includes(field) || user?.role !== 'admin') {
+        const isStatusField = field === 'status';
+        const isAllowedNoteField = ['assignment_note', 'test_notes', 'business_note'].includes(field);
+        const isAdminInvoiceField = allowedWhenLocked.includes(field) && user?.role === 'admin';
+        if (!isStatusField && !isAllowedNoteField && !isAdminInvoiceField) {
           setSavingStatus(prev => ({ ...prev, [statusKey]: 'idle' }));
           alert('业务已确认价格，不能修改此字段');
           return;
@@ -4850,6 +4870,11 @@ const CommissionForm = () => {
                                           updatedItem.service_urgency
                                         );
                                         updatedItem.line_total = calculatedLineTotal;
+                                        const calculatedLabPrice = calculateLabPrice(
+                                          updatedItem.final_unit_price,
+                                          calculatedLineTotal
+                                        );
+                                        updatedItem.lab_price = calculatedLabPrice;
                                         
                                         const payload = {};
                                         // 仅当未业务确认且重新计算出测试总价时才回写测试总价值
@@ -4859,6 +4884,11 @@ const CommissionForm = () => {
                                         if (calculatedLineTotal !== null) {
                                           payload.line_total = calculatedLineTotal;
                                         }
+                                        if (calculatedLabPrice !== null) {
+                                          payload.lab_price = calculatedLabPrice;
+                                        } else {
+                                          payload.lab_price = null;
+                                        }
                                         if (Object.keys(payload).length > 0) {
                                           fetch(`/api/test-items/${testItemId}`, {
                                             method: 'PUT',
@@ -4867,7 +4897,7 @@ const CommissionForm = () => {
                                               'Content-Type': 'application/json'
                                             },
                                             body: JSON.stringify(payload)
-                                          }).catch(err => console.error('更新测试/标准总价失败:', err));
+                                          }).catch(err => console.error('更新测试/标准总价/实验室报价失败:', err));
                                         }
                                         return updatedItem;
                                       }
@@ -5521,9 +5551,15 @@ const CommissionForm = () => {
                                 disabled={!item.current_assignee}
                                 title={
                                   item.current_assignee
-                                    ? (getTransferRequestModeForItem(item) === 'leader_then_sales'
-                                      ? '超期转单申请（组长发起）'
-                                      : '申请转单')
+                                    ? getTransferRequestModeForItem(item) === 'leader_then_sales'
+                                      ? '超期转单申请（组长发起，必填原因）'
+                                      : user?.role === 'supervisor' &&
+                                          isSupervisorSelfTechnicianOnItem(item) &&
+                                          String(item.supervisor_id) === String(user?.user_id)
+                                        ? '申请转单（组长亲自测试，直接进入业务审批）'
+                                        : !item.supervisor_id
+                                          ? '未设置组长，无法申请转单'
+                                          : '申请转单（实验员发起）'
                                     : '未设置业务负责人，无法申请转单'
                                 }
                                 style={{
@@ -6220,12 +6256,12 @@ const CommissionForm = () => {
             <h2 style={{ marginTop: 0, marginBottom: '16px' }}>转单申请</h2>
             {transferMode === 'leader_then_sales' && (
               <p style={{ margin: '0 0 12px', color: '#b54708', fontSize: '13px' }}>
-                当前单号不在常规转单窗口，需走「组长发起 → 室主任审批 → 业务审批 → 许文凤审批」流程；新委托单号由开单员线下开立，本系统不填写。
+                当前为每月6日及以后的特殊转单窗口（或单号不在本月可转范围）：须由组长发起并填写原因，流程为「室主任审批 → 业务审批 → 许文凤审批」，通过后通知开单员；实验员不可发起上月单号转单。新委托单号由开单员线下开立，本系统不填写。
               </p>
             )}
             {transferMode === 'direct_sales' && (
               <p style={{ margin: '0 0 12px', color: '#555', fontSize: '13px' }}>
-                请核对下方原委托单号与检测项目名称；新委托单号由开单员线下开立，本系统不填写。
+                当前为每月5日及以前的常规转单窗口：一般由实验员发起，经组长审批、业务审批后，由开单员收到通知并线下执行转单。若检测员与组长为同一人（亲自测试），组长本人也可发起，系统将跳过「组长审自己」并直接进入业务审批。请核对下方原委托单号与检测项目名称；新委托单号由开单员线下开立，本系统不填写。
               </p>
             )}
             <div

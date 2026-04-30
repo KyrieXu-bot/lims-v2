@@ -786,7 +786,11 @@ const MobileCommissionDetail = ({ item, onClose, onUpdate }) => {
       return false;
     }
     if (isBusinessConfirmed) {
-      return false;
+      // 价格确认后仅放开状态流转
+      const editableAfterConfirm = ['status', 'assignment_note', 'test_notes', 'business_note'];
+      if (!editableAfterConfirm.includes(field)) {
+        return false;
+      }
     }
     if (role === 'admin') {
       return true;
@@ -813,7 +817,8 @@ const MobileCommissionDetail = ({ item, onClose, onUpdate }) => {
   };
 
   const handleFieldChange = async (field, value) => {
-    if (isBusinessConfirmed) {
+    const editableAfterConfirm = ['status', 'assignment_note', 'test_notes', 'business_note'];
+    if (isBusinessConfirmed && !editableAfterConfirm.includes(field)) {
       alert('业务已确认价格，当前项目已锁定不可修改');
       return;
     }
