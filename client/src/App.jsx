@@ -29,6 +29,7 @@ import MobileLayout from './components/mobile/MobileLayout.jsx';
 import MobileCommissionForm from './pages/mobile/MobileCommissionForm.jsx';
 import MobileNotifications from './pages/mobile/MobileNotifications.jsx';
 import MobileProfile from './pages/mobile/MobileProfile.jsx';
+import MobileStatistics from './pages/mobile/MobileStatistics.jsx';
 import { isMobile, isCapacitorNative } from './utils/isMobile.js';
 import './app.css';
 
@@ -119,6 +120,7 @@ const PC_TO_MOBILE_ROUTE_MAP = {
   '/commission-form': '/mobile/commission-form',
   '/notifications': '/mobile/notifications',
   '/profile': '/mobile/profile',
+  '/statistics': '/mobile/statistics',
 };
 
 // PC端路由包装组件 - 在Capacitor原生环境中自动重定向到移动端
@@ -181,6 +183,7 @@ export default function App() {
       <Route path="/mobile/commission-form" element={<MobileLayout><MobileCommissionForm/></MobileLayout>} />
       <Route path="/mobile/notifications" element={<MobileLayout><MobileNotifications/></MobileLayout>} />
       <Route path="/mobile/profile" element={<MobileLayout><MobileProfile/></MobileLayout>} />
+      <Route path="/mobile/statistics" element={<MobileLayout><MobileStatistics/></MobileLayout>} />
       
       {/* PC端路由 - 在原生环境中会自动重定向到移动端 */}
       <Route path="/login" element={<PCRouteWrapper><Layout><Login/></Layout></PCRouteWrapper>} />

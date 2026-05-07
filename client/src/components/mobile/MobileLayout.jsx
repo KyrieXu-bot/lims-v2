@@ -21,6 +21,14 @@ const UserIcon = () => (
   </svg>
 );
 
+const ChartIcon = () => (
+  <svg viewBox="0 0 24 24" aria-hidden className="mobile-bottom-nav-svg">
+    <path d="M4 20h16v2H4v-2Zm2-4h3v-8H6v8Zm5 0h3V4h-3v12Zm5 0h3v-5h-3v5Z" />
+  </svg>
+);
+
+const STATS_TAB_ROLES = new Set(['leader', 'supervisor', 'employee']);
+
 const MobileLayout = ({ children }) => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -28,18 +36,29 @@ const MobileLayout = ({ children }) => {
   const [showMenu, setShowMenu] = useState(false);
   const [showScanSearch, setShowScanSearch] = useState(false);
 
+  const showStatisticsTab = STATS_TAB_ROLES.has(user?.role);
+
   const logout = () => {
     localStorage.removeItem('lims_user');
     navigate('/mobile/login');
   };
 
-  // 底部导航栏配置
+  // 底部导航栏：委托单 | 数据统计（组长/带组/实验员）| 通知 | 我的
   const bottomNavItems = [
     {
       path: '/mobile/commission-form',
       label: '委托单',
       icon: <ClipboardIcon />
     },
+    ...(showStatisticsTab
+      ? [
+          {
+            path: '/mobile/statistics',
+            label: '数据统计',
+            icon: <ChartIcon />
+          }
+        ]
+      : []),
     {
       path: '/mobile/notifications',
       label: '通知',
@@ -146,6 +165,16 @@ const MobileLayout = ({ children }) => {
                 <span className="mobile-menu-icon">📋</span>
                 <span>委托单登记表</span>
               </NavLink>
+              {showStatisticsTab && (
+                <NavLink
+                  to="/mobile/statistics"
+                  className="mobile-menu-item"
+                  onClick={() => setShowMenu(false)}
+                >
+                  <span className="mobile-menu-icon">📊</span>
+                  <span>数据统计</span>
+                </NavLink>
+              )}
               <NavLink 
                 to="/mobile/notifications"
                 className="mobile-menu-item"
@@ -182,7 +211,7 @@ const MobileLayout = ({ children }) => {
 
       {/* 底部导航栏 */}
       <nav className="mobile-bottom-nav">
-        <div className="mobile-bottom-nav-shell">
+        <div className={`mobile-bottom-nav-shell${showStatisticsTab ? ' mobile-bottom-nav-shell--four' : ''}`}>
           {bottomNavItems.map(item => {
             const isActive = location.pathname === item.path;
             return (

@@ -239,6 +239,17 @@
   backdrop-filter: blur(8px);
 }
 
+/* 四栏底栏：数据统计 + 委托单 + 通知 + 我的 */
+.mobile-bottom-nav-shell--four .mobile-bottom-nav-label {
+  font-size: 10px;
+  letter-spacing: -0.03em;
+}
+
+.mobile-bottom-nav-shell--four .mobile-bottom-nav-svg {
+  width: 18px;
+  height: 18px;
+}
+
 .mobile-bottom-nav-item {
   flex: 1;
   display: flex;

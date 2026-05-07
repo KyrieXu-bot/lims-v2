@@ -508,8 +508,13 @@ router.put('/:id', requireRole(EDIT_ROLES), async (req, res) => {
 
       const isBusinessConfirmed = oldData.business_confirmed === 1 || oldData.business_confirmed === true || oldData.business_confirmed === '1';
       if (isBusinessConfirmed) {
-        // 价格确认后仅放开状态流转和备注字段，其他字段保持锁定
+        // 价格确认后仅放开状态流转和备注字段，其他字段保持锁定（管理员可改开票相关字段）
         const allowedAfterConfirm = new Set(['status', 'assignment_note', 'test_notes', 'business_note']);
+        if (req.user.role === 'admin') {
+          ['invoice_prefill_price', 'invoice_note', 'invoice_prefill_confirmed', 'invoice_status'].forEach((k) =>
+            allowedAfterConfirm.add(k)
+          );
+        }
         const requestedFields = Object.keys(req.body || {});
         const disallowedFields = requestedFields.filter((field) => !allowedAfterConfirm.has(field));
         if (disallowedFields.length > 0) {

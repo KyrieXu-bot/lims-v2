@@ -93,6 +93,27 @@ const calculateStandardLineTotal = (unitPrice, quantity, serviceUrgency) => {
   return Number.isFinite(result) ? result : null;
 };
 
+/**
+ * 标准总价保底：乘法因子齐全且可算出乘积时，若 line_total 未落库或非法，则用计算结果；
+ * 若库中已有合法数值则保留（不覆盖可能存在的历史/人工语义）。
+ */
+const resolveStandardLineTotal = (item, calculatedLineTotal) => {
+  const existing = item.line_total;
+  if (calculatedLineTotal !== null) {
+    const unset =
+      existing === null ||
+      existing === undefined ||
+      existing === '' ||
+      (typeof existing === 'number' && Number.isNaN(existing));
+    const parsed = unset ? NaN : Number(existing);
+    if (unset || Number.isNaN(parsed)) {
+      return calculatedLineTotal;
+    }
+    return parsed;
+  }
+  return existing === undefined ? null : existing;
+};
+
 // 计算实验室报价
 const calculateLabPrice = (finalUnitPrice, lineTotal) => {
   // 如果测试总价和标准总价有一个为空，则不进行计算
@@ -609,17 +630,15 @@ const CommissionForm = () => {
         item.actual_sample_quantity,
         item.service_urgency
       );
-      
+      const lineTotal = resolveStandardLineTotal(item, calculatedLineTotal);
+
       // 计算实验室报价（始终根据当前测试总价和标准总价尝试计算）
-      const calculatedLabPrice = calculateLabPrice(
-        finalUnitPrice,
-        calculatedLineTotal !== null ? calculatedLineTotal : item.line_total
-      );
-      
+      const calculatedLabPrice = calculateLabPrice(finalUnitPrice, lineTotal);
+
       return {
         ...item,
         final_unit_price: finalUnitPrice,
-        line_total: calculatedLineTotal !== null ? calculatedLineTotal : item.line_total,
+        line_total: lineTotal,
         lab_price: calculatedLabPrice !== null ? calculatedLabPrice : item.lab_price
       };
     });
@@ -924,20 +943,21 @@ const CommissionForm = () => {
           finalUnitPrice = calculatedFinalUnitPrice !== null ? calculatedFinalUnitPrice : item.final_unit_price;
         }
         
-        // 计算标准总价（用于计算实验室报价）
+        // 计算标准总价（用于计算实验室报价）；可算且库中无合法 line_total 时用乘积压底
         const calculatedLineTotal = calculateStandardLineTotal(
           item.standard_price ?? item.unit_price,
           item.actual_sample_quantity,
           item.service_urgency
         );
-        const lineTotal = calculatedLineTotal !== null ? calculatedLineTotal : item.line_total;
-        
+        const lineTotal = resolveStandardLineTotal(item, calculatedLineTotal);
+
         // 计算实验室报价（始终根据当前测试总价和标准总价尝试计算）
         const calculatedLabPrice = calculateLabPrice(finalUnitPrice, lineTotal);
-        
+
         return {
           ...item,
           final_unit_price: finalUnitPrice,
+          line_total: lineTotal,
           lab_price: calculatedLabPrice !== null ? calculatedLabPrice : item.lab_price
         };
       });
@@ -1458,6 +1478,7 @@ const CommissionForm = () => {
 
   // 检查原始数据上传/确认测试总价所需的必填字段是否都已填写
   const checkRawDataRequiredFields = (item) => {
+    const fieldTestTimeFilled = hasValue(item.field_test_time);
     const equipmentFilled = hasValue(item.equipment_id) || hasValue(item.equipment_name);
     const quantityFilled = hasNonNegativeNumber(item.actual_sample_quantity);
     const unitFilled = hasValue(item.unit);
@@ -1908,18 +1929,18 @@ const CommissionForm = () => {
         '样品原号': item.original_no || '',
         '项目编号': item.test_code || '',
         '归属部门': item.department_name || '',
-        '收费标准-最低报价': formatPriceRange(item.original_unit_price, item.minimum_price),
-        '收费金额': item.price_amount ?? '',
+        '收费标准-最低报价': formatPriceRangePlain(item.original_unit_price, item.minimum_price),
+        '收费金额': formatAmountForExport(item.price_amount),
         '收费单位': item.price_unit || '',
         '业务报价': item.price_note || '',
         '业务价是否确认': item.business_confirmed === 1 || item.business_confirmed === '1' ? '是' : '否',
         '数量': item.quantity || '',
         '开单单位': item.unit || '',
-        '标准单价': formatCurrency(item.standard_price),
+        '标准单价': formatCurrencyPlain(item.standard_price),
         '单价修改情况': formatUnitMismatchStatus(item.unit_mismatch_reviewed),
-        '标准总价': formatCurrency(item.line_total),
-        '业务总价': formatCurrency(item.final_unit_price),
-        '实验室报价': formatCurrency(item.lab_price),
+        '标准总价': formatCurrencyPlain(item.line_total),
+        '业务总价': formatCurrencyPlain(item.final_unit_price),
+        '实验室报价': formatCurrencyPlain(item.lab_price),
         '折扣': formatPercentage(item.discount_rate),
         '客户备注': item.note || '',
         '样品到达方式': item.arrival_mode === 'on_site' ? '现场' : item.arrival_mode === 'delivery' ? '寄样' : '',
@@ -1949,9 +1970,9 @@ const CommissionForm = () => {
         '开票日期': item.settlement_invoice_date ? formatDate(item.settlement_invoice_date) : '',
         '开票客户名称': item.settlement_customer_name || '',
         '开票预填价': item.invoice_prefill_price !== null && item.invoice_prefill_price !== undefined 
-          ? formatCurrency(item.invoice_prefill_price)
-          : (calculateInvoicePrefillPrice(item) !== null ? formatCurrency(calculateInvoicePrefillPrice(item)) : ''),
-        '开票金额': formatCurrency(item.unpaid_amount),
+          ? formatCurrencyPlain(item.invoice_prefill_price)
+          : (calculateInvoicePrefillPrice(item) !== null ? formatCurrencyPlain(calculateInvoicePrefillPrice(item)) : ''),
+        '开票金额': formatCurrencyPlain(item.unpaid_amount),
         '开票备注': item.invoice_note || '',
         '开票状态': item.invoice_status || '未结算'
       }));
@@ -3446,12 +3467,14 @@ const CommissionForm = () => {
         }
       }
       
-      // 计算实验室报价（只要final_unit_price和line_total都有值，就计算）
-      const calculatedLabPrice = calculateLabPrice(finalPriceForLabCalc, lineTotalForLabCalc);
-      if (calculatedLabPrice !== null) {
-        updateData.lab_price = calculatedLabPrice;
-      } else {
-        updateData.lab_price = null;
+      // 计算实验室报价：业务已确认价格后不得再随单字段保存附带 lab_price，否则服务端会 403
+      if (!isLocked) {
+        const calculatedLabPrice = calculateLabPrice(finalPriceForLabCalc, lineTotalForLabCalc);
+        if (calculatedLabPrice !== null) {
+          updateData.lab_price = calculatedLabPrice;
+        } else {
+          updateData.lab_price = null;
+        }
       }
       
       const response = await fetch(`/api/test-items/${testItemId}`, {
@@ -3661,6 +3684,32 @@ const CommissionForm = () => {
     }
     // 非数字（例如来自价格表的字符串单价），原样返回
     return String(amount);
+  };
+
+  /** Excel 导出：金额为纯数字字符串，不含 ¥/￥ */
+  const formatCurrencyPlain = (amount) => {
+    if (amount === null || amount === undefined || amount === '') return '';
+    const n = Number(amount);
+    if (Number.isFinite(n)) return n.toFixed(2);
+    return String(amount).replace(/^[¥￥]\s*/, '').trim();
+  };
+
+  const formatPriceRangePlain = (unitPrice, minimumPrice) => {
+    const formattedUnit = formatCurrencyPlain(unitPrice);
+    const formattedMinimum = formatCurrencyPlain(minimumPrice);
+    if (formattedUnit && formattedMinimum) {
+      return `${formattedUnit} - ${formattedMinimum}`;
+    }
+    if (formattedUnit) return formattedUnit;
+    if (formattedMinimum) return formattedMinimum;
+    return '';
+  };
+
+  /** 收费金额等可能已为带符号字符串 */
+  const formatAmountForExport = (raw) => {
+    if (raw === null || raw === undefined || raw === '') return '';
+    if (typeof raw === 'number' && Number.isFinite(raw)) return raw.toFixed(2);
+    return String(raw).replace(/^[¥￥]\s*/, '').trim();
   };
 
   const formatPercentage = (rate) => {
