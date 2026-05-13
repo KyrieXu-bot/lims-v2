@@ -41,10 +41,22 @@ const calculateLineTotal = (item) => {
   return Number((standardPrice * actualQuantity * (discountRate / 100) * urgency).toFixed(2));
 };
 
-const calculateLabPrice = (finalUnitPrice, lineTotal) => {
-  const finalPrice = toNonNegativeNumber(finalUnitPrice);
+/** 机加工组 group_id=8：实验室报价恒等于标准总价，不参与 0.7 比例 */
+const MACHINING_GROUP_ID = 8;
+
+const calculateLabPrice = (finalUnitPrice, lineTotal, groupId) => {
   const total = toNonNegativeNumber(lineTotal);
-  if (finalPrice === null || total === null || total === 0) return null;
+  if (total === null) return null;
+
+  const groupIdNum =
+    groupId === null || groupId === undefined ? NaN : Number(groupId);
+  if (groupIdNum === MACHINING_GROUP_ID) {
+    if (total === 0) return 0;
+    return Number(total.toFixed(2));
+  }
+
+  const finalPrice = toNonNegativeNumber(finalUnitPrice);
+  if (finalPrice === null || total === 0) return null;
   const ratio = finalPrice / total;
   if (ratio > 0.7) return finalPrice;
   return Number((total * 0.7).toFixed(2));
@@ -753,7 +765,8 @@ const MobileCommissionDetail = ({ item, onClose, onUpdate }) => {
         const calculatedLineTotal = calculateLineTotal(nextData);
         const calculatedLabPrice = calculateLabPrice(
           calculatedFinal !== null ? calculatedFinal : nextData.final_unit_price,
-          calculatedLineTotal !== null ? calculatedLineTotal : nextData.line_total
+          calculatedLineTotal !== null ? calculatedLineTotal : nextData.line_total,
+          nextData.group_id
         );
         if (calculatedFinal !== null) nextData.final_unit_price = calculatedFinal;
         if (calculatedLineTotal !== null) nextData.line_total = calculatedLineTotal;
@@ -921,7 +934,11 @@ const MobileCommissionDetail = ({ item, onClose, onUpdate }) => {
         const calculatedLineTotal = calculateLineTotal(newData);
         const nextFinalPrice = calculatedFinal !== null ? calculatedFinal : newData.final_unit_price;
         const nextLineTotal = calculatedLineTotal !== null ? calculatedLineTotal : newData.line_total;
-        const calculatedLabPrice = calculateLabPrice(nextFinalPrice, nextLineTotal);
+        const calculatedLabPrice = calculateLabPrice(
+          nextFinalPrice,
+          nextLineTotal,
+          newData.group_id
+        );
 
         if (calculatedFinal !== null) updateData.final_unit_price = calculatedFinal;
         if (calculatedLineTotal !== null) updateData.line_total = calculatedLineTotal;
@@ -958,7 +975,7 @@ const MobileCommissionDetail = ({ item, onClose, onUpdate }) => {
 
     const finalUnitPrice = toNonNegativeNumber(formData.final_unit_price);
     const lineTotal = toNonNegativeNumber(formData.line_total);
-    const labPrice = calculateLabPrice(finalUnitPrice, lineTotal);
+    const labPrice = calculateLabPrice(finalUnitPrice, lineTotal, formData.group_id);
     if (finalUnitPrice === null || lineTotal === null) {
       alert('请先补全计费数量后再确认价格');
       return;

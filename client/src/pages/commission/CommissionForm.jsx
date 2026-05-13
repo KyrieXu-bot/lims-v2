@@ -35,6 +35,17 @@ function isCommissionAddOnRow(v) {
   return n === 1 || n === 2;
 }
 
+/** 统一 test_item_id 比较（接口/驱动可能返回 number 或 string） */
+function normalizeTestItemId(id) {
+  if (id === null || id === undefined) return id;
+  const n = Number(id);
+  return Number.isFinite(n) ? n : id;
+}
+
+function isSameTestItemId(a, b) {
+  return normalizeTestItemId(a) === normalizeTestItemId(b);
+}
+
 function formatExportIsAddOnLabel(v) {
   const n = Number(v);
   if (n === 2) return '复制加测';
@@ -66,6 +77,36 @@ const FILE_CATEGORY_FIELD_MAP = {
 const getServiceUrgencyDisplayValue = (value) => {
   if (!value) return value;
   return SERVICE_URGENCY_DISPLAY_MAP[value] || value;
+};
+
+/**
+ * 根据 reports.report_type 判断委托单列「报告形式」标签。
+ * 仅 [1] 类（全部为数据交付类型 1，且无 2~6）→ 数据交付；含 2~6 任一则 → 报告交付。
+ */
+const getReportFormDeliveryLabel = (reportType) => {
+  if (reportType === null || reportType === undefined) return null;
+  let arr;
+  if (typeof reportType === 'string') {
+    try {
+      arr = JSON.parse(reportType);
+    } catch {
+      return null;
+    }
+  } else if (Array.isArray(reportType)) {
+    arr = reportType;
+  } else {
+    return null;
+  }
+  if (!Array.isArray(arr) || arr.length === 0) return null;
+  const nums = arr
+    .map((n) => Number(n))
+    .filter((n) => Number.isFinite(n));
+  if (nums.length === 0) return null;
+  const hasReportDocument = nums.some((n) => n >= 2 && n <= 6);
+  if (hasReportDocument) return '报告交付';
+  const allDataOnly = nums.every((n) => n === 1);
+  if (allDataOnly) return '数据交付';
+  return null;
 };
 
 const getServiceUrgencyMultiplier = (value) => {
@@ -114,36 +155,45 @@ const resolveStandardLineTotal = (item, calculatedLineTotal) => {
   return existing === undefined ? null : existing;
 };
 
-// 计算实验室报价
-const calculateLabPrice = (finalUnitPrice, lineTotal) => {
-  // 如果测试总价和标准总价有一个为空，则不进行计算
-  if (
-    finalUnitPrice === null || finalUnitPrice === undefined ||
-    lineTotal === null || lineTotal === undefined
-  ) {
+/** 机加工组 test_items.group_id，其实验室报价恒等于标准总价 line_total，不参与 0.7 比例规则 */
+const MACHINING_GROUP_ID = 8;
+
+// 计算实验室报价（groupId 为 test_items.group_id）
+const calculateLabPrice = (finalUnitPrice, lineTotal, groupId) => {
+  if (lineTotal === null || lineTotal === undefined) {
     return null;
   }
-  
-  const finalPriceNum = Number(finalUnitPrice);
   const lineTotalNum = Number(lineTotal);
-  
-  // 检查是否为有效数字
-  if (Number.isNaN(finalPriceNum) || Number.isNaN(lineTotalNum) || finalPriceNum < 0 || lineTotalNum < 0) {
+  if (Number.isNaN(lineTotalNum) || lineTotalNum < 0) {
     return null;
   }
-  // 标准总价为 0 时，实验室报价为 0（测试总价也为 0 时同理）
+
+  const groupIdNum =
+    groupId === null || groupId === undefined ? NaN : Number(groupId);
+  if (groupIdNum === MACHINING_GROUP_ID) {
+    if (lineTotalNum === 0) return 0;
+    return Number(lineTotalNum.toFixed(2));
+  }
+
+  if (finalUnitPrice === null || finalUnitPrice === undefined) {
+    return null;
+  }
+  const finalPriceNum = Number(finalUnitPrice);
+  if (Number.isNaN(finalPriceNum) || finalPriceNum < 0) {
+    return null;
+  }
+  // 标准总价为 0 时，实验室报价为 0
   if (lineTotalNum === 0) {
     return 0;
   }
-  
+
   // 如果测试总价/标准总价 > 0.7，那么实验室报价 = 测试总价
   // 如果测试总价/标准总价 < 0.7，那么实验室报价 = 标准总价 * 0.7
   const ratio = finalPriceNum / lineTotalNum;
   if (ratio > 0.7) {
     return Number(finalPriceNum.toFixed(2));
-  } else {
-    return Number((lineTotalNum * 0.7).toFixed(2));
   }
+  return Number((lineTotalNum * 0.7).toFixed(2));
 };
 
 const hasUploadedFile = (value) => value === true || value === 1 || value === '1';
@@ -579,12 +629,41 @@ const CommissionForm = () => {
   };
 
   const fullSelectionCacheRef = useRef(null);
+  /** 跨页多选：当前列表中不可见行的最新行快照（key 为 normalizeTestItemId） */
+  const selectedItemSnapshotRef = useRef(new Map());
+
+  /** 与列表/全量拉取一致：补算 final_unit_price、line_total、lab_price */
+  const enrichCommissionListRows = (items) =>
+    items.map((item) => {
+      const isBusinessConfirmed =
+        item.business_confirmed === 1 ||
+        item.business_confirmed === true ||
+        item.business_confirmed === '1';
+      let finalUnitPrice = item.final_unit_price;
+      if (!isBusinessConfirmed) {
+        const calculatedFinalUnitPrice = calculateFinalUnitPrice(item);
+        finalUnitPrice = calculatedFinalUnitPrice !== null ? calculatedFinalUnitPrice : item.final_unit_price;
+      }
+      const calculatedLineTotal = calculateStandardLineTotal(
+        item.standard_price ?? item.unit_price,
+        item.actual_sample_quantity,
+        item.service_urgency
+      );
+      const lineTotal = resolveStandardLineTotal(item, calculatedLineTotal);
+      const calculatedLabPrice = calculateLabPrice(finalUnitPrice, lineTotal, item.group_id);
+      return {
+        ...item,
+        final_unit_price: finalUnitPrice,
+        line_total: lineTotal,
+        lab_price: calculatedLabPrice !== null ? calculatedLabPrice : item.lab_price
+      };
+    });
 
   const fetchAllMatchingItems = async () => {
     if (fullSelectionCacheRef.current) {
       return fullSelectionCacheRef.current;
     }
-    const totalCount = Math.max(total || 0, pageSize, 1000);
+    const totalCount = Math.max(total || 0, pageSize);
     const params = new URLSearchParams({
       q: searchQuery,
       page: '1',
@@ -610,38 +689,7 @@ const CommissionForm = () => {
     }
     const result = await response.json();
     const items = Array.isArray(result.data) ? result.data : [];
-    // 对每个项目计算测试总价和标准总价
-    // 如果业务已确认价格，则使用数据库中的值，不重新计算
-    const processedItems = items.map(item => {
-      const isBusinessConfirmed =
-        item.business_confirmed === 1 ||
-        item.business_confirmed === true ||
-        item.business_confirmed === '1';
-      let finalUnitPrice = item.final_unit_price;
-      
-      // 只有在未确认的情况下才重新计算
-      if (!isBusinessConfirmed) {
-        const calculatedFinalUnitPrice = calculateFinalUnitPrice(item);
-        finalUnitPrice = calculatedFinalUnitPrice !== null ? calculatedFinalUnitPrice : item.final_unit_price;
-      }
-      
-      const calculatedLineTotal = calculateStandardLineTotal(
-        item.standard_price ?? item.unit_price,
-        item.actual_sample_quantity,
-        item.service_urgency
-      );
-      const lineTotal = resolveStandardLineTotal(item, calculatedLineTotal);
-
-      // 计算实验室报价（始终根据当前测试总价和标准总价尝试计算）
-      const calculatedLabPrice = calculateLabPrice(finalUnitPrice, lineTotal);
-
-      return {
-        ...item,
-        final_unit_price: finalUnitPrice,
-        line_total: lineTotal,
-        lab_price: calculatedLabPrice !== null ? calculatedLabPrice : item.lab_price
-      };
-    });
+    const processedItems = enrichCommissionListRows(items);
     const eligibleItems = user?.role === 'leader'
       ? processedItems.filter(it => canLeaderEditItem(it))
       : processedItems;
@@ -655,16 +703,72 @@ const CommissionForm = () => {
     return Array.from(new Set(ids));
   };
 
+  const clearRowSelection = () => {
+    setSelectedItems([]);
+    selectedItemSnapshotRef.current.clear();
+  };
+
+  /** 当前选中项对应的行数据（含非当前页：来自选中时的快照与当页 data 刷新） */
+  const getSelectedRowsSync = () => {
+    if (!selectedItems.length) return [];
+    const rows = [];
+    const seen = new Set();
+    for (const sid of selectedItems) {
+      const nid = normalizeTestItemId(sid);
+      if (nid === null || nid === undefined || seen.has(nid)) continue;
+      seen.add(nid);
+      const fromPage = data.find(it => isSameTestItemId(it.test_item_id, nid));
+      if (fromPage) rows.push(fromPage);
+      else {
+        const snap = selectedItemSnapshotRef.current.get(nid);
+        if (snap) rows.push(snap);
+      }
+    }
+    return rows;
+  };
+
+  useEffect(() => {
+    if (!data?.length) return;
+    for (const item of data) {
+      const nid = normalizeTestItemId(item.test_item_id);
+      if (selectedItems.some(sid => isSameTestItemId(sid, nid))) {
+        selectedItemSnapshotRef.current.set(nid, item);
+      }
+    }
+  }, [data, selectedItems]);
+
   const getSelectedItemsData = async () => {
     if (selectedItems.length === 0) {
       return [];
     }
-    const currentPageSelected = data.filter(item => selectedItems.includes(item.test_item_id));
-    if (currentPageSelected.length === selectedItems.length) {
-      return currentPageSelected;
+    const uniqueSelected = [...new Set(selectedItems.map(normalizeTestItemId))];
+    const currentPageSelected = data.filter(item =>
+      uniqueSelected.includes(normalizeTestItemId(item.test_item_id))
+    );
+    if (currentPageSelected.length === uniqueSelected.length) {
+      return uniqueSelected
+        .map((id) => currentPageSelected.find((it) => normalizeTestItemId(it.test_item_id) === id))
+        .filter(Boolean);
     }
-    const allItems = await fetchAllMatchingItems();
-    return allItems.filter(item => selectedItems.includes(item.test_item_id));
+    const storedUser = JSON.parse(localStorage.getItem('lims_user') || 'null');
+    const byIdRes = await fetch('/api/commission-form/commission-form/by-test-item-ids', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${storedUser?.token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ test_item_ids: uniqueSelected })
+    });
+    if (!byIdRes.ok) {
+      throw new Error(`按选中项拉取数据失败: HTTP ${byIdRes.status}`);
+    }
+    const byIdJson = await byIdRes.json();
+    const rawRows = Array.isArray(byIdJson.data) ? byIdJson.data : [];
+    const processed = enrichCommissionListRows(rawRows);
+    const eligible =
+      user?.role === 'leader' ? processed.filter((it) => canLeaderEditItem(it)) : processed;
+    const byId = new Map(eligible.map((it) => [normalizeTestItemId(it.test_item_id), it]));
+    return uniqueSelected.map((id) => byId.get(id)).filter(Boolean);
   };
 
   const formatTestItemName = (item) => {
@@ -928,39 +1032,7 @@ const CommissionForm = () => {
       }
       
       const data = await response.json();
-      // 对每个项目计算测试总价和实验室报价
-      // 如果业务已确认价格，则使用数据库中的值，不重新计算
-      const processedData = data.data.map(item => {
-        const isBusinessConfirmed =
-          item.business_confirmed === 1 ||
-          item.business_confirmed === true ||
-          item.business_confirmed === '1';
-        let finalUnitPrice = item.final_unit_price;
-        
-        // 只有在未确认的情况下才重新计算
-        if (!isBusinessConfirmed) {
-          const calculatedFinalUnitPrice = calculateFinalUnitPrice(item);
-          finalUnitPrice = calculatedFinalUnitPrice !== null ? calculatedFinalUnitPrice : item.final_unit_price;
-        }
-        
-        // 计算标准总价（用于计算实验室报价）；可算且库中无合法 line_total 时用乘积压底
-        const calculatedLineTotal = calculateStandardLineTotal(
-          item.standard_price ?? item.unit_price,
-          item.actual_sample_quantity,
-          item.service_urgency
-        );
-        const lineTotal = resolveStandardLineTotal(item, calculatedLineTotal);
-
-        // 计算实验室报价（始终根据当前测试总价和标准总价尝试计算）
-        const calculatedLabPrice = calculateLabPrice(finalUnitPrice, lineTotal);
-
-        return {
-          ...item,
-          final_unit_price: finalUnitPrice,
-          line_total: lineTotal,
-          lab_price: calculatedLabPrice !== null ? calculatedLabPrice : item.lab_price
-        };
-      });
+      const processedData = enrichCommissionListRows(Array.isArray(data.data) ? data.data : []);
       setData(processedData);
       setTotal(data.total);
     } catch (error) {
@@ -1843,15 +1915,21 @@ const CommissionForm = () => {
 
   // 处理单个项目选择
   const handleItemSelect = (testItemId, checked) => {
-    const targetItem = data.find(x => x.test_item_id === testItemId);
+    const nid = normalizeTestItemId(testItemId);
+    const targetItem = data.find(x => isSameTestItemId(x.test_item_id, nid));
     if (!targetItem) return;
     if (user?.role === 'leader' && !canLeaderEditItem(targetItem)) {
       return;
     }
     if (checked) {
-      setSelectedItems(prev => [...prev, testItemId]);
+      setSelectedItems(prev => {
+        const without = prev.filter(id => !isSameTestItemId(id, nid));
+        return [...without, nid];
+      });
+      selectedItemSnapshotRef.current.set(nid, targetItem);
     } else {
-      setSelectedItems(prev => prev.filter(id => id !== testItemId));
+      setSelectedItems(prev => prev.filter(id => !isSameTestItemId(id, nid)));
+      selectedItemSnapshotRef.current.delete(nid);
     }
   };
 
@@ -1863,17 +1941,24 @@ const CommissionForm = () => {
       try {
         fullSelectionCacheRef.current = null;
         const allItems = await fetchAllMatchingItems();
-        const allIds = allItems.map(item => item.test_item_id).filter(Boolean);
-        setSelectedItems(Array.from(new Set(allIds)));
+        const allIds = allItems
+          .map(item => normalizeTestItemId(item.test_item_id))
+          .filter((id) => id !== null && id !== undefined);
+        const uniqueIds = Array.from(new Set(allIds));
+        setSelectedItems(uniqueIds);
+        uniqueIds.forEach((id) => {
+          const row = allItems.find(it => isSameTestItemId(it.test_item_id, id));
+          if (row) selectedItemSnapshotRef.current.set(id, row);
+        });
       } catch (error) {
         console.error('全选失败:', error);
         alert('全选失败，请稍后再试');
-        setSelectedItems([]);
+        clearRowSelection();
       } finally {
         setSelectAllLoading(false);
       }
     } else {
-      setSelectedItems([]);
+      clearRowSelection();
       fullSelectionCacheRef.current = null;
     }
   };
@@ -2071,8 +2156,9 @@ const CommissionForm = () => {
   const canMergeFillPrice = () => {
     if (!user || user.role !== 'sales') return false;
     if (!selectedItems || selectedItems.length === 0) return false;
-    const selectedData = data.filter(item => selectedItems.includes(item.test_item_id));
-    if (selectedData.length === 0) return false;
+    const uniqueCount = new Set(selectedItems.map(normalizeTestItemId)).size;
+    const selectedData = getSelectedRowsSync();
+    if (selectedData.length === 0 || selectedData.length !== uniqueCount) return false;
     // 任意一个已确认价格则禁止合并填价
     const hasConfirmed = selectedData.some(item => {
       return item.business_confirmed === 1 ||
@@ -2092,14 +2178,14 @@ const CommissionForm = () => {
   /** 业务员多选中存在「实验数据未填全」行：合并填价应禁用且静默处理，不弹窗 */
   const isMergeFillBlockedByIncompleteRawData = () => {
     if (user?.role !== 'sales') return false;
-    const selectedData = data.filter(item => selectedItems.includes(item.test_item_id));
+    const selectedData = getSelectedRowsSync();
     if (selectedData.length === 0) return false;
     return selectedData.some(item => !checkRawDataRequiredFields(item).allFilled);
   };
 
   // 计算合并填价时各项目的标准总价（line_total）的权重
   const getMergeSelectedItemsWithWeights = () => {
-    const selectedData = data.filter(item => selectedItems.includes(item.test_item_id));
+    const selectedData = getSelectedRowsSync();
     // 只考虑标准总价为正数的项目
     const itemsWithStd = selectedData.map(item => {
       const standardTotal = typeof item.line_total === 'number'
@@ -2115,14 +2201,19 @@ const CommissionForm = () => {
   };
 
   const openMergePriceModal = () => {
+    const uniqueCount = new Set(selectedItems.map(normalizeTestItemId)).size;
+    const selectedData = getSelectedRowsSync();
     if (!canMergeFillPrice()) {
       // 更精确的提示：如果有已确认的项目或包含非自己负责的项目
-      const selectedData = data.filter(item => selectedItems.includes(item.test_item_id));
       if (isMergeFillBlockedByIncompleteRawData()) {
         return;
       }
       if (selectedItems.length === 0) {
         alert('请先选择要合并填价的检测项目');
+        return;
+      }
+      if (selectedData.length < uniqueCount) {
+        alert('无法获取部分已选项目的数据，请回到对应分页确认勾选或刷新页面后再试');
         return;
       }
       if (selectedData.some(item =>
@@ -2263,7 +2354,11 @@ const CommissionForm = () => {
       }
 
       for (const { item, allocatedPrice } of allocations) {
-        const calculatedLabPrice = calculateLabPrice(allocatedPrice, item.line_total);
+        const calculatedLabPrice = calculateLabPrice(
+          allocatedPrice,
+          item.line_total,
+          item.group_id
+        );
         const payload = {
           final_unit_price: allocatedPrice,
           business_confirmed: 1
@@ -2296,7 +2391,11 @@ const CommissionForm = () => {
             final_unit_price: found.allocatedPrice,
             business_confirmed: 1
           };
-          const calculatedLabPrice = calculateLabPrice(found.allocatedPrice, existing.line_total);
+          const calculatedLabPrice = calculateLabPrice(
+            found.allocatedPrice,
+            existing.line_total,
+            existing.group_id
+          );
           if (calculatedLabPrice !== null) {
             updated.lab_price = calculatedLabPrice;
           }
@@ -2308,7 +2407,7 @@ const CommissionForm = () => {
       setMergePriceConfirmPayload(null);
       setShowMergePriceModal(false);
       setMergeTotalPriceInput('');
-      setSelectedItems([]);
+      clearRowSelection();
       alert('合并填价成功，已按标准总价比例分配测试总价并自动确认价格');
     } catch (error) {
       console.error('handleExecuteMergePriceConfirm error:', error);
@@ -2814,12 +2913,12 @@ const CommissionForm = () => {
       setDeletingItems(new Set(selectedItems));
       
       // 并行删除所有选中的项目
-      await Promise.all(selectedItems.map(id => api.deleteTestItem(id)));
+      await Promise.all(selectedItems.map(id => api.deleteTestItem(normalizeTestItemId(id))));
       
       // 从本地数据中移除
-      setData(prev => prev.filter(item => !selectedItems.includes(item.test_item_id)));
+      setData(prev => prev.filter(item => !selectedItems.some(sid => isSameTestItemId(sid, item.test_item_id))));
       setTotal(prev => prev - selectedItems.length);
-      setSelectedItems([]);
+      clearRowSelection();
       
       alert(`成功删除 ${selectedItems.length} 个检测项目`);
     } catch (error) {
@@ -2836,7 +2935,11 @@ const CommissionForm = () => {
       return;
     }
 
-    const selectedData = data.filter(item => selectedItems.includes(item.test_item_id));
+    const uniqueCount = new Set(selectedItems.map(normalizeTestItemId)).size;
+    let selectedData = getSelectedRowsSync();
+    if (selectedData.length < uniqueCount) {
+      selectedData = await getSelectedItemsData();
+    }
     if (selectedData.length === 0) {
       alert('未找到选中的检测项目数据');
       return;
@@ -2904,8 +3007,17 @@ const CommissionForm = () => {
   };
 
   const handleSettlementSubmit = async () => {
-    if (!settlementForm.invoice_number || !settlementForm.invoice_date || !settlementForm.invoice_amount || (!settlementForm.customer_id && !settlementForm.customer_name)) {
-      alert('请填写必填项：票号、开票日期、开票金额和开票单位');
+    const rawInv = settlementForm.invoice_amount;
+    const invoiceAmountNum =
+      rawInv === '' || rawInv === null || rawInv === undefined ? NaN : parseFloat(String(rawInv).trim());
+    if (
+      !settlementForm.invoice_number ||
+      !settlementForm.invoice_date ||
+      !Number.isFinite(invoiceAmountNum) ||
+      invoiceAmountNum < 0 ||
+      (!settlementForm.customer_id && !settlementForm.customer_name)
+    ) {
+      alert('请填写必填项：票号、开票日期、开票金额（可为0）和开票单位');
       return;
     }
 
@@ -2920,9 +3032,13 @@ const CommissionForm = () => {
       return;
     }
 
-    // 获取选中的test_items数据，用于按比例分配unpaid_amount
-    const selectedData = data.filter(item => selectedItems.includes(item.test_item_id));
-    
+    // 获取选中的test_items数据，用于按比例分配unpaid_amount（含跨页）
+    const selectedData = await getSelectedItemsData();
+    if (selectedData.length === 0) {
+      alert('未找到选中的检测项目数据');
+      return;
+    }
+
     // 验证：检查是否有开票预填价为空的项目
     const emptyPrefillItems = selectedData.filter(item => {
       const prefillPrice = item.invoice_prefill_price !== null && item.invoice_prefill_price !== undefined
@@ -2959,7 +3075,7 @@ const CommissionForm = () => {
         invoice_number: settlementForm.invoice_number || null,
         invoice_date: settlementForm.invoice_date,
         order_ids: settlementOrderIds,
-        invoice_amount: parseFloat(settlementForm.invoice_amount),
+        invoice_amount: invoiceAmountNum,
         remarks: settlementForm.remarks || null,
         customer_id: settlementForm.customer_id || null,
         customer_name: settlementForm.customer_name || null,
@@ -3126,7 +3242,11 @@ const CommissionForm = () => {
         const userLocal = JSON.parse(localStorage.getItem('lims_user') || 'null');
         
         // 确认价格时，同时计算并保存lab_price
-        const calculatedLabPrice = calculateLabPrice(item.final_unit_price, item.line_total);
+        const calculatedLabPrice = calculateLabPrice(
+          item.final_unit_price,
+          item.line_total,
+          item.group_id
+        );
         const updatePayload = { business_confirmed: 1 };
         if (calculatedLabPrice !== null) {
           updatePayload.lab_price = calculatedLabPrice;
@@ -3469,7 +3589,11 @@ const CommissionForm = () => {
       
       // 计算实验室报价：业务已确认价格后不得再随单字段保存附带 lab_price，否则服务端会 403
       if (!isLocked) {
-        const calculatedLabPrice = calculateLabPrice(finalPriceForLabCalc, lineTotalForLabCalc);
+        const calculatedLabPrice = calculateLabPrice(
+          finalPriceForLabCalc,
+          lineTotalForLabCalc,
+          currentItem.group_id
+        );
         if (calculatedLabPrice !== null) {
           updateData.lab_price = calculatedLabPrice;
         } else {
@@ -3588,7 +3712,11 @@ const CommissionForm = () => {
                 merged.final_unit_price !== undefined ? merged.final_unit_price : currentItem.final_unit_price;
               const lineTotal =
                 merged.line_total !== undefined ? merged.line_total : currentItem.line_total;
-              const recalculatedLabPrice = calculateLabPrice(finalPrice, lineTotal);
+              const recalculatedLabPrice = calculateLabPrice(
+                finalPrice,
+                lineTotal,
+                merged.group_id
+              );
               merged.lab_price = recalculatedLabPrice !== null ? recalculatedLabPrice : null;
             }
             
@@ -3753,7 +3881,7 @@ const CommissionForm = () => {
         alert('请先选择检测项目');
         return;
       }
-      const selectedData = data.filter(item => selectedItems.includes(item.test_item_id));
+      const selectedData = getSelectedRowsSync();
       const uniqueOrders = Array.from(new Set(selectedData.map(it => it.order_id)));
       if (uniqueOrders.length !== 1) {
         alert('必须选择同一委托单号下的项目');
@@ -3767,7 +3895,8 @@ const CommissionForm = () => {
       }
 
       const orderId = uniqueOrders[0];
-      const blob = await api.generateWHReport({ order_id: orderId, test_item_ids: selectedItems });
+      const testItemIds = [...new Set(selectedItems.map(normalizeTestItemId))];
+      const blob = await api.generateWHReport({ order_id: orderId, test_item_ids: testItemIds });
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -4238,7 +4367,7 @@ const CommissionForm = () => {
                 <button
                   type="button"
                   className="merge-price-toolbar-btn merge-price-toolbar-btn-outline"
-                  onClick={() => setSelectedItems([])}
+                  onClick={() => clearRowSelection()}
                 >
                   取消选择
                 </button>
@@ -4259,7 +4388,9 @@ const CommissionForm = () => {
                             return true;
                           });
                           if (selectable.length === 0) return false;
-                          return selectable.every(item => selectedItems.includes(item.test_item_id));
+                          return selectable.every(item =>
+                            selectedItems.some(sid => isSameTestItemId(sid, item.test_item_id))
+                          );
                         })()}
                         onChange={handleSelectAll}
                         title="全选"
@@ -4323,7 +4454,7 @@ const CommissionForm = () => {
                       <td className="fixed-left-checkbox">
                         <input 
                           type="checkbox" 
-                          checked={selectedItems.includes(item.test_item_id)}
+                          checked={selectedItems.some(sid => isSameTestItemId(sid, item.test_item_id))}
                           onChange={(e) => handleItemSelect(item.test_item_id, e.target.checked)}
                           disabled={user?.role === 'leader' && !canLeaderEditItem(item)}
                         />
@@ -4354,6 +4485,19 @@ const CommissionForm = () => {
                               return <span className="urgency-badge urgency-1-5x">加急</span>;
                             }
                             return null;
+                          })()}
+                          {(() => {
+                            const label = getReportFormDeliveryLabel(item.report_type);
+                            if (!label) return null;
+                            const cls =
+                              label === '数据交付'
+                                ? 'report-form-badge report-form-badge--data'
+                                : 'report-form-badge report-form-badge--report';
+                            return (
+                              <span className={cls} title="报告形式">
+                                {label}
+                              </span>
+                            );
                           })()}
                           {/* 报告印章标识 - CNAS/CMA */}
                           {item.report_seals && (() => {
@@ -4921,7 +5065,8 @@ const CommissionForm = () => {
                                         updatedItem.line_total = calculatedLineTotal;
                                         const calculatedLabPrice = calculateLabPrice(
                                           updatedItem.final_unit_price,
-                                          calculatedLineTotal
+                                          calculatedLineTotal,
+                                          updatedItem.group_id
                                         );
                                         updatedItem.lab_price = calculatedLabPrice;
                                         
@@ -6004,7 +6149,7 @@ const CommissionForm = () => {
                 userRole={user?.role}
                 onFileUploaded={(info) => {
                   setShowBatchUploadModal(false);
-                  setSelectedItems([]);
+                  clearRowSelection();
                   handleFileStatusUpdate(info);
                 }}
               />
@@ -6062,7 +6207,7 @@ const CommissionForm = () => {
                   // 排除业务员角色
                   if (user?.role === 'sales') return false;
                   if (['2', '6'].includes(String(user?.department_id))) return true;
-                  const selectedData = data.filter(item => selectedItems.includes(item.test_item_id));
+                  const selectedData = getSelectedRowsSync();
                   if (selectedData.length === 0) return false;
                   return selectedData.every(it => ['2', '6'].includes(String(it.department_id)));
                 })() && (

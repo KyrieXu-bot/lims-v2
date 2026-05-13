@@ -63,8 +63,9 @@ router.post('/', requireAuth, async (req, res) => {
     test_item_amounts
   } = req.body;
   
-  if (!invoice_date || !order_ids || !invoice_amount) {
-    return res.status(400).json({ error: '开票日期、委托单号组、开票金额为必填项' });
+  const invoiceAmountNum = Number(invoice_amount);
+  if (!invoice_date || !order_ids || invoice_amount === null || invoice_amount === undefined || invoice_amount === '' || !Number.isFinite(invoiceAmountNum) || invoiceAmountNum < 0) {
+    return res.status(400).json({ error: '开票日期、委托单号组、开票金额为必填项，且开票金额须为大于等于0的数字' });
   }
   
   // customer_id和customer_name至少有一个
@@ -129,7 +130,7 @@ router.post('/', requireAuth, async (req, res) => {
       `INSERT INTO settlements 
        (invoice_number, invoice_date, order_ids, test_item_ids, invoice_amount, remarks, customer_id, customer_name, assignee_id, customer_nature, payment_status)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '未到款')`,
-      [invoice_number || null, invoice_date, order_ids, test_item_ids_json, invoice_amount, remarks || null, final_customer_id, final_customer_name, assignee_id || null, final_customer_nature]
+      [invoice_number || null, invoice_date, order_ids, test_item_ids_json, invoiceAmountNum, remarks || null, final_customer_id, final_customer_name, assignee_id || null, final_customer_nature]
     );
     
     // 如果有test_item_ids，按开票预填价比例分配开票金额，并更新开票状态
@@ -149,7 +150,7 @@ router.post('/', requireAuth, async (req, res) => {
         const allocations = testItems.map((item) => {
           const prefillPrice = parseFloat(item.invoice_prefill_price) || 0;
           const proportion = prefillPrice / totalPrefillPrice;
-          const allocatedAmount = parseFloat((invoice_amount * proportion).toFixed(2));
+          const allocatedAmount = parseFloat((invoiceAmountNum * proportion).toFixed(2));
           return {
             test_item_id: item.test_item_id,
             unpaid_amount: allocatedAmount
@@ -158,7 +159,7 @@ router.post('/', requireAuth, async (req, res) => {
         
         // 处理精度问题：确保总和等于开票金额
         const allocatedTotal = allocations.reduce((sum, item) => sum + item.unpaid_amount, 0);
-        const difference = invoice_amount - allocatedTotal;
+        const difference = invoiceAmountNum - allocatedTotal;
         if (Math.abs(difference) > 0.01) {
           // 将差额加到最后一个项目
           allocations[allocations.length - 1].unpaid_amount = parseFloat((allocations[allocations.length - 1].unpaid_amount + difference).toFixed(2));
@@ -171,6 +172,16 @@ router.post('/', requireAuth, async (req, res) => {
              SET unpaid_amount = ?, invoice_status = '已结算'
              WHERE test_item_id = ?`,
             [allocation.unpaid_amount, allocation.test_item_id]
+          );
+        }
+      } else if (invoiceAmountNum === 0) {
+        // 开票预填价合计为 0 时无法按比例分摊；整单开票金额为 0 时各行记 0 并标记已结算
+        for (const item of testItems) {
+          await connection.query(
+            `UPDATE test_items 
+             SET unpaid_amount = 0, invoice_status = '已结算'
+             WHERE test_item_id = ?`,
+            [item.test_item_id]
           );
         }
       }
@@ -479,6 +490,13 @@ router.put('/:id', requireAuth, async (req, res) => {
               await connection.query(
                 'UPDATE test_items SET unpaid_amount = ? WHERE test_item_id = ?',
                 [allocation.unpaid_amount, allocation.test_item_id]
+              );
+            }
+          } else if (newInvoiceAmount === 0 && testItems.length > 0) {
+            for (const item of testItems) {
+              await connection.query(
+                'UPDATE test_items SET unpaid_amount = 0 WHERE test_item_id = ?',
+                [item.test_item_id]
               );
             }
           }

@@ -1,6 +1,12 @@
 import { Router } from 'express';
 import { getPool } from '../db.js';
 import { requireAuth, requireAnyRole } from '../middleware/auth.js';
+import {
+  buildCommissionListFilters,
+  COMMISSION_FORM_LIST_SELECT_JOINS,
+  commissionListWhereNeedsOrderJoins,
+  COMMISSION_FORM_PAGE_IDS_JOIN_BLOCK
+} from '../lib/commissionFormListQuery.js';
 
 /**
  * 委托单列表：已关联结算时，用 settlements.invoice_amount 与组内开票预填价之和的比例覆盖展示用 unpaid_amount。
@@ -80,284 +86,135 @@ async function applySettlementDerivedUnpaidAmount(rows, pool) {
   }
 }
 
+/**
+ * 分页：先取本页 test_item_id（不 JOIN project_files / settlements），再按 IN 拉完整行。
+ */
+async function fetchCommissionPageTestItemIds(pool, req, whereSql, params, limit, offset) {
+  const needOrderJoins = commissionListWhereNeedsOrderJoins(req);
+  const fromSql = needOrderJoins
+    ? COMMISSION_FORM_PAGE_IDS_JOIN_BLOCK
+    : '\n      FROM test_items ti';
+  const [idRows] = await pool.query(
+    `SELECT ti.test_item_id AS __tid ${fromSql}
+      ${whereSql}
+      ORDER BY ti.order_id ASC, ti.test_item_id ASC
+      LIMIT ? OFFSET ?`,
+    [...params, Number(limit), Number(offset)]
+  );
+  return idRows.map((r) => r.__tid);
+}
+
+/**
+ * @param {object} pool — mysql2 pool
+ * @param {string} whereSql — 含 WHERE 关键字，或空串
+ * @param {any[]} params
+ * @param {{ limit: number, offset: number } | null} pageOpts — null 表示不按分页截断（按 ID 批量查询）
+ * @param {object | null} req — Express req；分页两阶段时需要；按 ID 批量时传 null
+ */
+async function runCommissionFormListQuery(pool, whereSql, params, pageOpts, req = null) {
+  if (!pageOpts) {
+    const [rows] = await pool.query(
+      `${COMMISSION_FORM_LIST_SELECT_JOINS}
+      ${whereSql}
+      ORDER BY ti.order_id ASC, ti.test_item_id ASC`,
+      params
+    );
+    await applySettlementDerivedUnpaidAmount(rows, pool);
+    return rows;
+  }
+
+  const { limit, offset } = pageOpts;
+  if (!req) {
+    throw new Error('runCommissionFormListQuery: req is required when pageOpts is set');
+  }
+  const ids = await fetchCommissionPageTestItemIds(pool, req, whereSql, params, limit, offset);
+  if (ids.length === 0) {
+    return [];
+  }
+  const idPh = ids.map(() => '?').join(',');
+  const whereIn = whereSql
+    ? `${whereSql} AND ti.test_item_id IN (${idPh})`
+    : `WHERE ti.test_item_id IN (${idPh})`;
+  const [rows] = await pool.query(
+    `${COMMISSION_FORM_LIST_SELECT_JOINS}
+      ${whereIn}
+      ORDER BY ti.order_id ASC, ti.test_item_id ASC`,
+    [...params, ...ids]
+  );
+  await applySettlementDerivedUnpaidAmount(rows, pool);
+  const orderMap = new Map(ids.map((id, i) => [Number(id), i]));
+  rows.sort(
+    (a, b) =>
+      (orderMap.get(Number(a.test_item_id)) ?? 0) - (orderMap.get(Number(b.test_item_id)) ?? 0)
+  );
+  return rows;
+}
+
 const router = Router();
 router.use(requireAuth, requireAnyRole(['admin', 'leader', 'supervisor', 'employee', 'sales', 'viewer']));
 
 // 获取委托单登记表数据（扁平化，以test_item_id为单位）
 router.get('/commission-form', async (req, res) => {
-  const { q = '', page = 1, pageSize = 100, status, department_id, month_filter, my_items } = req.query;
+  const { page = 1, pageSize = 100 } = req.query;
   const offset = (Number(page) - 1) * Number(pageSize);
   const pool = await getPool();
-  const like = `%${q}%`;
-  const filters = [];
-  const params = [];
-  const user = req.user;
-  
-
-  // 基于角色的数据过滤
-  if (user.role === 'admin') {
-    // 管理员：可以看到所有项目
-  } else if (user.role === 'leader') {
-    const leaderDept = Number(user.department_id);
-    if (leaderDept === 5) {
-      // 委外室主任查看所有部门
-    } else if (user.department_id) {
-      filters.push('ti.department_id = ?');
-      params.push(user.department_id);
-    } else {
-      // 如果没有department_id，通过group_id查找
-      filters.push('ti.department_id IN (SELECT department_id FROM lab_groups WHERE group_id = ?)');
-      params.push(user.group_id);
-    }
-  } else if (user.role === 'supervisor') {
-    // 组长：只能看到分配给他的检测项目
-    filters.push('ti.supervisor_id = ?');
-    params.push(user.user_id);
-  } else if (user.role === 'employee') {
-    // 实验员：只能看到指派给他的检测项目
-    filters.push('ti.technician_id = ?');
-    params.push(user.user_id);
-  } else if (user.role === 'sales') {
-    // 业务员：可以看到所有项目，前端会根据current_assignee判断是否需要模糊处理
-    // 不再在这里过滤数据
-  }
-
-  // 处理状态筛选（支持多选）
-  // Express会将多个同名参数转换为数组，单个参数保持为字符串
-  const statusArray = Array.isArray(status) ? status : (status ? [status] : []);
-  
-  // 只有当明确指定了非cancelled状态时，才排除已取消的项目
-  // 如果status为空（全部状态），则包含所有状态包括已取消的
-  if (statusArray.length > 0 && !statusArray.includes('cancelled')) {
-    filters.push('ti.status != ?');
-    params.push('cancelled');
-  }
-
-  if (q) {
-    // 检查是否是日期格式 (yyyy-MM-dd)
-    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
-    if (dateRegex.test(q)) {
-      // 如果是日期格式，搜索当天的现场测试时间
-      filters.push('DATE(ti.field_test_time) = ?');
-      params.push(q);
-    } else {
-      // 普通文本搜索
-      // 使用子查询来搜索 payers.contact_name，避免 WHERE 子句中引用 JOIN 别名的问题
-      // 添加对负责人名字和测试人员名字的搜索
-      // 添加转单号搜索：
-      //   - ti.order_id LIKE ?: 搜索当前订单号（包括原单号和转单号）
-      //   - o.original_order_id LIKE ?: 如果当前是转单，搜索原单号
-      //   - o.root_order_id LIKE ?: 搜索根单号（如果搜索原单号，能找到所有以它为根单号的转单）
-      // 注意：移除了性能差的EXISTS子查询，因为：
-      //   1. 搜索原单号时，o.root_order_id LIKE ? 已经能找到所有相关转单
-      //   2. 搜索转单号时，ti.order_id LIKE ? 和 o.original_order_id LIKE ? 已经足够
-      //   3. 如果确实需要反向查找（搜索原单号找转单），可以通过优化索引或单独查询实现
-      filters.push('(ti.category_name LIKE ? OR ti.detail_name LIKE ? OR ti.test_code LIKE ? OR ti.order_id LIKE ? OR o.original_order_id LIKE ? OR o.root_order_id LIKE ? OR c.customer_name LIKE ? OR comm.contact_name LIKE ? OR EXISTS (SELECT 1 FROM payers WHERE payers.payer_id = o.payer_id AND payers.contact_name LIKE ?) OR EXISTS (SELECT 1 FROM users WHERE users.user_id = ti.supervisor_id AND users.name LIKE ?) OR EXISTS (SELECT 1 FROM users WHERE users.user_id = ti.technician_id AND users.name LIKE ?))');
-      params.push(like, like, like, like, like, like, like, like, like, like, like);
-    }
-  }
-  
-  // 多状态筛选：使用IN查询
-  if (statusArray.length > 0) {
-    const placeholders = statusArray.map(() => '?').join(',');
-    filters.push(`ti.status IN (${placeholders})`);
-    params.push(...statusArray);
-  }
-  if (department_id) {
-    filters.push('ti.department_id = ?');
-    params.push(department_id);
-  }
-  // 月份筛选：基于委托单号格式 JC + 年份(2位) + 月份(2位) + 编号
-  // 例如：JC25100001 表示 25年10月
-  if (month_filter && month_filter.trim() !== '') {
-    // month_filter 格式为 "yyyy-MM"，需要转换为年份和月份
-    // 例如 "2025-10" -> 年份25，月份10
-    const [year, month] = month_filter.split('-');
-    if (year && month && year.length === 4 && month.length === 2) {
-      // 提取年份的后两位（例如2025 -> 25）
-      const yearSuffix = year.slice(-2);
-      // 委托单号格式：JC + 年份(2位) + 月份(2位) + 编号
-      // 使用LIKE匹配：JC + 年份 + 月份
-      filters.push('ti.order_id LIKE ?');
-      params.push(`JC${yearSuffix}${month.padStart(2, '0')}%`);
-    }
-  }
-  // "我的"筛选：筛选 current_assignee 等于当前用户的项目
-  if (my_items === 'true') {
-    filters.push('ti.current_assignee = ?');
-    params.push(user.user_id);
-  }
-
-  const where = filters.length ? 'WHERE ' + filters.join(' AND ') : '';
-
-
   try {
-    const [rows] = await pool.query(
-      `SELECT 
-        ti.test_item_id,
-        ti.order_id,
-        o.original_order_id,
-        o.root_order_id,
-        o.is_transferred,
-        -- 收样日期：普通项目用委托单创建时间，加测项目用检测项目创建时间（加测通过当日）
-        CASE 
-          WHEN ti.is_add_on IN (1, 2) THEN ti.created_at 
-          ELSE o.created_at 
-        END as order_created_at,
-        ti.created_at as test_item_created_at,
-        c.customer_id,
-        c.customer_name,
-        c.address as customer_address,
-        c.phone as customer_phone,
-        comm.contact_name as customer_contact_name,
-        comm.contact_phone as customer_contact_phone,
-        comm.email as customer_contact_email,
-        comm.commissioner_name as commissioner_name,
-        COALESCE(comm.commissioner_name, c.customer_name) as customer_commissioner_name,
-        comm.address as customer_commissioner_address,
-        o.commissioner_id,
-        u.name as assignee_name,
-        u.account as assignee_account,
-        ti.current_assignee,
-        ti.unpaid_amount,
-        ti.invoice_prefill_price, -- 开票预填价
-        ti.invoice_prefill_confirmed, -- 开票预填价是否已确认
-        ti.invoice_status, -- 开票状态
-        CONCAT(ti.category_name, ' - ', ti.detail_name) as test_item_name,
-        ti.category_name,
-        ti.detail_name,
-        ti.sample_name,
-        ti.material,
-        ti.original_no,
-        ti.test_code,
-        ti.price_id,
-        ti.department_id,
-        d.department_name,
-        ti.group_id,
-        lg.group_name,
-        ti.seq_no,
-        ti.unit_price as standard_price,
-        p.unit_price as original_unit_price,
-        p.minimum_price,
-        p.amount as price_amount,
-        p.unit as price_unit,
-        ti.discount_rate as discount_rate,
-        CASE 
-          WHEN ti.service_urgency = 'normal' THEN '不加急'
-          WHEN ti.service_urgency = 'urgent_1_5x' THEN '加急1.5倍'
-          WHEN ti.service_urgency = 'urgent_2x' THEN '特急2倍'
-          ELSE '不加急'
-        END as service_urgency,
-        ti.field_test_time,
-        ti.note,
-        e.equipment_name,
-        tech.name as technician_name,
-        ti.technician_id,
-        ti.assignment_note,
-        ti.actual_sample_quantity,
-        ti.work_hours,
-        ti.machine_hours,
-        ti.test_notes,
-        ti.unit,
-        ti.unit_mismatch_reviewed,
-        ti.line_total,
-        ti.final_unit_price,
-        ti.lab_price,
-        COALESCE(pf.has_order_attachment, 0) as has_order_attachment,
-        COALESCE(pf.has_raw_data, 0) as has_raw_data,
-        COALESCE(pf.has_experiment_report, 0) as has_experiment_report,
-        ti.actual_delivery_date,
-        ti.business_note,
-        ti.invoice_note,
-        ti.abnormal_condition,
-        ti.status,
-        ti.quantity,
-        ti.arrival_mode,
-        ti.sample_arrival_status,
-        ti.price_note,
-        ti.is_add_on,
-        ti.addon_reason,
-        ti.addon_target,
-        ti.business_confirmed,
-        sup.name as supervisor_name,
-        ti.supervisor_id,
-        -- 业务员信息
-        sales.name as sales_name,
-        sales.email as sales_email,
-        sales.phone as sales_phone,
-        -- 付款方信息
-        c.customer_name as payer_name,
-        pay.contact_name as payer_contact_name,
-        pay.contact_phone as payer_contact_phone,
-        NULL as payer_contact_email, -- payers表没有email字段
-        c.bank_name as payer_bank_name, -- 从customers表获取
-        c.tax_id as payer_tax_number, -- 从customers表获取
-        c.bank_account as payer_bank_account, -- 从customers表获取
-        c.address as payer_address, -- 从customers表获取
-        c.province as customer_province, -- 区域
-        c.nature as customer_nature, -- 单位性质
-        -- 其他信息
-        o.delivery_days_after_receipt as delivery_days,
-        o.remarks as other_requirements,
-        o.total_price,
-        -- 报告印章要求
-        r.report_seals,
-        -- 开票信息（从settlements表通过test_item_ids关联获取）
-        s.settlement_id AS __settlement_alloc_id,
-        s.invoice_amount AS __settlement_invoice_amount,
-        s.test_item_ids AS __settlement_test_item_ids,
-        s.invoice_number,
-        s.invoice_date as settlement_invoice_date,
-        COALESCE(s.customer_name, c_settlement.customer_name) as settlement_customer_name
-      FROM test_items ti
-      LEFT JOIN orders o ON o.order_id = ti.order_id
-      LEFT JOIN reports r ON r.order_id = ti.order_id
-      LEFT JOIN customers c ON c.customer_id = o.customer_id
-      LEFT JOIN commissioners comm ON comm.commissioner_id = o.commissioner_id
-      LEFT JOIN users u ON u.user_id = ti.current_assignee
-      LEFT JOIN users tech ON tech.user_id = ti.technician_id
-      LEFT JOIN users sup ON sup.user_id = ti.supervisor_id
-      LEFT JOIN payers pay ON pay.payer_id = o.payer_id
-      LEFT JOIN users sales ON sales.user_id = pay.owner_user_id
-      LEFT JOIN departments d ON d.department_id = ti.department_id
-      LEFT JOIN lab_groups lg ON lg.group_id = ti.group_id
-      LEFT JOIN price p ON p.price_id = ti.price_id
-      LEFT JOIN equipment e ON e.equipment_id = ti.equipment_id
-      LEFT JOIN (
-        SELECT 
-          test_item_id,
-          MAX(CASE WHEN category = 'order_attachment' THEN 1 ELSE 0 END) AS has_order_attachment,
-          MAX(CASE WHEN category = 'raw_data' THEN 1 ELSE 0 END) AS has_raw_data,
-          MAX(CASE WHEN category = 'experiment_report' THEN 1 ELSE 0 END) AS has_experiment_report
-        FROM project_files
-        GROUP BY test_item_id
-      ) pf ON pf.test_item_id = ti.test_item_id
-      LEFT JOIN settlements s ON JSON_CONTAINS(s.test_item_ids, CAST(ti.test_item_id AS JSON), '$')
-      LEFT JOIN customers c_settlement ON c_settlement.customer_id = s.customer_id
-      ${where}
-      ORDER BY ti.order_id ASC, ti.test_item_id ASC
-      LIMIT ? OFFSET ?`,
-      [...params, Number(pageSize), offset]
+    const { where, params } = buildCommissionListFilters(req);
+    const rows = await runCommissionFormListQuery(
+      pool,
+      where,
+      params,
+      {
+        limit: Number(pageSize),
+        offset
+      },
+      req
     );
 
-    await applySettlementDerivedUnpaidAmount(rows, pool);
-
-    // 业务员权限处理：不再在后端隐藏数据，让前端根据权限进行展示控制
-    // 业务员可以看到所有数据，但前端会根据current_assignee判断是否需要模糊处理
-
-    const [cnt] = await pool.query(
-      `SELECT COUNT(*) as cnt 
-       FROM test_items ti
+    const needWideCountJoins = commissionListWhereNeedsOrderJoins(req);
+    const countFrom = needWideCountJoins
+      ? `FROM test_items ti
        LEFT JOIN orders o ON o.order_id = ti.order_id
        LEFT JOIN customers c ON c.customer_id = o.customer_id
-       LEFT JOIN commissioners comm ON comm.commissioner_id = o.commissioner_id
-       ${where}`, 
-      params
-    );
+       LEFT JOIN commissioners comm ON comm.commissioner_id = o.commissioner_id`
+      : 'FROM test_items ti';
+    const [cnt] = await pool.query(`SELECT COUNT(*) as cnt ${countFrom} ${where}`, params);
 
     res.json({ data: rows, total: cnt[0].cnt });
   } catch (e) {
     console.error('Error fetching commission form data:', e);
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+/** 按检测项目 ID 批量查询（跨页导出等），与列表相同字段与权限过滤，避免拉全表 */
+router.post('/commission-form/by-test-item-ids', async (req, res) => {
+  const raw = req.body?.test_item_ids;
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return res.status(400).json({ error: 'test_item_ids 须为非空数组' });
+  }
+  const MAX_IDS = 2000;
+  const cleaned = [
+    ...new Set(
+      raw
+        .map((id) => Number(id))
+        .filter((n) => Number.isFinite(n) && n > 0)
+    )
+  ].slice(0, MAX_IDS);
+  if (cleaned.length === 0) {
+    return res.status(400).json({ error: '没有有效的 test_item_id' });
+  }
+  const pool = await getPool();
+  try {
+    const { where, params } = buildCommissionListFilters(req);
+    const idPh = cleaned.map(() => '?').join(',');
+    const whereWithIds = where
+      ? `${where} AND ti.test_item_id IN (${idPh})`
+      : `WHERE ti.test_item_id IN (${idPh})`;
+    const rows = await runCommissionFormListQuery(pool, whereWithIds, [...params, ...cleaned], null);
+    res.json({ data: rows });
+  } catch (e) {
+    console.error('Error fetching commission form by test_item_ids:', e);
     return res.status(500).json({ error: e.message });
   }
 });

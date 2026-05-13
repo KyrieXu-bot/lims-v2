@@ -2212,6 +2212,32 @@
   background: rgba(217, 119, 6, 0.15);
 }
 
+/* 报告形式（数据交付 / 报告交付）：低饱和，与加急/加测/CNAS 等区分 */
+.report-form-badge {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 1px 5px;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: 3px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+/* 数据交付：偏冷、带一点青绿灰底，与报告交付的暖紫灰底一眼可辨 */
+.report-form-badge--data {
+  color: #355a5a;
+  background: #e4efed;
+  border: 1px solid #a8bdb8;
+}
+
+/* 报告交付：偏暖、带一点灰紫粉底 */
+.report-form-badge--report {
+  color: #52485c;
+  background: #ede8f0;
+  border: 1px solid #c4b8ca;
+}
+
 /* 转单标识 */
 .transfer-badge {
   display: inline-flex;
