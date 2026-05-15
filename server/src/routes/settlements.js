@@ -607,9 +607,9 @@ router.delete('/:id', requireAuth, async (req, res) => {
   try {
     await connection.beginTransaction();
     
-    // 先获取要删除的结算记录信息，特别是order_ids
+    // 先获取要删除的结算记录（与创建/更新一致：优先按 test_item_ids 恢复，否则按委托单号组内未取消项目）
     const [settlementRows] = await connection.query(
-      'SELECT order_ids FROM settlements WHERE settlement_id = ?',
+      'SELECT order_ids, test_item_ids FROM settlements WHERE settlement_id = ?',
       [req.params.id]
     );
     
@@ -618,31 +618,45 @@ router.delete('/:id', requireAuth, async (req, res) => {
       return res.status(404).json({ error: '结算记录不存在' });
     }
     
-    const orderIds = settlementRows[0].order_ids;
-    
-    // 将order_ids字符串转换为数组（支持"-"分隔）
-    const orderIdArray = orderIds ? orderIds.split('-').filter(id => id.trim()) : [];
-    
-    // 找到所有相关的test_items，将它们的unpaid_amount清零
-    if (orderIdArray.length > 0) {
-      // 构建查询条件：匹配order_id在orderIds中的test_items
-      const placeholders = orderIdArray.map(() => '?').join(',');
-      const [testItems] = await connection.query(
-        `SELECT test_item_id FROM test_items WHERE order_id IN (${placeholders})`,
-        orderIdArray
-      );
-      
-      // 将所有相关test_items的unpaid_amount清零
-      if (testItems.length > 0) {
-        const testItemIds = testItems.map(item => item.test_item_id);
-        const testItemPlaceholders = testItemIds.map(() => '?').join(',');
-        await connection.query(
-          `UPDATE test_items 
-           SET unpaid_amount = 0
-           WHERE test_item_id IN (${testItemPlaceholders})`,
-          testItemIds
-        );
+    const { order_ids: orderIdsStr, test_item_ids: testItemIdsStr } = settlementRows[0];
+
+    let testItemIds = [];
+    if (testItemIdsStr && String(testItemIdsStr).trim() !== '') {
+      try {
+        const parsed = JSON.parse(testItemIdsStr);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          testItemIds = parsed.filter((id) => id != null && id !== '');
+        }
+      } catch (parseErr) {
+        console.error('Failed to parse test_item_ids on delete:', parseErr);
       }
+    }
+    if (testItemIds.length === 0 && orderIdsStr) {
+      const orderIdArray = String(orderIdsStr)
+        .split('-')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (orderIdArray.length > 0) {
+        const ph = orderIdArray.map(() => '?').join(',');
+        const [rows] = await connection.query(
+          `SELECT test_item_id FROM test_items WHERE order_id IN (${ph}) AND status != 'cancelled'`,
+          orderIdArray
+        );
+        testItemIds = (rows || []).map((r) => r.test_item_id).filter(Boolean);
+      }
+    }
+
+    if (testItemIds.length > 0) {
+      const uniqueIds = Array.from(new Set(testItemIds));
+      const ph = uniqueIds.map(() => '?').join(',');
+      await connection.query(
+        `UPDATE test_items 
+         SET unpaid_amount = 0,
+             invoice_status = '未结算',
+             invoice_prefill_confirmed = 0
+         WHERE test_item_id IN (${ph})`,
+        uniqueIds
+      );
     }
     
     // 删除结算记录

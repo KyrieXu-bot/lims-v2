@@ -1,6 +1,10 @@
 // 统一的后端 API 根地址
 // 优先级：环境变量 > 原生环境检测 > 根据当前页面协议 > 默认值
 
+import { readApiJson, throwIfErrorOrReturnBlob, consumeLoginNotice } from './utils/sessionReauth.js';
+
+export { consumeLoginNotice };
+
 export function getApiBase() {
   // 1. 优先使用环境变量（支持 VITE_API_BASE 和 VITE_API_BASE_URL）
   if (import.meta.env.VITE_API_BASE) {
@@ -61,8 +65,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password })
     });
-    if (!r.ok) throw new Error((await r.json()).error || 'Login failed');
-    return r.json();
+    return readApiJson(r, 'Login failed');
   },
   async changePassword({ oldPassword, newPassword }) {
     const r = await fetch(`${API_BASE}/api/users/change-password`, {
@@ -70,21 +73,18 @@ export const api = {
       headers: this.authHeaders(),
       body: JSON.stringify({ oldPassword, newPassword })
     });
-    if (!r.ok) throw new Error((await r.json()).error || '修改密码失败');
-    return r.json();
+    return readApiJson(r, '修改密码失败');
   },
   async getCurrentUser() {
     const r = await fetch(`${API_BASE}/api/users/me`, { headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || '获取用户信息失败');
-    return r.json();
+    return readApiJson(r, '获取用户信息失败');
   },
   async listAllUsers({ q = '', is_active = '' } = {}) {
     const params = new URLSearchParams();
     if (q) params.set('q', q);
     if (is_active !== '') params.set('is_active', is_active);
     const r = await fetch(`${API_BASE}/api/users/all?${params.toString()}`, { headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || '获取员工列表失败');
-    return r.json();
+    return readApiJson(r, '获取员工列表失败');
   },
   async updateUserStatus(userId, isActive) {
     const r = await fetch(`${API_BASE}/api/users/${userId}/status`, {
@@ -92,8 +92,7 @@ export const api = {
       headers: this.authHeaders(),
       body: JSON.stringify({ is_active: isActive })
     });
-    if (!r.ok) throw new Error((await r.json()).error || '更新状态失败');
-    return r.json();
+    return readApiJson(r, '更新状态失败');
   },
   async generateWHReport({ order_id, test_item_ids }) {
     const r = await fetch(`${API_BASE}/api/templates/generate-wh-report`, {
@@ -101,9 +100,7 @@ export const api = {
       headers: this.authHeaders(),
       body: JSON.stringify({ order_id, test_item_ids })
     });
-    if (!r.ok) throw new Error((await r.json()).error || 'Export failed');
-    const blob = await r.blob();
-    return blob;
+    return throwIfErrorOrReturnBlob(r, 'Export failed');
   },
 
   // helper
@@ -118,38 +115,31 @@ export const api = {
     const params = new URLSearchParams({ q, page, pageSize });
     if (is_active === 0 || is_active === 1 || is_active === '0' || is_active === '1') params.set('is_active', is_active);
     const r = await fetch(`${API_BASE}/api/customers?${params.toString()}`, { headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
-    return r.json();
+    return readApiJson(r, 'Fetch failed');
   },
   async salesOptions() {
     const r = await fetch(`${API_BASE}/api/customers/sales-options`, { headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
-    return r.json();
+    return readApiJson(r, 'Fetch failed');
   },
   async customersOptions() {
     const r = await fetch(`${API_BASE}/api/customers/options`, { headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
-    return r.json();
+    return readApiJson(r, 'Fetch failed');
   },
   async getCustomer(id) {
     const r = await fetch(`${API_BASE}/api/customers/${id}`, { headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
-    return r.json();
+    return readApiJson(r, 'Fetch failed');
   },
   async createCustomer(payload) {
     const r = await fetch(`${API_BASE}/api/customers`, { method:'POST', headers: this.authHeaders(), body: JSON.stringify(payload) });
-    if (!r.ok) throw new Error((await r.json()).error || 'Create failed');
-    return r.json();
+    return readApiJson(r, 'Create failed');
   },
   async updateCustomer(id, payload) {
     const r = await fetch(`${API_BASE}/api/customers/${id}`, { method:'PUT', headers: this.authHeaders(), body: JSON.stringify(payload) });
-    if (!r.ok) throw new Error((await r.json()).error || 'Update failed');
-    return r.json();
+    return readApiJson(r, 'Update failed');
   },
   async deleteCustomer(id) {
     const r = await fetch(`${API_BASE}/api/customers/${id}`, { method:'DELETE', headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || 'Delete failed');
-    return r.json();
+    return readApiJson(r, 'Delete failed');
   },
 
   // payers
@@ -157,33 +147,27 @@ export const api = {
     const params = new URLSearchParams({ q, page, pageSize });
     if (is_active === 0 || is_active === 1 || is_active === '0' || is_active === '1') params.set('is_active', is_active);
     const r = await fetch(`${API_BASE}/api/payers?${params.toString()}`, { headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
-    return r.json();
+    return readApiJson(r, 'Fetch failed');
   },
   async payersOptions() {
     const r = await fetch(`${API_BASE}/api/payers/options`, { headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
-    return r.json();
+    return readApiJson(r, 'Fetch failed');
   },
   async getPayer(id) {
     const r = await fetch(`${API_BASE}/api/payers/${id}`, { headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
-    return r.json();
+    return readApiJson(r, 'Fetch failed');
   },
   async createPayer(payload) {
     const r = await fetch(`${API_BASE}/api/payers`, { method:'POST', headers: this.authHeaders(), body: JSON.stringify(payload) });
-    if (!r.ok) throw new Error((await r.json()).error || 'Create failed');
-    return r.json();
+    return readApiJson(r, 'Create failed');
   },
   async updatePayer(id, payload) {
     const r = await fetch(`${API_BASE}/api/payers/${id}`, { method:'PUT', headers: this.authHeaders(), body: JSON.stringify(payload) });
-    if (!r.ok) throw new Error((await r.json()).error || 'Update failed');
-    return r.json();
+    return readApiJson(r, 'Update failed');
   },
   async deletePayer(id) {
     const r = await fetch(`${API_BASE}/api/payers/${id}`, { method:'DELETE', headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || 'Delete failed');
-    return r.json();
+    return readApiJson(r, 'Delete failed');
   },
 
   // commissioners
@@ -191,28 +175,23 @@ export const api = {
     const params = new URLSearchParams({ q, page, pageSize });
     if (is_active === 0 || is_active === 1 || is_active === '0' || is_active === '1') params.set('is_active', is_active);
     const r = await fetch(`${API_BASE}/api/commissioners?${params.toString()}`, { headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
-    return r.json();
+    return readApiJson(r, 'Fetch failed');
   },
   async getCommissioner(id) {
     const r = await fetch(`${API_BASE}/api/commissioners/${id}`, { headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
-    return r.json();
+    return readApiJson(r, 'Fetch failed');
   },
   async createCommissioner(payload) {
     const r = await fetch(`${API_BASE}/api/commissioners`, { method:'POST', headers: this.authHeaders(), body: JSON.stringify(payload) });
-    if (!r.ok) throw new Error((await r.json()).error || 'Create failed');
-    return r.json();
+    return readApiJson(r, 'Create failed');
   },
   async updateCommissioner(id, payload) {
     const r = await fetch(`${API_BASE}/api/commissioners/${id}`, { method:'PUT', headers: this.authHeaders(), body: JSON.stringify(payload) });
-    if (!r.ok) throw new Error((await r.json()).error || 'Update failed');
-    return r.json();
+    return readApiJson(r, 'Update failed');
   },
   async deleteCommissioner(id) {
     const r = await fetch(`${API_BASE}/api/commissioners/${id}`, { method:'DELETE', headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || 'Delete failed');
-    return r.json();
+    return readApiJson(r, 'Delete failed');
   }
   ,
   // test items (检测项目处理)
@@ -221,125 +200,103 @@ export const api = {
     if (status) params.set('status', status);
     if (order_id) params.set('order_id', order_id);
     const r = await fetch(`${API_BASE}/api/test-items?${params.toString()}`, { headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
-    return r.json();
+    return readApiJson(r, 'Fetch failed');
   },
   // 获取某个委托单下第一条检测项目的样品到达信息（不受列表权限过滤影响）
   async getFirstTestItemArrivalByOrder(orderId) {
     const r = await fetch(`${API_BASE}/api/test-items/first-arrival-by-order/${encodeURIComponent(orderId)}`, { headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
-    return r.json();
+    return readApiJson(r, 'Fetch failed');
   },
   async getTestItem(id) {
     const r = await fetch(`${API_BASE}/api/test-items/${id}`, { headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
-    return r.json();
+    return readApiJson(r, 'Fetch failed');
   },
   async createTestItem(payload) {
     const r = await fetch(`${API_BASE}/api/test-items`, { method:'POST', headers: this.authHeaders(), body: JSON.stringify(payload) });
-    if (!r.ok) throw new Error((await r.json()).error || 'Create failed');
-    return r.json();
+    return readApiJson(r, 'Create failed');
   },
   async updateTestItem(id, payload) {
     const r = await fetch(`${API_BASE}/api/test-items/${id}`, { method:'PUT', headers: this.authHeaders(), body: JSON.stringify(payload) });
-    if (!r.ok) throw new Error((await r.json()).error || 'Update failed');
-    return r.json();
+    return readApiJson(r, 'Update failed');
   },
   async deleteTestItem(id) {
     const r = await fetch(`${API_BASE}/api/test-items/${id}`, { method:'DELETE', headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || 'Delete failed');
-    return r.json();
+    return readApiJson(r, 'Delete failed');
   },
   async batchAssignTestItems(payload) {
     const r = await fetch(`${API_BASE}/api/test-items/batch-assign`, { method:'POST', headers: this.authHeaders(), body: JSON.stringify(payload) });
-    if (!r.ok) throw new Error((await r.json()).error || 'Batch assign failed');
-    return r.json();
+    return readApiJson(r, 'Batch assign failed');
   },
   async cancelTestItem(id) {
     const r = await fetch(`${API_BASE}/api/test-items/${id}/cancel`, { method:'POST', headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || 'Cancel failed');
-    return r.json();
+    return readApiJson(r, 'Cancel failed');
   },
   async getSupervisorsByDepartment(departmentId) {
     const r = await fetch(`${API_BASE}/api/users/supervisors?department_id=${departmentId}`, { headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
-    return r.json();
+    return readApiJson(r, 'Fetch failed');
   },
   async getEmployeesByGroup(groupId) {
     const r = await fetch(`${API_BASE}/api/users/employees?group_id=${groupId}`, { headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
-    return r.json();
+    return readApiJson(r, 'Fetch failed');
   },
   async getSupervisorByGroup(groupId) {
     const r = await fetch(`${API_BASE}/api/users/group-supervisor?group_id=${groupId}`, { headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
-    return r.json();
+    return readApiJson(r, 'Fetch failed');
   },
   async getDepartmentIdByGroupId(groupId) {
     const r = await fetch(`${API_BASE}/api/users/department-by-group?group_id=${groupId}`, { headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
-    return r.json();
+    return readApiJson(r, 'Fetch failed');
   },
   async getBusinessStaff({ q = '' } = {}) {
     const params = new URLSearchParams({ q });
     const r = await fetch(`${API_BASE}/api/users/business-staff?${params.toString()}`, { headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
-    return r.json();
+    return readApiJson(r, 'Fetch failed');
   },
   async getAllSupervisors({ q = '', department_id } = {}) {
     const params = new URLSearchParams({ q });
     if (department_id) params.set('department_id', department_id);
     const r = await fetch(`${API_BASE}/api/users/all-supervisors?${params.toString()}`, { headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
-    return r.json();
+    return readApiJson(r, 'Fetch failed');
   },
   async getAllEmployees({ q = '', department_id } = {}) {
     const params = new URLSearchParams({ q });
     if (department_id) params.set('department_id', department_id);
     const r = await fetch(`${API_BASE}/api/users/all-employees?${params.toString()}`, { headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
-    return r.json();
+    return readApiJson(r, 'Fetch failed');
   },
 
   // orders (委托单)
   async listOrders({ q = '', page = 1, pageSize = 20 } = {}) {
     const params = new URLSearchParams({ q, page, pageSize });
     const r = await fetch(`${API_BASE}/api/orders?${params.toString()}`, { headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
-    return r.json();
+    return readApiJson(r, 'Fetch failed');
   },
   async getOrder(id) {
     const r = await fetch(`${API_BASE}/api/orders/${id}`, { headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
-    return r.json();
+    return readApiJson(r, 'Fetch failed');
   },
   // price (test items catalog)
   async listPrice({ q = '', page = 1, pageSize = 20, is_active } = {}) {
     const params = new URLSearchParams({ q, page, pageSize });
     if (is_active === 0 || is_active === 1 || is_active === '0' || is_active === '1') params.set('is_active', is_active);
     const r = await fetch(`${API_BASE}/api/price?${params.toString()}`, { headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
-    return r.json();
+    return readApiJson(r, 'Fetch failed');
   },
   async getPrice(id) {
     const r = await fetch(`${API_BASE}/api/price/${id}`, { headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
-    return r.json();
+    return readApiJson(r, 'Fetch failed');
   },
   async createPrice(payload) {
     const r = await fetch(`${API_BASE}/api/price`, { method:'POST', headers: this.authHeaders(), body: JSON.stringify(payload) });
-    if (!r.ok) throw new Error((await r.json()).error || 'Create failed');
-    return r.json();
+    return readApiJson(r, 'Create failed');
   },
   async updatePrice(id, payload) {
     const r = await fetch(`${API_BASE}/api/price/${id}`, { method:'PUT', headers: this.authHeaders(), body: JSON.stringify(payload) });
-    if (!r.ok) throw new Error((await r.json()).error || 'Update failed');
-    return r.json();
+    return readApiJson(r, 'Update failed');
   },
   async deletePrice(id) {
     const r = await fetch(`${API_BASE}/api/price/${id}`, { method:'DELETE', headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || 'Delete failed');
-    return r.json();
+    return readApiJson(r, 'Delete failed');
   },
 
   // equipment
@@ -347,18 +304,15 @@ export const api = {
     const params = new URLSearchParams({ q, page, pageSize });
     if (department_id) params.set('department_id', department_id);
     const r = await fetch(`${API_BASE}/api/equipment?${params.toString()}`, { headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
-    return r.json();
+    return readApiJson(r, 'Fetch failed');
   },
   async getEquipmentByDepartment(departmentId) {
     const r = await fetch(`${API_BASE}/api/equipment/by-department?department_id=${departmentId}`, { headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
-    return r.json();
+    return readApiJson(r, 'Fetch failed');
   },
   async getEquipment(id) {
     const r = await fetch(`${API_BASE}/api/equipment/${id}`, { headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
-    return r.json();
+    return readApiJson(r, 'Fetch failed');
   },
 
   // sample tracking
@@ -368,43 +322,36 @@ export const api = {
     if (lab_type) params.set('lab_type', lab_type);
     if (order_id) params.set('order_id', order_id);
     const r = await fetch(`${API_BASE}/api/sample-tracking?${params.toString()}`, { headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
-    return r.json();
+    return readApiJson(r, 'Fetch failed');
   },
   async getSampleTrackingGrouped({ q = '', lab_type } = {}) {
     const params = new URLSearchParams();
     if (q) params.set('q', q);
     if (lab_type) params.set('lab_type', lab_type);
     const r = await fetch(`${API_BASE}/api/sample-tracking/grouped?${params.toString()}`, { headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
-    return r.json();
+    return readApiJson(r, 'Fetch failed');
   },
   async receiveSample(payload) {
     const r = await fetch(`${API_BASE}/api/sample-tracking/receive`, { method:'POST', headers: this.authHeaders(), body: JSON.stringify(payload) });
-    if (!r.ok) throw new Error((await r.json()).error || 'Receive failed');
-    return r.json();
+    return readApiJson(r, 'Receive failed');
   },
   async completeTesting(payload) {
     const r = await fetch(`${API_BASE}/api/sample-tracking/testing-completed`, { method:'POST', headers: this.authHeaders(), body: JSON.stringify(payload) });
-    if (!r.ok) throw new Error((await r.json()).error || 'Complete testing failed');
-    return r.json();
+    return readApiJson(r, 'Complete testing failed');
   },
   async returnSample(payload) {
     const r = await fetch(`${API_BASE}/api/sample-tracking/return`, { method:'POST', headers: this.authHeaders(), body: JSON.stringify(payload) });
-    if (!r.ok) throw new Error((await r.json()).error || 'Return failed');
-    return r.json();
+    return readApiJson(r, 'Return failed');
   },
   async getSampleTracking(id) {
     const r = await fetch(`${API_BASE}/api/sample-tracking/${id}`, { headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
-    return r.json();
+    return readApiJson(r, 'Fetch failed');
   },
 
   // 委外管理API
   async getOutsourceItems() {
     const r = await fetch(`${API_BASE}/api/outsource`, { headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
-    return r.json();
+    return readApiJson(r, 'Fetch failed');
   },
 
   async updateOutsourceInfo(id, data) {
@@ -413,8 +360,7 @@ export const api = {
       headers: this.authHeaders(),
       body: JSON.stringify(data)
     });
-    if (!r.ok) throw new Error((await r.json()).error || 'Update failed');
-    return r.json();
+    return readApiJson(r, 'Update failed');
   },
 
   async uploadOutsourceReport(id, reportPath) {
@@ -423,8 +369,7 @@ export const api = {
       headers: this.authHeaders(),
       body: JSON.stringify({ report_path: reportPath })
     });
-    if (!r.ok) throw new Error((await r.json()).error || 'Upload failed');
-    return r.json();
+    return readApiJson(r, 'Upload failed');
   },
 
   async updateTrackingNumber(id, trackingNumber) {
@@ -433,8 +378,7 @@ export const api = {
       headers: this.authHeaders(),
       body: JSON.stringify({ return_tracking_number: trackingNumber })
     });
-    if (!r.ok) throw new Error((await r.json()).error || 'Update failed');
-    return r.json();
+    return readApiJson(r, 'Update failed');
   },
 
   async completeOutsource(id) {
@@ -442,27 +386,23 @@ export const api = {
       method: 'POST', 
       headers: this.authHeaders()
     });
-    if (!r.ok) throw new Error((await r.json()).error || 'Complete failed');
-    return r.json();
+    return readApiJson(r, 'Complete failed');
   },
 
   // 委托单管理API
   async getOrders() {
     const r = await fetch(`${API_BASE}/api/orders`, { headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
-    return r.json();
+    return readApiJson(r, 'Fetch failed');
   },
 
   async getInternalOrderDetails(orderId) {
     const r = await fetch(`${API_BASE}/api/orders/internal/${orderId}`, { headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
-    return r.json();
+    return readApiJson(r, 'Fetch failed');
   },
 
   async getOutsourceOrderDetails(orderId) {
     const r = await fetch(`${API_BASE}/api/orders/outsource/${orderId}`, { headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
-    return r.json();
+    return readApiJson(r, 'Fetch failed');
   },
 
   async updateSettlementStatus(orderId, status) {
@@ -471,14 +411,12 @@ export const api = {
       headers: this.authHeaders(),
       body: JSON.stringify({ settlement_status: status })
     });
-    if (!r.ok) throw new Error((await r.json()).error || 'Update failed');
-    return r.json();
+    return readApiJson(r, 'Update failed');
   },
 
   async getOrderStats() {
     const r = await fetch(`${API_BASE}/api/orders/stats`, { headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
-    return r.json();
+    return readApiJson(r, 'Fetch failed');
   },
 
   async deleteOrder(orderId) {
@@ -486,8 +424,7 @@ export const api = {
       method: 'DELETE', 
       headers: this.authHeaders()
     });
-    if (!r.ok) throw new Error((await r.json()).error || 'Delete failed');
-    return r.json();
+    return readApiJson(r, 'Delete failed');
   },
 
   // 委托单登记表API
@@ -505,14 +442,12 @@ export const api = {
     if (month_filter) params.set('month_filter', month_filter);
     if (my_items !== undefined) params.set('my_items', my_items ? 'true' : 'false');
     const r = await fetch(`${API_BASE}/api/commission-form/commission-form?${params.toString()}`, { headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
-    return r.json();
+    return readApiJson(r, 'Fetch failed');
   },
 
   async getCommissionFormMonthOptions() {
     const r = await fetch(`${API_BASE}/api/commission-form/month-options`, { headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
-    return r.json();
+    return readApiJson(r, 'Fetch failed');
   },
 
   // 平台设备清单API
@@ -520,38 +455,33 @@ export const api = {
     const params = new URLSearchParams({ q, page, pageSize });
     if (department_id) params.set('department_id', department_id);
     const r = await fetch(`${API_BASE}/api/commission-form/equipment-list?${params.toString()}`, { headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
-    return r.json();
+    return readApiJson(r, 'Fetch failed');
   },
 
   // 付款方API
   async listPayers({ q = '', page = 1, pageSize = 100 } = {}) {
     const params = new URLSearchParams({ q, page, pageSize });
     const r = await fetch(`${API_BASE}/api/payers?${params.toString()}`, { headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
-    return r.json();
+    return readApiJson(r, 'Fetch failed');
   },
 
   async getPayer(id) {
     const r = await fetch(`${API_BASE}/api/payers/${id}`, { headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
-    return r.json();
+    return readApiJson(r, 'Fetch failed');
   },
 
   // 部门API
   async listDepartments({ q = '', page = 1, pageSize = 100 } = {}) {
     const params = new URLSearchParams({ q, page, pageSize });
     const r = await fetch(`${API_BASE}/api/departments?${params.toString()}`, { headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
-    return r.json();
+    return readApiJson(r, 'Fetch failed');
   },
 
   // 实验室组API
   async listLabGroups({ q = '', page = 1, pageSize = 100 } = {}) {
     const params = new URLSearchParams({ q, page, pageSize });
     const r = await fetch(`${API_BASE}/api/lab-groups?${params.toString()}`, { headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
-    return r.json();
+    return readApiJson(r, 'Fetch failed');
   },
 
   // statistics
@@ -561,13 +491,11 @@ export const api = {
     if (to) params.set('to', to);
     if (jc_prefix) params.set('jc_prefix', jc_prefix);
     const r = await fetch(`${API_BASE}/api/statistics/summary?${params.toString()}`, { headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || 'Fetch failed');
-    return r.json();
+    return readApiJson(r, 'Fetch failed');
   },
   async getJCPrefixes() {
     const r = await fetch(`${API_BASE}/api/statistics/jc-prefixes`, { headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || '获取JC号前缀列表失败');
-    return r.json();
+    return readApiJson(r, '获取JC号前缀列表失败');
   },
   async exportStatistics({ from, to, jc_prefix } = {}) {
     const params = new URLSearchParams();
@@ -575,15 +503,13 @@ export const api = {
     if (to) params.set('to', to);
     if (jc_prefix) params.set('jc_prefix', jc_prefix);
     const r = await fetch(`${API_BASE}/api/statistics/export?${params.toString()}`, { headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || 'Export failed');
-    return r.blob();
+    return throwIfErrorOrReturnBlob(r, 'Export failed');
   },
 
   // settlements
   async getSettlements() {
     const r = await fetch(`${API_BASE}/api/settlements`, { headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || '获取结算记录失败');
-    return r.json();
+    return readApiJson(r, '获取结算记录失败');
   },
   async createSettlement(data) {
     const r = await fetch(`${API_BASE}/api/settlements`, {
@@ -591,26 +517,22 @@ export const api = {
       headers: this.authHeaders(),
       body: JSON.stringify(data)
     });
-    if (!r.ok) throw new Error((await r.json()).error || '创建结算记录失败');
-    return r.json();
+    return readApiJson(r, '创建结算记录失败');
   },
   async searchCustomersForSettlement(q) {
     const params = new URLSearchParams({ q });
     const r = await fetch(`${API_BASE}/api/settlements/customers/search?${params.toString()}`, { headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || '搜索客户失败');
-    return r.json();
+    return readApiJson(r, '搜索客户失败');
   },
   async getSettlementAssignees() {
     const r = await fetch(`${API_BASE}/api/settlements/assignees`, { headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || '获取业务人员列表失败');
-    return r.json();
+    return readApiJson(r, '获取业务人员列表失败');
   },
 
   // 转单管理API
   async getOrderTransferChain(orderId) {
     const r = await fetch(`${API_BASE}/api/order-transfers/chain/${orderId}`, { headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || '获取转单链路失败');
-    return r.json();
+    return readApiJson(r, '获取转单链路失败');
   },
 
   async createOrderTransfer(data) {
@@ -619,13 +541,11 @@ export const api = {
       headers: this.authHeaders(),
       body: JSON.stringify(data)
     });
-    if (!r.ok) throw new Error((await r.json()).error || '创建转单记录失败');
-    return r.json();
+    return readApiJson(r, '创建转单记录失败');
   },
 
   async searchRelatedOrders(orderId) {
     const r = await fetch(`${API_BASE}/api/order-transfers/search-related/${orderId}`, { headers: this.authHeaders() });
-    if (!r.ok) throw new Error((await r.json()).error || '搜索相关单号失败');
-    return r.json();
+    return readApiJson(r, '搜索相关单号失败');
   }
 }

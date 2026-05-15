@@ -8,6 +8,22 @@ const formatCurrency = (value) =>
 const formatHours = (value) =>
   Number(value || 0).toLocaleString('zh-CN', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 
+const formatOrderCount = (value) =>
+  Number(value ?? 0).toLocaleString('zh-CN', { maximumFractionDigits: 0 });
+
+/** 将统计日期显示为「xxxx年x月x日」，避免 ISO 字符串中的时分秒与 Z 后缀 */
+const formatChineseStatDate = (value) => {
+  if (value == null || value === '') return '-';
+  const str = String(value);
+  const m = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${Number(m[1])}年${Number(m[2])}月${Number(m[3])}日`;
+  const d = new Date(str);
+  if (!Number.isNaN(d.getTime())) {
+    return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
+  }
+  return str;
+};
+
 const getDefaultRange = () => {
   const now = new Date();
   const start = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -255,6 +271,7 @@ export default function Statistics() {
         { label: '总委托额（元）', value: formatCurrency(detail.summary.line_total) },
         { label: '总合同额（元）', value: formatCurrency(detail.summary.final_unit_price) },
         { label: '实验室报价（元）', value: formatCurrency(detail.summary.lab_price) },
+        { label: '委托单总数', value: formatOrderCount(detail.summary.order_count) },
         { label: '总工时（小时）', value: formatHours(detail.summary.work_hours) },
         { label: '总机时（小时）', value: formatHours(detail.summary.machine_hours) }
       ];
@@ -264,6 +281,7 @@ export default function Statistics() {
         { label: '总委托额（元）', value: formatCurrency(detail.summary.line_total) },
         { label: '总合同额（元）', value: formatCurrency(detail.summary.final_unit_price) },
         { label: '实验室报价（元）', value: formatCurrency(detail.summary.lab_price) },
+        { label: '委托单总数', value: formatOrderCount(detail.summary.order_count) },
         { label: '总工时（小时）', value: formatHours(detail.summary.work_hours) }
       ];
     }
@@ -272,6 +290,7 @@ export default function Statistics() {
         { label: '总委托额（元）', value: formatCurrency(detail.summary.line_total) },
         { label: '总合同额（元）', value: formatCurrency(detail.summary.final_unit_price) },
         { label: '实验室报价（元）', value: formatCurrency(detail.summary.lab_price) },
+        { label: '委托单总数', value: formatOrderCount(detail.summary.order_count) },
         { label: '总机时（小时）', value: formatHours(detail.summary.machine_hours) }
       ];
     }
@@ -410,13 +429,14 @@ export default function Statistics() {
                       <th>总委托额（元）</th>
                       <th>总合同额（元）</th>
                       <th>实验室报价（元）</th>
+                      <th>委托单数</th>
                       <th>总工时（小时）</th>
                     </tr>
                   </thead>
                   <tbody>
                     {detail.supervisors.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="stats-empty-cell">
+                        <td colSpan={7} className="stats-empty-cell">
                           暂无数据
                         </td>
                       </tr>
@@ -428,6 +448,7 @@ export default function Statistics() {
                           <td>{formatCurrency(item.line_total)}</td>
                           <td>{formatCurrency(item.final_unit_price)}</td>
                           <td>{formatCurrency(item.lab_price)}</td>
+                          <td>{formatOrderCount(item.order_count)}</td>
                           <td>{formatHours(item.work_hours)}</td>
                         </tr>
                       ))
@@ -461,6 +482,7 @@ export default function Statistics() {
                       <th>总委托额（元）</th>
                       <th>总合同额（元）</th>
                       <th>实验室报价（元）</th>
+                      <th>委托单数</th>
                       <th>总工时（小时）</th>
                       <th>总机时（小时）</th>
                     </tr>
@@ -468,7 +490,7 @@ export default function Statistics() {
                   <tbody>
                     {detail.employees.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="stats-empty-cell">
+                        <td colSpan={8} className="stats-empty-cell">
                           暂无数据
                         </td>
                       </tr>
@@ -480,6 +502,7 @@ export default function Statistics() {
                           <td>{formatCurrency(item.line_total)}</td>
                           <td>{formatCurrency(item.final_unit_price)}</td>
                           <td>{formatCurrency(item.lab_price)}</td>
+                          <td>{formatOrderCount(item.order_count)}</td>
                           <td>{formatHours(item.work_hours)}</td>
                           <td>{formatHours(item.machine_hours)}</td>
                         </tr>
@@ -556,13 +579,14 @@ export default function Statistics() {
                     <th>总委托额（元）</th>
                     <th>总合同额（元）</th>
                     <th>实验室报价（元）</th>
+                    <th>委托单数</th>
                     <th>总工时（小时）</th>
                   </tr>
                 </thead>
                 <tbody>
                   {detail.members.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="stats-empty-cell">
+                      <td colSpan={6} className="stats-empty-cell">
                         暂无数据
                       </td>
                     </tr>
@@ -573,6 +597,7 @@ export default function Statistics() {
                         <td>{formatCurrency(item.line_total)}</td>
                         <td>{formatCurrency(item.final_unit_price)}</td>
                         <td>{formatCurrency(item.lab_price)}</td>
+                        <td>{formatOrderCount(item.order_count)}</td>
                         <td>{formatHours(item.work_hours)}</td>
                       </tr>
                     ))
@@ -598,7 +623,7 @@ export default function Statistics() {
                   { key: 'lab_price', label: '实验室报价（元）', color: '#edc949', formatter: formatCurrency },
                   { key: 'machine_hours', label: '总机时（小时）', color: '#e15759', formatter: formatHours }
                 ]}
-                getLabel={(item) => item.date}
+                getLabel={(item) => formatChineseStatDate(item.date)}
                 getKey={(item, index) => `${item.date}-${index}`}
                 emptyText="暂无历史数据"
               />
@@ -609,23 +634,25 @@ export default function Statistics() {
                     <th>总委托额（元）</th>
                     <th>总合同额（元）</th>
                     <th>实验室报价（元）</th>
+                    <th>委托单数</th>
                     <th>总机时（小时）</th>
                   </tr>
                 </thead>
                 <tbody>
                   {detail.daily.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="stats-empty-cell">
+                      <td colSpan={6} className="stats-empty-cell">
                         暂无数据
                       </td>
                     </tr>
                   ) : (
                     detail.daily.map((item) => (
                       <tr key={item.date}>
-                        <td>{item.date}</td>
+                        <td>{formatChineseStatDate(item.date)}</td>
                         <td>{formatCurrency(item.line_total)}</td>
                         <td>{formatCurrency(item.final_unit_price)}</td>
                         <td>{formatCurrency(item.lab_price)}</td>
+                        <td>{formatOrderCount(item.order_count)}</td>
                         <td>{formatHours(item.machine_hours)}</td>
                       </tr>
                     ))

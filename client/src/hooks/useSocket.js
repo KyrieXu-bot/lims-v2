@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { io } from 'socket.io-client';
+import { redirectToLoginAfter401 } from '../utils/sessionReauth.js';
 
 export const useSocket = (room) => {
   const [socket, setSocket] = useState(null);
@@ -66,6 +67,14 @@ export const useSocket = (room) => {
     newSocket.on('disconnect', () => {
       console.log('WebSocket连接断开');
       setIsConnected(false);
+    });
+
+    // Token 过期或无效时，服务端拒绝握手，避免用户长期看到「连不上」却不知要重新登录
+    newSocket.on('connect_error', (err) => {
+      const msg = String(err?.message || '');
+      if (/authentication error/i.test(msg)) {
+        redirectToLoginAfter401('登录已过期或已失效，请重新登录');
+      }
     });
 
     // 接收在线用户列表

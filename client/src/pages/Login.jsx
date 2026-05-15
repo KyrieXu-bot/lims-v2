@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { api } from '../api.js';
+import { api, consumeLoginNotice } from '../api.js';
 import { isMobile } from '../utils/isMobile.js';
 
 export default function Login() {
@@ -10,6 +10,11 @@ export default function Login() {
   const navigate = useNavigate();
   const location = useLocation();
   const isMobilePath = location.pathname.startsWith('/mobile');
+
+  useEffect(() => {
+    const notice = consumeLoginNotice();
+    if (notice) setError(notice);
+  }, []);
 
   async function onSubmit(e) {
     e.preventDefault();

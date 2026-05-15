@@ -11,6 +11,21 @@ const formatCurrency = (value) =>
 const formatHours = (value) =>
   Number(value || 0).toLocaleString('zh-CN', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 
+const formatOrderCount = (value) =>
+  Number(value ?? 0).toLocaleString('zh-CN', { maximumFractionDigits: 0 });
+
+const formatChineseStatDate = (value) => {
+  if (value == null || value === '') return '-';
+  const str = String(value);
+  const m = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${Number(m[1])}年${Number(m[2])}月${Number(m[3])}日`;
+  const d = new Date(str);
+  if (!Number.isNaN(d.getTime())) {
+    return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
+  }
+  return str;
+};
+
 const getDefaultRange = () => {
   const now = new Date();
   const start = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -229,6 +244,7 @@ export default function MobileStatistics() {
         { label: '总委托额（元）', value: formatCurrency(detail.summary.line_total) },
         { label: '总合同额（元）', value: formatCurrency(detail.summary.final_unit_price) },
         { label: '实验室报价（元）', value: formatCurrency(detail.summary.lab_price) },
+        { label: '委托单总数', value: formatOrderCount(detail.summary.order_count) },
         { label: '总工时（小时）', value: formatHours(detail.summary.work_hours) },
         { label: '总机时（小时）', value: formatHours(detail.summary.machine_hours) }
       ];
@@ -238,6 +254,7 @@ export default function MobileStatistics() {
         { label: '总委托额（元）', value: formatCurrency(detail.summary.line_total) },
         { label: '总合同额（元）', value: formatCurrency(detail.summary.final_unit_price) },
         { label: '实验室报价（元）', value: formatCurrency(detail.summary.lab_price) },
+        { label: '委托单总数', value: formatOrderCount(detail.summary.order_count) },
         { label: '总工时（小时）', value: formatHours(detail.summary.work_hours) }
       ];
     }
@@ -246,6 +263,7 @@ export default function MobileStatistics() {
         { label: '总委托额（元）', value: formatCurrency(detail.summary.line_total) },
         { label: '总合同额（元）', value: formatCurrency(detail.summary.final_unit_price) },
         { label: '实验室报价（元）', value: formatCurrency(detail.summary.lab_price) },
+        { label: '委托单总数', value: formatOrderCount(detail.summary.order_count) },
         { label: '总机时（小时）', value: formatHours(detail.summary.machine_hours) }
       ];
     }
@@ -435,6 +453,10 @@ export default function MobileStatistics() {
                             <span className="v">{formatCurrency(item.lab_price)}</span>
                           </div>
                           <div className="mstats-metric">
+                            <span className="k">委托单数</span>
+                            <span className="v">{formatOrderCount(item.order_count)}</span>
+                          </div>
+                          <div className="mstats-metric">
                             <span className="k">总工时</span>
                             <span className="v">{formatHours(item.work_hours)}</span>
                           </div>
@@ -482,6 +504,10 @@ export default function MobileStatistics() {
                           <div className="mstats-metric">
                             <span className="k">实验室报价</span>
                             <span className="v">{formatCurrency(item.lab_price)}</span>
+                          </div>
+                          <div className="mstats-metric">
+                            <span className="k">委托单数</span>
+                            <span className="v">{formatOrderCount(item.order_count)}</span>
                           </div>
                           <div className="mstats-metric">
                             <span className="k">总工时</span>
@@ -570,6 +596,10 @@ export default function MobileStatistics() {
                           <span className="v">{formatCurrency(item.lab_price)}</span>
                         </div>
                         <div className="mstats-metric">
+                          <span className="k">委托单数</span>
+                          <span className="v">{formatOrderCount(item.order_count)}</span>
+                        </div>
+                        <div className="mstats-metric">
                           <span className="k">总工时</span>
                           <span className="v">{formatHours(item.work_hours)}</span>
                         </div>
@@ -595,7 +625,7 @@ export default function MobileStatistics() {
                   { key: 'lab_price', label: '实验室报价', color: '#edc949', formatter: formatCurrency },
                   { key: 'machine_hours', label: '机时', color: '#e15759', formatter: formatHours }
                 ]}
-                getLabel={(item) => item.date}
+                getLabel={(item) => formatChineseStatDate(item.date)}
                 getKey={(item, index) => `${item.date}-${index}`}
                 emptyText="暂无历史数据"
               />
@@ -605,7 +635,7 @@ export default function MobileStatistics() {
                 ) : (
                   filteredDaily.map((item) => (
                     <div key={item.date} className="mstats-data-card">
-                      <div className="mstats-data-card-title">{item.date}</div>
+                      <div className="mstats-data-card-title">{formatChineseStatDate(item.date)}</div>
                       <div className="mstats-metric-grid">
                         <div className="mstats-metric">
                           <span className="k">总委托额</span>
@@ -618,6 +648,10 @@ export default function MobileStatistics() {
                         <div className="mstats-metric">
                           <span className="k">实验室报价</span>
                           <span className="v">{formatCurrency(item.lab_price)}</span>
+                        </div>
+                        <div className="mstats-metric">
+                          <span className="k">委托单数</span>
+                          <span className="v">{formatOrderCount(item.order_count)}</span>
                         </div>
                         <div className="mstats-metric">
                           <span className="k">总机时</span>

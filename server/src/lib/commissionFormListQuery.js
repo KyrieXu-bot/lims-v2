@@ -163,7 +163,9 @@ export const COMMISSION_FORM_PAGE_IDS_JOIN_BLOCK = `
  * @returns {{ where: string, params: any[] }}
  */
 export function buildCommissionListFilters(req) {
-  const { q = '', status, department_id, month_filter, my_items } = req.query;
+  const { status, department_id, month_filter, my_items } = req.query;
+  // 与 commissionListWhereNeedsOrderJoins 一致：仅空格的关键字视为无搜索，避免 WHERE 引用 o/c/comm 但分页子查询未 JOIN
+  const q = String(req.query?.q ?? '').trim();
   const like = `%${q}%`;
   const filters = [];
   const params = [];
