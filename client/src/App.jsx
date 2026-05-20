@@ -18,6 +18,7 @@ import OutsourceManagement from './pages/outsource/OutsourceManagement.jsx';
 import OrderManagement from './pages/orders/OrderManagement.jsx';
 import OrderDelete from './pages/orders/OrderDelete.jsx';
 import CommissionForm from './pages/commission/CommissionForm.jsx';
+import ReportManagement from './pages/reports/ReportManagement.jsx';
 import EquipmentList from './pages/commission/EquipmentList.jsx';
 import Statistics from './pages/statistics/Statistics.jsx';
 import SettlementManagement from './pages/settlements/SettlementManagement.jsx';
@@ -69,6 +70,9 @@ function Layout({ children }) {
               {/* <NavLink to="/orders" className={({isActive})=>isActive?'active':''}>委托单管理</NavLink> */}
               {/* 委托单登记表 - 所有角色都可以看到 */}
               <NavLink to="/commission-form" className={({isActive})=>isActive?'active':''}>委托单登记表</NavLink>
+              {(user.role === 'admin' || user.role === 'viewer') && (
+                <NavLink to="/report-management" className={({isActive})=>isActive?'active':''}>报告管理</NavLink>
+              )}
               {(user.role === 'leader' || user.role === 'supervisor' || user.role === 'employee') && (
                 <NavLink to="/statistics" className={({isActive})=>isActive?'active':''}>数据统计</NavLink>
               )}
@@ -204,6 +208,7 @@ export default function App() {
       <Route path="/orders" element={<PCRouteWrapper><Layout><OrderManagement/></Layout></PCRouteWrapper>} />
       <Route path="/orders/delete" element={<PCRouteWrapper><Layout><OrderDelete/></Layout></PCRouteWrapper>} />
       <Route path="/commission-form" element={<PCRouteWrapper><Layout><CommissionForm/></Layout></PCRouteWrapper>} />
+      <Route path="/report-management" element={<PCRouteWrapper><Layout><ReportManagement/></Layout></PCRouteWrapper>} />
       <Route path="/statistics" element={<PCRouteWrapper><Layout><Statistics/></Layout></PCRouteWrapper>} />
       <Route path="/settlements" element={<PCRouteWrapper><Layout><SettlementManagement/></Layout></PCRouteWrapper>} />
       <Route path="/equipment-list" element={<PCRouteWrapper><Layout><EquipmentList/></Layout></PCRouteWrapper>} />

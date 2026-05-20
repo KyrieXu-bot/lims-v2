@@ -52,6 +52,24 @@ export function requireRole(roles) {
   };
 }
 
+/** 仅当 JWT 中 department_id 属于允许列表时通过（字符串/数字均可） */
+export function requireDepartmentIds(allowedIds) {
+  const allowed = new Set(
+    (Array.isArray(allowedIds) ? allowedIds : [allowedIds]).map((x) => String(x))
+  );
+  return (req, res, next) => {
+    if (!req.user) {
+      return res.status(401).json({ error: '未登录或登录已失效' });
+    }
+    const raw = req.user.department_id;
+    const did = raw != null && raw !== '' ? String(raw) : '';
+    if (!allowed.has(did)) {
+      return res.status(403).json({ error: '当前账号无权使用此功能' });
+    }
+    next();
+  };
+}
+
 export function requireAnyRole(roles) {
   return (req, res, next) => {
     if (!req.user) return res.status(401).json({ error: 'Unauthorized' });

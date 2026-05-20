@@ -193,14 +193,13 @@ router.post('/commission-form/by-test-item-ids', async (req, res) => {
   if (!Array.isArray(raw) || raw.length === 0) {
     return res.status(400).json({ error: 'test_item_ids 须为非空数组' });
   }
-  const MAX_IDS = 2000;
   const cleaned = [
     ...new Set(
       raw
         .map((id) => Number(id))
         .filter((n) => Number.isFinite(n) && n > 0)
     )
-  ].slice(0, MAX_IDS);
+  ];
   if (cleaned.length === 0) {
     return res.status(400).json({ error: '没有有效的 test_item_id' });
   }
@@ -355,8 +354,13 @@ router.get('/equipment-options', async (req, res) => {
     let whereClause = '';
     let params = [];
     
-    // 对于室主任、组长、实验员，只显示自己部门的设备
+    // 对于组长、实验员，只显示自己部门的设备；委外/技术支持室主任可看全平台设备
     if (user.role === 'leader' || user.role === 'supervisor' || user.role === 'employee') {
+      const isCrossDepartmentLeader =
+        user.role === 'leader' && (Number(user.department_id) === 5 || Number(user.department_id) === 7);
+      if (isCrossDepartmentLeader) {
+        // 跨部门室主任：不按部门过滤
+      } else {
       let departmentId = user.department_id;
       
       // 如果没有department_id，通过group_id查找
@@ -376,6 +380,7 @@ router.get('/equipment-options', async (req, res) => {
       } else {
         // 如果没有部门信息，返回空列表
         return res.json([]);
+      }
       }
     }
     // admin 和 sales 角色显示所有设备，不需要过滤

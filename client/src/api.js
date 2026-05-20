@@ -1,7 +1,7 @@
 // 统一的后端 API 根地址
 // 优先级：环境变量 > 原生环境检测 > 根据当前页面协议 > 默认值
 
-import { readApiJson, throwIfErrorOrReturnBlob, consumeLoginNotice } from './utils/sessionReauth.js';
+import { readApiJson, throwIfErrorOrReturnBlob, consumeLoginNotice, shouldReauthOn401, redirectToLoginAfter401 } from './utils/sessionReauth.js';
 
 export { consumeLoginNotice };
 
@@ -46,6 +46,60 @@ export function getApiBase() {
   
   // 6. 兜底：如果无法检测，使用 HTTP（生产环境后端通常是 HTTP）
   return 'http://192.168.9.46:3004';
+}
+
+function formatByteLen(n) {
+  if (n == null || Number.isNaN(n)) return '';
+  const x = Number(n);
+  if (x < 1024) return `${x} B`;
+  if (x < 1024 * 1024) return `${(x / 1024).toFixed(1)} KB`;
+  if (x < 1024 * 1024 * 1024) return `${(x / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(x / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+function createMicrographProgressJobId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `job_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+}
+
+async function readMicrographProgressStream({ jobId, token, onProgress, signal }) {
+  if (!jobId || !onProgress || typeof fetch !== 'function') return;
+  const r = await fetch(`${getApiBase()}/api/templates/micrograph-word-progress/${encodeURIComponent(jobId)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    signal,
+  });
+  if (!r.ok || !r.body) return;
+
+  const reader = r.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const chunks = buffer.split('\n\n');
+    buffer = chunks.pop() || '';
+    for (const chunk of chunks) {
+      const line = chunk
+        .split('\n')
+        .find((part) => part.startsWith('data:'));
+      if (!line) continue;
+      try {
+        const ev = JSON.parse(line.slice(5).trim());
+        onProgress({
+          phase: 'server',
+          serverPhase: ev.phase,
+          percent: ev.percent ?? null,
+          detail: ev.detail || '',
+        });
+      } catch {
+        /* ignore malformed progress chunks */
+      }
+    }
+  }
 }
 
 // 注意：API_BASE在模块顶层计算，但getApiBase函数内部会进行运行时检测
@@ -101,6 +155,124 @@ export const api = {
       body: JSON.stringify({ order_id, test_item_ids })
     });
     return throwIfErrorOrReturnBlob(r, 'Export failed');
+  },
+
+  /**
+   * department_id=1：上传显微图片文件夹生成 Word。
+   * @param {object} opts
+   * @param {File[]} opts.files
+   * @param {string} [opts.documentTitle]
+   * @param {string} [opts.order_id]
+   * @param {Array<string|number>} [opts.test_item_ids]
+   * @param {AbortSignal} [opts.signal] 调用 abort() 可中断上传
+   * @param {(ev: { phase: 'upload' | 'server'; percent: number | null; detail?: string }) => void} [opts.onProgress] 上传阶段有确定进度；进入服务器后为 server 阶段（无精确百分比）
+   */
+  generateMicrographWordUpload(opts) {
+    const { files, documentTitle, order_id, test_item_ids, onProgress, signal } = opts || {};
+    return new Promise((resolve, reject) => {
+      const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
+      if (!user?.token) {
+        reject(new Error('Not logged in'));
+        return;
+      }
+      const form = new FormData();
+      const progressJobId = createMicrographProgressJobId();
+      if (documentTitle) form.append('documentTitle', documentTitle);
+      if (order_id) form.append('order_id', order_id);
+      if (test_item_ids) form.append('test_item_ids', JSON.stringify(test_item_ids));
+      form.append('progressJobId', progressJobId);
+      for (const file of files) {
+        const rel = file.webkitRelativePath || file.name;
+        form.append('files', file, rel);
+      }
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `${getApiBase()}/api/templates/generate-micrograph-word-upload`);
+      xhr.setRequestHeader('Authorization', `Bearer ${user.token}`);
+      xhr.responseType = 'blob';
+      const progressAc = new AbortController();
+
+      readMicrographProgressStream({
+        jobId: progressJobId,
+        token: user.token,
+        onProgress,
+        signal: progressAc.signal,
+      }).catch((err) => {
+        if (err?.name !== 'AbortError') {
+          console.warn('显微导出进度连接中断:', err);
+        }
+      });
+
+      const detachAbort = () => {
+        if (signal) signal.removeEventListener('abort', onAbort);
+        progressAc.abort();
+      };
+      const onAbort = () => {
+        try {
+          xhr.abort();
+        } catch {
+          /* ignore */
+        }
+        progressAc.abort();
+      };
+
+      if (signal) {
+        if (signal.aborted) {
+          reject(new Error('已取消上传'));
+          return;
+        }
+        signal.addEventListener('abort', onAbort);
+      }
+
+      xhr.upload.onprogress = (ev) => {
+        if (!onProgress) return;
+        if (ev.lengthComputable && ev.total > 0) {
+          const percent = Math.min(100, Math.round((ev.loaded / ev.total) * 100));
+          onProgress({ phase: 'upload', percent, detail: `${formatByteLen(ev.loaded)} / ${formatByteLen(ev.total)}` });
+        } else {
+          onProgress({ phase: 'upload', percent: null, detail: '正在读取本地文件…' });
+        }
+      };
+
+      xhr.upload.onload = () => {
+        onProgress?.({ phase: 'server', percent: null, detail: '已上传完毕，服务器正在解析目录并生成 Word…' });
+      };
+
+      xhr.onload = () => {
+        detachAbort();
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve(xhr.response);
+          return;
+        }
+        (async () => {
+          let message = `导出显微报告失败 (${xhr.status})`;
+          try {
+            const text = xhr.response instanceof Blob ? await xhr.response.text() : '';
+            if (text) {
+              const data = JSON.parse(text);
+              message = data.error || message;
+              if (xhr.status === 401 && shouldReauthOn401(data)) {
+                redirectToLoginAfter401(message);
+              }
+            }
+          } catch {
+            /* ignore */
+          }
+          reject(new Error(message));
+        })();
+      };
+
+      xhr.onerror = () => {
+        detachAbort();
+        reject(new Error('网络错误，上传中断'));
+      };
+      xhr.onabort = () => {
+        detachAbort();
+        reject(new Error('已取消上传'));
+      };
+
+      onProgress?.({ phase: 'upload', percent: 0, detail: '准备上传…' });
+      xhr.send(form);
+    });
   },
 
   // helper
@@ -547,5 +719,41 @@ export const api = {
   async searchRelatedOrders(orderId) {
     const r = await fetch(`${API_BASE}/api/order-transfers/search-related/${orderId}`, { headers: this.authHeaders() });
     return readApiJson(r, '搜索相关单号失败');
+  },
+
+  /** 报告管理（管理员 / 只读 viewer） */
+  async listReportsManagement({ q = '', page = 1, pageSize = 20, seal = [], report_type = [] } = {}) {
+    const params = new URLSearchParams();
+    params.set('q', q);
+    params.set('page', String(page));
+    params.set('pageSize', String(pageSize));
+    const sealArr = Array.isArray(seal) ? seal : seal ? [seal] : [];
+    sealArr.forEach((s) => params.append('seal', s));
+    const typeArr = Array.isArray(report_type) ? report_type : report_type ? [report_type] : [];
+    typeArr.forEach((t) => params.append('report_type', String(t)));
+    const r = await fetch(`${API_BASE}/api/reports-management?${params.toString()}`, { headers: this.authHeaders() });
+    const data = await readApiJson(r, '获取报告列表失败');
+    // 生产环境若 /api 未代理到 Node，常返回 200 + index.html；readApiJson 会得到 { error: '<!DOCTYPE...' }，易误判为「暂无数据」
+    if (!Array.isArray(data.data)) {
+      const errStr = typeof data.error === 'string' ? data.error : '';
+      const looksLikeHtml =
+        errStr.includes('<!DOCTYPE') || errStr.includes('<html') || errStr.includes('<HTML');
+      if (looksLikeHtml) {
+        throw new Error(
+          '接口返回了网页而非 JSON，无法加载报告列表。请检查：① Nginx/网关是否将 /api 反向代理到 Node 服务；② 生产 Node 是否已部署含「报告管理」接口的最新代码并已重启；③ 在 Network 中点开该请求查看 Response 是否为 JSON。'
+        );
+      }
+      throw new Error(data.error || '报告列表接口返回格式异常（缺少 data 数组）');
+    }
+    return data;
+  },
+
+  async updateReportManagement(orderId, payload) {
+    const r = await fetch(`${API_BASE}/api/reports-management/${encodeURIComponent(orderId)}`, {
+      method: 'PUT',
+      headers: this.authHeaders(),
+      body: JSON.stringify(payload),
+    });
+    return readApiJson(r, '更新报告信息失败');
   }
 }

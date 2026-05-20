@@ -175,8 +175,8 @@ export function buildCommissionListFilters(req) {
     // 全部
   } else if (user.role === 'leader') {
     const leaderDept = Number(user.department_id);
-    if (leaderDept === 5) {
-      // 委外室主任：全部
+    if (leaderDept === 5 || leaderDept === 7) {
+      // 委外/技术支持室主任：全部
     } else if (user.department_id) {
       filters.push('ti.department_id = ?');
       params.push(user.department_id);

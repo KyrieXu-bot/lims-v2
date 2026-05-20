@@ -430,6 +430,36 @@
   transform: translateX(-50%);
 }
 
+/* 报告管理：表格下方居中分页（在 table-container 内、横向滚动区域外） */
+.commission-form .report-management-pagination-bar {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-top: 1px solid #dee2e6;
+  background: #fafafa;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.commission-form .report-management-pagination-bar .report-page-info {
+  font-size: 13px;
+  color: #666;
+}
+
+/* 报告管理：详情链接在固定列宽内单行省略（与 DetailViewLink 字符截断叠加） */
+.commission-form .data-table td.report-mgmt-detail-td {
+  vertical-align: top;
+}
+.commission-form .data-table td.report-mgmt-detail-td .detail-view-link {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: top;
+}
+
 .table-wrapper {
   overflow: auto;
   flex: 1;
@@ -788,6 +818,21 @@
   flex: 1;
 }
 
+/* 导出弹窗：按钮随 modal 宽度自适应换行，不产生横向滚动条 */
+.export-modal-actions-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 148px), 1fr));
+  gap: 10px;
+  width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+.export-modal-actions-grid .btn {
+  white-space: normal;
+  word-break: break-word;
+  text-align: center;
+}
 /* 可编辑字段容器 */
 .editable-field-container {
   position: relative;
@@ -2829,4 +2874,33 @@
 
 .readonly-cell-wrap {
   display: inline;
+}
+
+/* 导出显微模板：上传进度 / 服务器处理动画条 */
+.micrograph-progress-track {
+  height: 8px;
+  background: #e9ecef;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.micrograph-progress-fill {
+  height: 100%;
+  background: #6f42c1;
+  border-radius: 4px;
+  transition: width 0.15s ease-out;
+}
+.micrograph-progress-indeterminate {
+  width: 35%;
+  height: 100%;
+  background: linear-gradient(90deg, #6f42c1, #b8a0dc, #6f42c1);
+  border-radius: 4px;
+  animation: micrograph-progress-slide 1s ease-in-out infinite;
+}
+@keyframes micrograph-progress-slide {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(320%);
+  }
 }

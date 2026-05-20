@@ -25,6 +25,7 @@ import cancellationRequestsRouter from './src/routes/cancellation_requests.js';
 import settlementsRouter from './src/routes/settlements.js';
 import orderTransfersRouter from './src/routes/order_transfers.js';
 import orderTransferRequestsRouter from './src/routes/order_transfer_requests.js';
+import reportsManagementRouter from './src/routes/reports_management.js';
 import { setupSocket } from './src/socket.js';
 import { getPool } from './src/db.js';
 
@@ -69,6 +70,7 @@ app.use('/api/cancellation-requests', cancellationRequestsRouter);
 app.use('/api/settlements', settlementsRouter);
 app.use('/api/order-transfers', orderTransfersRouter);
 app.use('/api/order-transfer-requests', orderTransferRequestsRouter);
+app.use('/api/reports-management', reportsManagementRouter);
 
 // 设置WebSocket
 const io = setupSocket(server);

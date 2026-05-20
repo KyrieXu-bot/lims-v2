@@ -1,21 +1,329 @@
 import express from 'express';
 import path from 'path';
+import os from 'os';
 import fs from 'fs/promises';
 import fsSync from 'fs';
 import { fileURLToPath } from 'url';
+import multer from 'multer';
+import { v4 as uuidv4 } from 'uuid';
 import PizZip from 'pizzip';
 import Docxtemplater from 'docxtemplater';
 import ImageModule from 'docxtemplater-image-module-free';
-import { requireAuth, requireAnyRole } from '../middleware/auth.js';
+import imageSize from 'image-size';
+import { requireAuth, requireAnyRole, requireDepartmentIds } from '../middleware/auth.js';
+import {
+  decodeMulterOriginalName,
+  sanitizeRelativeUploadPath,
+  prepareImageFolderSectionsForEmbedding,
+} from '../lib/imageFolderWordExport.js';
 
 // 获取__dirname的ES6模块等价物
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+function micrographTempDirMiddleware(req, res, next) {
+  try {
+    req.micrographTempRoot = path.join(os.tmpdir(), 'lims-micrograph', uuidv4());
+    fsSync.mkdirSync(req.micrographTempRoot, { recursive: true });
+    let cleaned = false;
+    const cleanup = () => {
+      if (cleaned) return;
+      cleaned = true;
+      fs.rm(req.micrographTempRoot, { recursive: true, force: true }).catch(() => {});
+    };
+    res.on('finish', cleanup);
+    res.on('close', cleanup);
+    next();
+  } catch (e) {
+    next(e);
+  }
+}
+
+const micrographUpload = multer({
+  preservePath: true,
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => {
+      try {
+        const rel = sanitizeRelativeUploadPath(decodeMulterOriginalName(file.originalname));
+        const dir = path.join(req.micrographTempRoot, path.dirname(rel));
+        fsSync.mkdirSync(dir, { recursive: true });
+        cb(null, dir);
+      } catch (e) {
+        cb(e);
+      }
+    },
+    filename: (req, file, cb) => {
+      try {
+        const rel = sanitizeRelativeUploadPath(decodeMulterOriginalName(file.originalname));
+        cb(null, path.basename(rel));
+      } catch (e) {
+        cb(e);
+      }
+    },
+  }),
+  limits: {
+    fileSize: 5 * 1024 * 1024 * 1024,
+    files: 25000,
+  },
+  fileFilter: (req, file, cb) => {
+    const name = decodeMulterOriginalName(file.originalname);
+    if (/\.jpe?g$/i.test(name)) return cb(null, true);
+    cb(null, false);
+  },
+});
+
 const router = express.Router();
+
+const micrographProgressJobs = new Map();
+
+function getMicrographProgressJob(jobId) {
+  if (!jobId || !/^[a-zA-Z0-9_-]{8,80}$/.test(String(jobId))) return null;
+  const key = String(jobId);
+  let job = micrographProgressJobs.get(key);
+  if (!job) {
+    job = { events: [], clients: new Set(), timer: null };
+    job.timer = setTimeout(() => {
+      micrographProgressJobs.delete(key);
+    }, 30 * 60 * 1000);
+    micrographProgressJobs.set(key, job);
+  }
+  return job;
+}
+
+function emitMicrographProgress(jobId, payload) {
+  const job = getMicrographProgressJob(jobId);
+  if (!job) return;
+  const event = {
+    at: Date.now(),
+    ...payload,
+  };
+  job.events.push(event);
+  if (job.events.length > 100) job.events.splice(0, job.events.length - 100);
+  const data = `data: ${JSON.stringify(event)}\n\n`;
+  for (const res of job.clients) {
+    try {
+      res.write(data);
+    } catch {
+      /* ignore disconnected clients */
+    }
+  }
+  if (event.phase === 'ready' || event.phase === 'error') {
+    clearTimeout(job.timer);
+    job.timer = setTimeout(() => {
+      micrographProgressJobs.delete(String(jobId));
+    }, 5 * 60 * 1000);
+  }
+}
+
+function decodeXmlText(text) {
+  return String(text || '')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'");
+}
+
+function ensureContentTypeDefault(contentTypesXml, ext, contentType) {
+  const re = new RegExp(`<Default\\s+Extension="${ext}"\\b`, 'i');
+  if (re.test(contentTypesXml)) return contentTypesXml;
+  return contentTypesXml.replace(
+    '</Types>',
+    `<Default Extension="${ext}" ContentType="${contentType}"/></Types>`
+  );
+}
+
+function nextDocxRelId(relsXml) {
+  let max = 0;
+  for (const m of relsXml.matchAll(/\bId="rId(\d+)"/g)) {
+    max = Math.max(max, Number(m[1]) || 0);
+  }
+  return max + 1;
+}
+
+function nextDrawingObjectIdInZip(zip) {
+  let max = 0;
+  const xmlFiles = zip.file(/^word\/.*\.xml$/);
+  for (const file of xmlFiles) {
+    const xml = file.asText();
+    for (const m of xml.matchAll(/<(?:wp:docPr|pic:cNvPr)\b[^>]*\bid="(\d+)"/g)) {
+      max = Math.max(max, Number(m[1]) || 0);
+    }
+  }
+  return max + 1;
+}
+
+function escapeXmlText(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function fileIndexFromImagePath(imagePath) {
+  const m = path.basename(imagePath).match(/^(\d+)\./);
+  return m ? parseInt(m[1], 10) : null;
+}
+
+function scaleImageForWord(imagePath, maxW, maxH) {
+  let width = maxW;
+  let height = Math.round(maxW * 0.75);
+  try {
+    const dim = imageSize(fsSync.readFileSync(imagePath));
+    if (dim.width && dim.height) {
+      const ratio = Math.min(maxW / dim.width, maxH / dim.height, 1);
+      width = Math.max(1, Math.round(dim.width * ratio));
+      height = Math.max(1, Math.round(dim.height * ratio));
+    }
+  } catch {
+    /* use fallback */
+  }
+  return { width, height };
+}
+
+function imageDrawingXml({ relId, docPrId, name, widthPx, heightPx }) {
+  const cx = Math.max(1, Math.round(widthPx * 9525));
+  const cy = Math.max(1, Math.round(heightPx * 9525));
+  const safeName = escapeXmlText(name || `image-${docPrId}`);
+  return `<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${cx}" cy="${cy}"/><wp:effectExtent l="0" t="0" r="0" b="0"/><wp:docPr id="${docPrId}" name="${safeName}"/><wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="${docPrId}" name="${safeName}"/><pic:cNvPicPr><a:picLocks noChangeAspect="1"/></pic:cNvPicPr></pic:nvPicPr><pic:blipFill><a:blip r:embed="${relId}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>`;
+}
+
+function imageCaptionXml(imagePath) {
+  const caption = path.basename(imagePath, path.extname(imagePath));
+  return `<w:p><w:pPr><w:jc w:val="center"/><w:spacing w:before="80" w:after="80"/></w:pPr><w:r><w:rPr><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr><w:t>${escapeXmlText(caption)}</w:t></w:r></w:p>`;
+}
+
+function tableCellXml(innerXml, widthTwips, options = {}) {
+  const gridSpan = options.gridSpan ? `<w:gridSpan w:val="${options.gridSpan}"/>` : '';
+  return `<w:tc><w:tcPr><w:tcW w:w="${widthTwips}" w:type="dxa"/>${gridSpan}<w:tcBorders><w:top w:val="single" w:sz="4" w:color="CCCCCC"/><w:left w:val="single" w:sz="4" w:color="CCCCCC"/><w:bottom w:val="single" w:sz="4" w:color="CCCCCC"/><w:right w:val="single" w:sz="4" w:color="CCCCCC"/></w:tcBorders><w:vAlign w:val="center"/></w:tcPr>${innerXml || '<w:p/>'}</w:tc>`;
+}
+
+function addImageToDocxZip(targetZip, imagePath, state, display) {
+  const mediaName = `xw_${uuidv4().replace(/-/g, '')}.jpg`;
+  const target = `media/${mediaName}`;
+  targetZip.file(`word/${target}`, fsSync.readFileSync(imagePath), { binary: true });
+  const relId = `rId${state.nextRelId++}`;
+  state.relsXml = state.relsXml.replace(
+    '</Relationships>',
+    `<Relationship Id="${relId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="${target}"/></Relationships>`
+  );
+  const docPrId = state.nextDocPrId++;
+  const { width, height } = scaleImageForWord(imagePath, display.maxW, display.maxH);
+  return imageDrawingXml({ relId, docPrId, name: path.basename(imagePath), widthPx: width, heightPx: height }) + imageCaptionXml(imagePath);
+}
+
+function buildImageTablesXml(targetZip, sections) {
+  const targetRelsPath = 'word/_rels/document.xml.rels';
+  let targetRelsXml = targetZip.file(targetRelsPath)?.asText();
+  if (!targetRelsXml) {
+    targetRelsXml =
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>';
+  }
+  const state = {
+    relsXml: targetRelsXml,
+    nextRelId: nextDocxRelId(targetRelsXml),
+    nextDocPrId: nextDrawingObjectIdInZip(targetZip),
+  };
+  const tableWidth = 9360;
+  const colWidth = 4680;
+  const wideDisplay = { maxW: 560, maxH: 420 };
+  const gridDisplay = { maxW: 270, maxH: 260 };
+  const blocks = [];
+
+  for (const section of sections) {
+    const sorted = [...section.imagePaths].sort((a, b) => {
+      const ia = fileIndexFromImagePath(a);
+      const ib = fileIndexFromImagePath(b);
+      if (ia != null && ib != null && ia !== ib) return ia - ib;
+      if (ia != null && ib == null) return -1;
+      if (ia == null && ib != null) return 1;
+      return path.basename(a).localeCompare(path.basename(b), 'zh-CN', { numeric: true, sensitivity: 'base' });
+    });
+    const wide = sorted.filter((p) => fileIndexFromImagePath(p) === 0);
+    const grid = sorted.filter((p) => fileIndexFromImagePath(p) !== 0);
+    const rows = [];
+
+    for (const imagePath of wide) {
+      const drawing = addImageToDocxZip(targetZip, imagePath, state, wideDisplay);
+      rows.push(`<w:tr>${tableCellXml(drawing, tableWidth, { gridSpan: 2 })}</w:tr>`);
+    }
+    for (let i = 0; i < grid.length; i += 2) {
+      const left = addImageToDocxZip(targetZip, grid[i], state, gridDisplay);
+      const right = grid[i + 1] ? addImageToDocxZip(targetZip, grid[i + 1], state, gridDisplay) : null;
+      rows.push(`<w:tr>${tableCellXml(left, colWidth)}${right ? tableCellXml(right, colWidth) : tableCellXml('<w:p/>', colWidth)}</w:tr>`);
+    }
+    if (rows.length === 0) continue;
+    blocks.push(
+      `<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>${escapeXmlText(section.title)}</w:t></w:r></w:p>` +
+        `<w:tbl><w:tblPr><w:tblW w:w="${tableWidth}" w:type="dxa"/><w:jc w:val="center"/><w:tblLayout w:type="fixed"/></w:tblPr><w:tblGrid><w:gridCol w:w="${colWidth}"/><w:gridCol w:w="${colWidth}"/></w:tblGrid>${rows.join('')}</w:tbl><w:p/>`
+    );
+  }
+
+  let contentTypesXml = targetZip.file('[Content_Types].xml')?.asText();
+  if (contentTypesXml) {
+    contentTypesXml = ensureContentTypeDefault(contentTypesXml, 'jpg', 'image/jpeg');
+    contentTypesXml = ensureContentTypeDefault(contentTypesXml, 'jpeg', 'image/jpeg');
+    targetZip.file('[Content_Types].xml', contentTypesXml);
+  }
+  targetZip.file(targetRelsPath, state.relsXml);
+  return blocks.join('');
+}
+
+function insertXmlAfterMarker(targetZip, insertXml, markerText) {
+  if (!insertXml.trim()) return false;
+  const targetDocPath = 'word/document.xml';
+  const docXml = targetZip.file(targetDocPath)?.asText();
+  if (!docXml) return false;
+  const paragraphs = [...docXml.matchAll(/<w:p\b[\s\S]*?<\/w:p>/g)];
+  let insertAt = -1;
+  const marker = markerText || '6.试验结果';
+  for (const m of paragraphs) {
+    const paragraphText = decodeXmlText(m[0].replace(/<[^>]+>/g, ''));
+    if (paragraphText.includes(marker) || paragraphText.includes('Test Results')) {
+      insertAt = m.index + m[0].length;
+      break;
+    }
+  }
+
+  let nextDocXml;
+  if (insertAt >= 0) {
+    nextDocXml = docXml.slice(0, insertAt) + insertXml + docXml.slice(insertAt);
+  } else {
+    nextDocXml = docXml.replace(/(<w:sectPr\b[\s\S]*?<\/w:sectPr>\s*<\/w:body>)/i, `${insertXml}$1`);
+  }
+  targetZip.file(targetDocPath, nextDocXml);
+  return true;
+}
 
 // 统一需要登录
 router.use(requireAuth);
+
+router.get('/micrograph-word-progress/:jobId', requireDepartmentIds([1]), (req, res) => {
+  const job = getMicrographProgressJob(req.params.jobId);
+  if (!job) return res.status(400).json({ error: '无效的进度任务 ID' });
+
+  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders?.();
+
+  job.clients.add(res);
+  for (const event of job.events) {
+    res.write(`data: ${JSON.stringify(event)}\n\n`);
+  }
+  const heartbeat = setInterval(() => {
+    try {
+      res.write(': keep-alive\n\n');
+    } catch {
+      /* ignore */
+    }
+  }, 15000);
+
+  req.on('close', () => {
+    clearInterval(heartbeat);
+    job.clients.delete(res);
+  });
+});
 
 // 生成委托单模板
 // 仅管理员
@@ -845,5 +1153,247 @@ router.post('/generate-bills-template', requireAnyRole(['admin', 'sales']), asyn
     res.status(500).json({ error: '生成测试服务清单模板失败', details: error.message });
   }
 });
+
+/**
+ * 显微图片文件夹上传并生成 Word（multipart，字段名 files；仅 department_id=1）
+ * 浏览器需使用「选择文件夹」上传以保留子目录结构；每节规则同 imageFolderWordExport 扫描逻辑。
+ */
+router.post(
+  '/generate-micrograph-word-upload',
+  requireDepartmentIds([1]),
+  micrographTempDirMiddleware,
+  micrographUpload.array('files', 25000),
+  async (req, res) => {
+    const tempRoot = req.micrographTempRoot;
+    const progressJobId = req.body?.progressJobId ? String(req.body.progressJobId) : '';
+    const reportProgress = (payload) => emitMicrographProgress(progressJobId, payload);
+    try {
+      if (!req.files?.length) {
+        reportProgress({ phase: 'error', percent: null, detail: '未收到 jpg 图片文件' });
+        return res.status(400).json({
+          error:
+            '未收到 jpg 图片文件。请使用 Chrome / Edge 选择整个文件夹上传，且最底层子文件夹内需包含 .jpg/.jpeg 图片。',
+        });
+      }
+
+      const order_id = String(req.body?.order_id || '').trim();
+      let test_item_ids = [];
+      try {
+        const rawIds = req.body?.test_item_ids;
+        test_item_ids = Array.isArray(rawIds) ? rawIds : JSON.parse(rawIds || '[]');
+      } catch {
+        test_item_ids = [];
+      }
+      if (!order_id || !Array.isArray(test_item_ids) || test_item_ids.length === 0) {
+        reportProgress({ phase: 'error', percent: null, detail: '缺少委托单号或检测项目' });
+        return res.status(400).json({ error: 'order_id 和 test_item_ids 必填' });
+      }
+
+      const { getPool } = await import('../db.js');
+      const pool = await getPool();
+      const [orderRows] = await pool.query(
+        `SELECT o.order_id, o.created_at, c.customer_name, c.address AS customer_address
+         FROM orders o
+         LEFT JOIN customers c ON o.customer_id = c.customer_id
+         WHERE o.order_id = ?`,
+        [order_id]
+      );
+      if (orderRows.length === 0) return res.status(404).json({ error: 'ORDER_NOT_FOUND' });
+      const order = orderRows[0];
+
+      const placeholders = test_item_ids.map(() => '?').join(',');
+      const [tiRows] = await pool.query(
+        `SELECT 
+           ti.test_item_id,
+           ti.order_id,
+           ti.group_id,
+           ti.original_no,
+           CONCAT(ti.category_name, ' - ', ti.detail_name) AS test_item,
+           ti.standard_code AS test_method,
+           '' as size,
+           ti.quantity,
+           ti.sample_name,
+           ti.sample_type,
+           ti.material,
+           e.equipment_name,
+           e.model,
+           e.parameters_and_accuracy,
+           e.validity_period,
+           e.report_title,
+           e.equipment_no,
+           sup.account AS supervisor_account,
+           tech.account AS technician_account,
+           ti.department_id
+         FROM test_items ti
+         LEFT JOIN equipment e ON e.equipment_id = ti.equipment_id
+         LEFT JOIN users sup ON sup.user_id = ti.supervisor_id
+         LEFT JOIN users tech ON tech.user_id = ti.technician_id
+         WHERE ti.test_item_id IN (${placeholders})`,
+        test_item_ids
+      );
+
+      if (tiRows.length === 0) return res.status(400).json({ error: '未找到检测项目' });
+      const uniqueOrders = new Set(tiRows.map((r) => r.order_id));
+      if (uniqueOrders.size !== 1 || !uniqueOrders.has(order_id)) {
+        return res.status(400).json({ error: '必须选择同一委托单号下的项目' });
+      }
+      const nonXW = tiRows.find((r) => String(r.department_id) !== '1');
+      if (nonXW) return res.status(403).json({ error: '仅支持显微部门项目导出' });
+
+      let managerFirst = '';
+      let testerFirst = '';
+      for (const item of tiRows) {
+        if (!managerFirst && item.supervisor_account) managerFirst = String(item.supervisor_account).trim();
+        if (!testerFirst && item.technician_account) testerFirst = String(item.technician_account).trim();
+        if (managerFirst && testerFirst) break;
+      }
+
+      const toChineseIndex = (n) => {
+        const numerals = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十'];
+        if (n <= 0) return '';
+        if (n <= 10) return numerals[n - 1];
+        if (n < 20) return `十${numerals[n - 11] || ''}`;
+        const tens = Math.floor(n / 10);
+        const units = n % 10;
+        return `${numerals[tens - 1] || ''}十${units > 0 ? numerals[units - 1] : ''}`;
+      };
+
+      const sanitizedItems = tiRows.map((item, idx) => ({
+        sample_no: `${order.order_id}-${idx + 1}`,
+        index_cn: toChineseIndex(idx + 1),
+        sample_name: item.sample_name || '',
+        original_no: item.original_no || '',
+        test_item: item.test_item || '',
+        test_method: item.test_method || '',
+        size: item.size || '',
+        material: item.material || '',
+        sample_type: item.sample_type || '',
+        quantity: item.quantity ?? '',
+        equipment_no: item.equipment_no || '',
+        equipment_name: item.equipment_name || '',
+        model: item.model || '',
+        parameters_and_accuracy: item.parameters_and_accuracy || '',
+        validity_period: item.validity_period || '',
+        report_title: item.report_title || '',
+      }));
+      const totalCount = tiRows.reduce((sum, it) => sum + (it.quantity || 0), 0);
+
+      const firstSelectedTestItemId = test_item_ids[0];
+      const firstSelectedItem = tiRows.find(
+        (item) => String(item.test_item_id) === String(firstSelectedTestItemId)
+      );
+      const firstGroupId = Number(firstSelectedItem?.group_id);
+      const testLocation = firstGroupId === 1 ? '1号楼-B108' : firstGroupId === 2 ? '1号楼-S103' : '';
+
+      let leaderAccount = '';
+      try {
+        const [leaders] = await pool.query(
+          `SELECT u.account FROM users u
+           JOIN user_roles ur ON ur.user_id = u.user_id
+           JOIN roles r ON r.role_id = ur.role_id
+           WHERE r.role_code = 'leader' AND u.department_id = 1
+           ORDER BY u.user_id ASC LIMIT 1`
+        );
+        leaderAccount = leaders[0]?.account || '';
+      } catch {}
+
+      const signaturesDir = path.join(__dirname, '..', 'signatures');
+      const loadSignatureImagePath = async (account) => {
+        if (!account) return null;
+        const extensions = ['.png', '.PNG', '.jpg', '.jpeg', '.JPG', '.JPEG'];
+        for (const ext of extensions) {
+          const imagePath = path.join(signaturesDir, `${account}${ext}`);
+          try {
+            await fs.access(imagePath);
+            return imagePath;
+          } catch {}
+        }
+        return null;
+      };
+
+      const imageSizeMap = new Map();
+      const signatureManagerPath = await loadSignatureImagePath(managerFirst);
+      const signatureTesterPath = await loadSignatureImagePath(testerFirst);
+      const signatureLeaderPath = await loadSignatureImagePath(leaderAccount);
+      for (const p of [signatureManagerPath, signatureTesterPath, signatureLeaderPath]) {
+        if (p) imageSizeMap.set(p, [100, 50]);
+      }
+
+      const templateData = {
+        report_title: '显微实验报告',
+        order_num: order.order_id,
+        create_time: new Date(order.created_at).toISOString().slice(0, 10),
+        customer_name: order.customer_name || '',
+        customer_address: order.customer_address || '',
+        test_items: sanitizedItems,
+        total_count: totalCount,
+        test_location: testLocation,
+        signature_manager: signatureManagerPath,
+        signature_tester: signatureTesterPath,
+        signature_leader: signatureLeaderPath,
+      };
+
+      const templatePath = path.join(__dirname, '..', 'templates', 'XW_template_2026.docx');
+      await fs.access(templatePath);
+      const templateBuffer = await fs.readFile(templatePath);
+      const zip = new PizZip(templateBuffer);
+      const imageModule = new ImageModule({
+        centered: false,
+        getImage: (tagValue) => {
+          if (!tagValue || typeof tagValue !== 'string') return null;
+          try {
+            return fsSync.readFileSync(tagValue);
+          } catch {
+            return null;
+          }
+        },
+        getSize: (img, tagValue) => imageSizeMap.get(tagValue) || [100, 50],
+      });
+      const doc = new Docxtemplater(zip, {
+        paragraphLoop: true,
+        linebreaks: true,
+        modules: [imageModule],
+      });
+      doc.setData(templateData);
+      doc.render();
+
+      const { sections: imageSections, total: imageTotal } = await prepareImageFolderSectionsForEmbedding(tempRoot, {
+        compressTempDir: path.join(tempRoot, '.compressed'),
+        onProgress: reportProgress,
+      });
+      reportProgress({ phase: 'pack', percent: 95, detail: `正在嵌入显微报告图片（${imageTotal} 张）` });
+      const imageTablesXml = buildImageTablesXml(doc.getZip(), imageSections);
+      insertXmlAfterMarker(doc.getZip(), imageTablesXml, '6.试验结果');
+
+      reportProgress({ phase: 'pack', percent: 98, detail: '正在生成显微报告 Word' });
+      const report = doc.getZip().generate({ type: 'nodebuffer' });
+      const fileName = `${order.order_id}_显微报告.docx`;
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+      res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`);
+      res.setHeader('Content-Length', String(report.length));
+      res.setHeader('Cache-Control', 'no-store');
+      res.removeHeader('ETag');
+      reportProgress({ phase: 'ready', percent: 100, detail: '显微报告已生成，正在开始下载' });
+      res.end(report);
+    } catch (error) {
+      const code = error.code;
+      reportProgress({ phase: 'error', percent: null, detail: error.message || '生成 Word 失败' });
+      if (code === 'NO_SECTIONS') {
+        return res.status(400).json({ error: error.message, code });
+      }
+      if (code === 'NOT_DIRECTORY') {
+        return res.status(400).json({ error: error.message, code });
+      }
+      if (code === 'IMAGE_EXPORT_TOO_MANY') {
+        return res.status(400).json({ error: error.message, code });
+      }
+      if (code === 'INVALID_UPLOAD_PATH') {
+        return res.status(400).json({ error: error.message, code });
+      }
+      console.error('显微模板 Word 上传导出失败:', error);
+      res.status(500).json({ error: '生成 Word 失败', details: error.message });
+    }
+  }
+);
 
 export default router;

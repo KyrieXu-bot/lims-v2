@@ -1,8 +1,8 @@
 -- MySQL dump 10.13  Distrib 8.0.39, for Win64 (x86_64)
 --
--- Host: localhost    Database: jitri2
+-- Host: 192.168.9.46    Database: jitri2
 -- ------------------------------------------------------
--- Server version	8.0.39
+-- Server version	8.0.45-0ubuntu0.24.04.1
 
 /*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
 /*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
@@ -14,6 +14,38 @@
 /*!40014 SET @OLD_FOREIGN_KEY_CHECKS=@@FOREIGN_KEY_CHECKS, FOREIGN_KEY_CHECKS=0 */;
 /*!40101 SET @OLD_SQL_MODE=@@SQL_MODE, SQL_MODE='NO_AUTO_VALUE_ON_ZERO' */;
 /*!40111 SET @OLD_SQL_NOTES=@@SQL_NOTES, SQL_NOTES=0 */;
+
+--
+-- Table structure for table `addon_requests`
+--
+
+DROP TABLE IF EXISTS `addon_requests`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `addon_requests` (
+  `request_id` bigint unsigned NOT NULL AUTO_INCREMENT COMMENT '加测申请ID',
+  `applicant_id` varchar(20) NOT NULL COMMENT '申请人ID（users.user_id 工号）',
+  `order_id` varchar(20) DEFAULT NULL COMMENT '关联委托单号（orders.order_id）',
+  `test_item_data` json NOT NULL COMMENT '检测项目数据（JSON格式）',
+  `status` enum('pending','approved','rejected') NOT NULL DEFAULT 'pending' COMMENT '申请状态',
+  `note` text COMMENT '申请备注',
+  `approved_by` varchar(20) DEFAULT NULL COMMENT '审核人ID（users.user_id 工号）',
+  `approved_at` datetime(3) DEFAULT NULL COMMENT '审核时间',
+  `test_item_id` bigint unsigned DEFAULT NULL COMMENT '创建的检测项目ID（test_items.test_item_id）',
+  `created_at` datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) COMMENT '创建时间',
+  PRIMARY KEY (`request_id`),
+  KEY `idx_addon_requests_applicant` (`applicant_id`),
+  KEY `idx_addon_requests_order` (`order_id`),
+  KEY `idx_addon_requests_status` (`status`),
+  KEY `idx_addon_requests_created` (`created_at`),
+  KEY `fk_addon_requests_approved_by` (`approved_by`),
+  KEY `fk_addon_requests_test_item` (`test_item_id`),
+  CONSTRAINT `fk_addon_requests_applicant` FOREIGN KEY (`applicant_id`) REFERENCES `users` (`user_id`) ON DELETE RESTRICT ON UPDATE CASCADE,
+  CONSTRAINT `fk_addon_requests_approved_by` FOREIGN KEY (`approved_by`) REFERENCES `users` (`user_id`) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT `fk_addon_requests_order` FOREIGN KEY (`order_id`) REFERENCES `orders` (`order_id`) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT `fk_addon_requests_test_item` FOREIGN KEY (`test_item_id`) REFERENCES `test_items` (`test_item_id`) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB AUTO_INCREMENT=899 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='加测申请表';
+/*!40101 SET character_set_client = @saved_cs_client */;
 
 --
 -- Table structure for table `assignments`
@@ -36,7 +68,37 @@ CREATE TABLE `assignments` (
   UNIQUE KEY `uq_assignment_active` (`active_key`),
   KEY `idx_as_to` (`assigned_to`),
   KEY `idx_as_ti` (`test_item_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=119 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='分配记录：仅保留激活标记，无时间段';
+) ENGINE=InnoDB AUTO_INCREMENT=34737 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='分配记录：仅保留激活标记，无时间段';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `cancellation_requests`
+--
+
+DROP TABLE IF EXISTS `cancellation_requests`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `cancellation_requests` (
+  `request_id` int NOT NULL AUTO_INCREMENT,
+  `applicant_id` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT '申请人ID（实验员或组长）',
+  `test_item_id` bigint unsigned DEFAULT NULL COMMENT '检测项目ID（删除操作后可能为NULL）',
+  `request_type` enum('cancel','delete') NOT NULL COMMENT '申请类型：cancel=取消，delete=删除',
+  `reason` text NOT NULL COMMENT '申请原因',
+  `status` enum('pending','approved','executed','rejected') NOT NULL DEFAULT 'pending' COMMENT '申请状态：pending=待处理，approved=已批准，executed=已执行，rejected=已拒绝',
+  `approved_by` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT '批准人ID（业务员）',
+  `approved_at` datetime(3) DEFAULT NULL COMMENT '批准时间',
+  `executed_by` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT '执行人ID（开单员）',
+  `executed_at` datetime(3) DEFAULT NULL COMMENT '执行时间',
+  `test_item_backup` json DEFAULT NULL COMMENT '删除操作时备份的test_item数据（用于撤回恢复）',
+  `created_at` datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) COMMENT '创建时间',
+  PRIMARY KEY (`request_id`),
+  KEY `idx_test_item_id` (`test_item_id`),
+  KEY `idx_applicant_id` (`applicant_id`),
+  KEY `idx_status` (`status`),
+  KEY `idx_created_at` (`created_at`),
+  CONSTRAINT `cancellation_requests_ibfk_1` FOREIGN KEY (`test_item_id`) REFERENCES `test_items` (`test_item_id`) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT `cancellation_requests_ibfk_2` FOREIGN KEY (`applicant_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE
+) ENGINE=InnoDB AUTO_INCREMENT=325 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='取消/删除申请表';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -61,7 +123,7 @@ CREATE TABLE `commissioners` (
   KEY `idx_commissioners_payer` (`payer_id`),
   KEY `idx_commissioners_email` (`email`),
   CONSTRAINT `fk_commissioners_payer` FOREIGN KEY (`payer_id`) REFERENCES `payers` (`payer_id`) ON DELETE RESTRICT ON UPDATE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='委托方：从付款方继承客户名称';
+) ENGINE=InnoDB AUTO_INCREMENT=1940 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='委托方：从付款方继承客户名称';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -82,7 +144,7 @@ CREATE TABLE `customers` (
   `province` varchar(64) DEFAULT NULL COMMENT '区域（省）',
   `nature` varchar(64) DEFAULT NULL COMMENT '性质（企业/高校/科研/个人等）',
   `scale` varchar(64) DEFAULT NULL COMMENT '规模（预留）',
-  `cooperation_time` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT '合作时间（yyyy-MM格式）',
+  `cooperation_time` varchar(7) DEFAULT NULL COMMENT '合作时间（yyyy-MM格式）',
   `is_active` tinyint(1) NOT NULL DEFAULT '1' COMMENT '是否启用',
   `created_at` datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   `updated_at` datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
@@ -91,7 +153,7 @@ CREATE TABLE `customers` (
   KEY `idx_customers_name` (`customer_name`),
   KEY `idx_customers_province` (`province`),
   KEY `idx_customers_cooperation_time` (`cooperation_time`)
-) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='客户库（税号唯一）';
+) ENGINE=InnoDB AUTO_INCREMENT=647 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='客户库（税号唯一）';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -109,7 +171,7 @@ CREATE TABLE `departments` (
   `updated_at` datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
   PRIMARY KEY (`department_id`),
   UNIQUE KEY `department_name` (`department_name`)
-) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='部门表';
+) ENGINE=InnoDB AUTO_INCREMENT=7 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='部门表';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -132,7 +194,7 @@ CREATE TABLE `equipment` (
   `status` varchar(20) DEFAULT '正常' COMMENT '设备运行状态（正常、维修）',
   `status_update_time` datetime DEFAULT NULL COMMENT '状态变更时间',
   PRIMARY KEY (`equipment_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=232 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=235 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -154,7 +216,112 @@ CREATE TABLE `lab_groups` (
   UNIQUE KEY `group_code` (`group_code`),
   KEY `fk_labgroups_dept` (`department_id`),
   CONSTRAINT `fk_labgroups_dept` FOREIGN KEY (`department_id`) REFERENCES `departments` (`department_id`) ON DELETE RESTRICT ON UPDATE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=9 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='实验小组（与部门关联）';
+) ENGINE=InnoDB AUTO_INCREMENT=10 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='实验小组（与部门关联）';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `notifications`
+--
+
+DROP TABLE IF EXISTS `notifications`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `notifications` (
+  `notification_id` bigint unsigned NOT NULL AUTO_INCREMENT COMMENT '通知ID',
+  `user_id` varchar(20) NOT NULL COMMENT '接收用户ID（users.user_id 工号）',
+  `title` varchar(255) NOT NULL COMMENT '通知标题',
+  `content` text NOT NULL COMMENT '通知内容',
+  `type` enum('raw_data_upload','addon_request','cancel_request','delete_request','order_transfer_request','system','other') NOT NULL DEFAULT 'other' COMMENT '通知类型',
+  `is_read` tinyint(1) NOT NULL DEFAULT '0' COMMENT '是否已读',
+  `related_order_id` varchar(20) DEFAULT NULL COMMENT '关联委托单号（orders.order_id）',
+  `related_test_item_id` bigint unsigned DEFAULT NULL COMMENT '关联检测项目ID（test_items.test_item_id）',
+  `related_file_id` bigint unsigned DEFAULT NULL COMMENT '关联文件ID（project_files.file_id）',
+  `related_addon_request_id` bigint unsigned DEFAULT NULL COMMENT '关联加测申请ID（addon_requests.request_id）',
+  `test_item_display_name` varchar(500) DEFAULT NULL COMMENT '检测项目显示名（category_name - detail_name），用于 test_item 已删除时展示',
+  `test_item_display_id` bigint unsigned DEFAULT NULL COMMENT '检测项目ID显示用副本，用于 test_item 已删除时展示',
+  `related_order_transfer_request_id` bigint unsigned DEFAULT NULL COMMENT '关联转单申请ID（order_transfer_requests.request_id）',
+  `created_at` datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) COMMENT '创建时间',
+  `read_at` datetime(3) DEFAULT NULL COMMENT '阅读时间',
+  PRIMARY KEY (`notification_id`),
+  KEY `idx_notifications_user` (`user_id`),
+  KEY `idx_notifications_read` (`is_read`),
+  KEY `idx_notifications_created` (`created_at`),
+  KEY `idx_notifications_order` (`related_order_id`),
+  KEY `idx_notifications_test_item` (`related_test_item_id`),
+  KEY `fk_notifications_file` (`related_file_id`),
+  KEY `idx_notifications_addon_request` (`related_addon_request_id`),
+  KEY `idx_notifications_order_transfer_req` (`related_order_transfer_request_id`),
+  CONSTRAINT `fk_notifications_addon_request` FOREIGN KEY (`related_addon_request_id`) REFERENCES `addon_requests` (`request_id`) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT `fk_notifications_file` FOREIGN KEY (`related_file_id`) REFERENCES `project_files` (`file_id`) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT `fk_notifications_order` FOREIGN KEY (`related_order_id`) REFERENCES `orders` (`order_id`) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT `fk_notifications_order_transfer_req` FOREIGN KEY (`related_order_transfer_request_id`) REFERENCES `order_transfer_requests` (`request_id`) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT `fk_notifications_test_item` FOREIGN KEY (`related_test_item_id`) REFERENCES `test_items` (`test_item_id`) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT `fk_notifications_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB AUTO_INCREMENT=11642 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='消息通知表';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `order_transfer_history`
+--
+
+DROP TABLE IF EXISTS `order_transfer_history`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `order_transfer_history` (
+  `history_id` bigint unsigned NOT NULL AUTO_INCREMENT COMMENT '转单历史ID',
+  `order_id` varchar(20) NOT NULL COMMENT '当前单号',
+  `previous_order_id` varchar(20) DEFAULT NULL COMMENT '上一个单号',
+  `transfer_date` date NOT NULL COMMENT '转单日期',
+  `created_by` varchar(20) NOT NULL COMMENT '操作人',
+  `created_at` datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) COMMENT '创建时间',
+  `note` text COMMENT '备注',
+  PRIMARY KEY (`history_id`),
+  KEY `idx_order` (`order_id`),
+  KEY `idx_previous` (`previous_order_id`),
+  KEY `fk_oth_creator` (`created_by`),
+  CONSTRAINT `fk_oth_creator` FOREIGN KEY (`created_by`) REFERENCES `users` (`user_id`) ON DELETE RESTRICT ON UPDATE CASCADE,
+  CONSTRAINT `fk_oth_order` FOREIGN KEY (`order_id`) REFERENCES `orders` (`order_id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `fk_oth_previous` FOREIGN KEY (`previous_order_id`) REFERENCES `orders` (`order_id`) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB AUTO_INCREMENT=153 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='转单历史记录表';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `order_transfer_requests`
+--
+
+DROP TABLE IF EXISTS `order_transfer_requests`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `order_transfer_requests` (
+  `request_id` bigint unsigned NOT NULL AUTO_INCREMENT COMMENT '转单申请ID',
+  `applicant_id` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT '申请人（实验室）',
+  `test_item_id` bigint unsigned NOT NULL COMMENT '关联检测项目',
+  `target_order_id` varchar(20) NOT NULL COMMENT '拟转的新委托单号',
+  `transfer_reason` text COMMENT '转单原因（超期流程必填，常规流程可空）',
+  `approval_flow` enum('direct_sales','leader_then_sales') NOT NULL DEFAULT 'direct_sales' COMMENT '审批流类型：direct_sales=常规直接业务审批，leader_then_sales=室主任后业务',
+  `current_step` enum('supervisor_review','leader_review','sales_review','xwf_review','done') CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL DEFAULT 'sales_review' COMMENT '当前步骤：leader_review=待室主任，sales_review=待业务，done=流程结束',
+  `leader_approved_by` varchar(20) DEFAULT NULL COMMENT '室主任审批人user_id',
+  `leader_approved_at` datetime(3) DEFAULT NULL COMMENT '室主任审批时间',
+  `status` enum('pending','approved','rejected') NOT NULL DEFAULT 'pending' COMMENT 'pending=待处理，approved=已同意，rejected=已拒绝',
+  `approved_by` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT '同意人（业务员等）',
+  `approved_at` datetime(3) DEFAULT NULL COMMENT '同意时间',
+  `rejected_by` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT '拒绝人',
+  `rejected_at` datetime(3) DEFAULT NULL COMMENT '拒绝时间',
+  `created_at` datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) COMMENT '申请时间',
+  PRIMARY KEY (`request_id`),
+  KEY `idx_otr_test_item` (`test_item_id`),
+  KEY `idx_otr_applicant` (`applicant_id`),
+  KEY `idx_otr_status` (`status`),
+  KEY `idx_otr_created` (`created_at`),
+  KEY `fk_otr_approved_by` (`approved_by`),
+  KEY `fk_otr_rejected_by` (`rejected_by`),
+  KEY `fk_otr_leader_approved_by` (`leader_approved_by`),
+  CONSTRAINT `fk_otr_applicant` FOREIGN KEY (`applicant_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `fk_otr_approved_by` FOREIGN KEY (`approved_by`) REFERENCES `users` (`user_id`) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT `fk_otr_leader_approved_by` FOREIGN KEY (`leader_approved_by`) REFERENCES `users` (`user_id`) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT `fk_otr_rejected_by` FOREIGN KEY (`rejected_by`) REFERENCES `users` (`user_id`) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT `fk_otr_test_item` FOREIGN KEY (`test_item_id`) REFERENCES `test_items` (`test_item_id`) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB AUTO_INCREMENT=58 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='实验室转单申请';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -166,6 +333,9 @@ DROP TABLE IF EXISTS `orders`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `orders` (
   `order_id` varchar(20) NOT NULL COMMENT '委托单号（业务主键，如 JC2504001 或其他前缀）',
+  `original_order_id` varchar(20) DEFAULT NULL COMMENT '直接原单号',
+  `root_order_id` varchar(20) DEFAULT NULL COMMENT '根单号（追溯到最初）',
+  `is_transferred` tinyint(1) NOT NULL DEFAULT '0' COMMENT '是否为转单',
   `customer_id` bigint unsigned NOT NULL COMMENT '客户ID（customers）',
   `payer_id` bigint unsigned DEFAULT NULL COMMENT '付款方ID（payers）',
   `commissioner_id` bigint unsigned DEFAULT NULL COMMENT '委托方ID（commissioners）',
@@ -181,6 +351,9 @@ CREATE TABLE `orders` (
   `remarks` text COMMENT '备注',
   `settlement_status` enum('unpaid','paid','partial') DEFAULT 'unpaid' COMMENT '结算状态',
   PRIMARY KEY (`order_id`),
+  KEY `fk_o_payer` (`payer_id`),
+  KEY `fk_o_comm` (`commissioner_id`),
+  KEY `fk_o_creator` (`created_by`),
   KEY `idx_o_customer` (`customer_id`),
   KEY `idx_o_created` (`created_at`),
   KEY `fk_o_comm` (`commissioner_id`),
@@ -203,13 +376,13 @@ DROP TABLE IF EXISTS `outsource_info`;
 CREATE TABLE `outsource_info` (
   `id` int NOT NULL AUTO_INCREMENT,
   `test_item_id` bigint unsigned NOT NULL,
-  `outsource_supplier` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '委外供应商名称',
-  `outsource_contact` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '对接人',
-  `outsource_phone` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '对接人联系电话',
+  `outsource_supplier` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '委外供应商名称',
+  `outsource_contact` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '对接人',
+  `outsource_phone` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '对接人联系电话',
   `outsource_price` decimal(10,2) DEFAULT NULL COMMENT '委外价格',
-  `outsource_report_path` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '委外报告文件路径',
-  `return_tracking_number` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '寄回快递单号',
-  `outsource_status` enum('pending','in_progress','completed','cancelled') COLLATE utf8mb4_unicode_ci DEFAULT 'pending' COMMENT '委外状态',
+  `outsource_report_path` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '委外报告文件路径',
+  `return_tracking_number` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '寄回快递单号',
+  `outsource_status` enum('pending','in_progress','completed','cancelled') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT 'pending' COMMENT '委外状态',
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
@@ -242,7 +415,7 @@ CREATE TABLE `payers` (
   KEY `idx_payers_owner` (`owner_user_id`),
   CONSTRAINT `fk_payers_customer` FOREIGN KEY (`customer_id`) REFERENCES `customers` (`customer_id`) ON DELETE RESTRICT ON UPDATE CASCADE,
   CONSTRAINT `fk_payers_owner` FOREIGN KEY (`owner_user_id`) REFERENCES `users` (`user_id`) ON DELETE SET NULL ON UPDATE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='付款方：账期/折扣/业务绑定';
+) ENGINE=InnoDB AUTO_INCREMENT=1002 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='付款方：账期/折扣/业务绑定';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -262,6 +435,8 @@ CREATE TABLE `price` (
   `group_id` smallint unsigned DEFAULT NULL COMMENT '归属实验小组ID（如 L/M/C）',
   `unit_price` varchar(100) NOT NULL COMMENT '收费标准',
   `minimum_price` varchar(255) DEFAULT NULL COMMENT '最低价格',
+  `amount` int DEFAULT NULL COMMENT '金额',
+  `unit` varchar(100) DEFAULT NULL COMMENT '单位',
   `is_outsourced` tinyint(1) NOT NULL DEFAULT '0' COMMENT '是否委外（用于主界面标识/筛选）',
   `is_active` tinyint(1) NOT NULL DEFAULT '1' COMMENT '是否启用',
   `note` varchar(255) DEFAULT NULL COMMENT '备注',
@@ -274,7 +449,7 @@ CREATE TABLE `price` (
   KEY `idx_price_code` (`test_code`),
   KEY `idx_price_cat` (`category_name`),
   CONSTRAINT `fk_price_group` FOREIGN KEY (`group_id`) REFERENCES `lab_groups` (`group_id`) ON DELETE SET NULL ON UPDATE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=4664 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='价格表：标准项目目录（大类/细项）与单价';
+) ENGINE=InnoDB AUTO_INCREMENT=4741 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='价格表：标准项目目录（大类/细项）与单价';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -303,11 +478,12 @@ CREATE TABLE `project_files` (
   KEY `idx_pf_ti` (`test_item_id`),
   KEY `idx_pf_sample` (`sample_id`),
   KEY `idx_category` (`category`),
+  KEY `idx_pf_test_item_category` (`test_item_id`,`category`),
   CONSTRAINT `project_files_ibfk_1` FOREIGN KEY (`order_id`) REFERENCES `orders` (`order_id`) ON DELETE CASCADE ON UPDATE CASCADE,
   CONSTRAINT `project_files_ibfk_2` FOREIGN KEY (`test_item_id`) REFERENCES `test_items` (`test_item_id`) ON DELETE SET NULL ON UPDATE CASCADE,
   CONSTRAINT `project_files_ibfk_3` FOREIGN KEY (`sample_id`) REFERENCES `samples` (`sample_id`) ON DELETE SET NULL ON UPDATE CASCADE,
   CONSTRAINT `project_files_ibfk_4` FOREIGN KEY (`uploaded_by`) REFERENCES `users` (`user_id`) ON DELETE RESTRICT ON UPDATE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=34 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='附件：原始记录/委外报告/收样照片等';
+) ENGINE=InnoDB AUTO_INCREMENT=23329 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='附件：原始记录/委外报告/收样照片等';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -320,7 +496,6 @@ DROP TABLE IF EXISTS `reports`;
 CREATE TABLE `reports` (
   `report_id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `order_id` varchar(20) NOT NULL COMMENT '关联 orders.order_id',
-  `vat_type` tinyint NOT NULL DEFAULT '1' COMMENT '发票类型：1 普通，2 专用（对应前端 vatType）',
   `report_type` json DEFAULT NULL COMMENT '报告文档多选数组，存前端 reportInfo.type，例如 [1,2,3]',
   `paper_report_shipping_type` tinyint DEFAULT NULL COMMENT '纸质寄送方式（1 委托方 2 付款方 3 其它）',
   `report_additional_info` varchar(500) DEFAULT NULL COMMENT '纸质报告的额外信息/地址',
@@ -334,7 +509,7 @@ CREATE TABLE `reports` (
   UNIQUE KEY `uq_reports_order_id` (`order_id`),
   KEY `idx_reports_created` (`created_at`),
   CONSTRAINT `fk_reports_order` FOREIGN KEY (`order_id`) REFERENCES `orders` (`order_id`) ON DELETE CASCADE ON UPDATE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=52 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='委托单对应的报告设置（reportInfo / vatType /report_seals 等）';
+) ENGINE=InnoDB AUTO_INCREMENT=6927 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='委托单对应的报告设置（reportInfo/report_seals 等）';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -369,7 +544,7 @@ CREATE TABLE `sample_handling` (
   PRIMARY KEY (`id`),
   KEY `idx_sample_handling_order` (`order_id`),
   CONSTRAINT `fk_sample_handling_order` FOREIGN KEY (`order_id`) REFERENCES `orders` (`order_id`) ON DELETE CASCADE ON UPDATE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=51 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='样品处置信息（sampleHandling）';
+) ENGINE=InnoDB AUTO_INCREMENT=6926 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='样品处置信息（sampleHandling）';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -392,7 +567,7 @@ CREATE TABLE `sample_requirements` (
   PRIMARY KEY (`id`),
   KEY `idx_sample_requirements_order` (`order_id`),
   CONSTRAINT `fk_sample_requirements_order` FOREIGN KEY (`order_id`) REFERENCES `orders` (`order_id`) ON DELETE CASCADE ON UPDATE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=51 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='样品要求（sampleRequirements）';
+) ENGINE=InnoDB AUTO_INCREMENT=6926 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='样品要求（sampleRequirements）';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -486,6 +661,73 @@ CREATE TABLE `samples` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `settlements`
+--
+
+DROP TABLE IF EXISTS `settlements`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `settlements` (
+  `settlement_id` bigint unsigned NOT NULL AUTO_INCREMENT COMMENT '结算记录ID',
+  `invoice_number` varchar(30) DEFAULT NULL COMMENT '票号（纯数字，20-30位）',
+  `invoice_date` date NOT NULL COMMENT '开票日期',
+  `order_ids` text NOT NULL COMMENT '委托单号组（多个委托单号用"-"拼接）',
+  `test_item_ids` text COMMENT '开票的检测项目ID列表（JSON数组格式，如[1,2,3]）',
+  `invoice_amount` decimal(12,2) NOT NULL COMMENT '开票金额',
+  `received_amount` decimal(12,2) DEFAULT NULL COMMENT '到账金额',
+  `received_date` date DEFAULT NULL COMMENT '到账日期',
+  `remarks` varchar(500) DEFAULT NULL COMMENT '备注',
+  `payment_status` enum('未到款','已到款','部分到款') NOT NULL DEFAULT '未到款' COMMENT '到款情况',
+  `customer_id` bigint unsigned DEFAULT NULL COMMENT '客户ID（customers，可为空，如果为空则使用customer_name）',
+  `customer_name` varchar(160) DEFAULT NULL COMMENT '客户名称（可自定义，不一定要在customers表中）',
+  `assignee_id` varchar(20) DEFAULT NULL COMMENT '业务人员ID（users.user_id）',
+  `customer_nature` varchar(64) DEFAULT NULL COMMENT '企业性质（冗余存储，从customers.nature获取）',
+  `created_at` datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) COMMENT '创建时间',
+  `updated_at` datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3) COMMENT '更新时间',
+  PRIMARY KEY (`settlement_id`),
+  KEY `idx_settlements_customer` (`customer_id`),
+  KEY `idx_settlements_assignee` (`assignee_id`),
+  KEY `idx_settlements_invoice_date` (`invoice_date`),
+  KEY `idx_settlements_payment_status` (`payment_status`),
+  CONSTRAINT `fk_settlements_assignee` FOREIGN KEY (`assignee_id`) REFERENCES `users` (`user_id`) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT `fk_settlements_customer` FOREIGN KEY (`customer_id`) REFERENCES `customers` (`customer_id`) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB AUTO_INCREMENT=324 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='费用结算表';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `test_item_change_logs`
+--
+
+DROP TABLE IF EXISTS `test_item_change_logs`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `test_item_change_logs` (
+  `log_id` bigint unsigned NOT NULL AUTO_INCREMENT COMMENT '日志ID',
+  `test_item_id` bigint unsigned DEFAULT NULL COMMENT '检测项目ID',
+  `order_id` varchar(20) DEFAULT NULL COMMENT '委托单号快照',
+  `price_id` bigint unsigned DEFAULT NULL COMMENT '价格项ID快照',
+  `changed_field` varchar(64) DEFAULT NULL COMMENT '变更字段名',
+  `old_value` text COMMENT '旧值',
+  `new_value` text COMMENT '新值',
+  `changed_by_user_id` varchar(20) DEFAULT NULL COMMENT '修改人账号',
+  `changed_by_name` varchar(100) DEFAULT NULL COMMENT '修改人姓名快照',
+  `changed_by_role` varchar(40) DEFAULT NULL COMMENT '修改人角色快照',
+  `current_assignee_snapshot` varchar(20) DEFAULT NULL COMMENT '业务员工号快照',
+  `supervisor_id_snapshot` varchar(20) DEFAULT NULL COMMENT '组长账号快照',
+  `technician_id_snapshot` varchar(20) DEFAULT NULL COMMENT '实验员账号快照',
+  `created_at` datetime(3) DEFAULT CURRENT_TIMESTAMP(3) COMMENT '创建时间',
+  PRIMARY KEY (`log_id`),
+  KEY `idx_ticl_item_time` (`test_item_id`,`created_at`),
+  KEY `idx_ticl_user_time` (`changed_by_user_id`,`created_at`),
+  KEY `idx_ticl_field_time` (`changed_field`,`created_at`),
+  KEY `idx_ticl_assignee_time` (`current_assignee_snapshot`,`created_at`),
+  KEY `idx_ticl_supervisor_time` (`supervisor_id_snapshot`,`created_at`),
+  KEY `idx_ticl_technician_time` (`technician_id_snapshot`,`created_at`),
+  KEY `idx_ticl_order_time` (`order_id`,`created_at`)
+) ENGINE=InnoDB AUTO_INCREMENT=1668 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='检测项目变更日志(精简版)';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Table structure for table `test_items`
 --
 
@@ -498,18 +740,23 @@ CREATE TABLE `test_items` (
   `price_id` bigint unsigned DEFAULT NULL COMMENT '引用标准价格项（price）',
   `category_name` varchar(160) NOT NULL COMMENT '检测大类（如 金属室温拉伸（T））',
   `detail_name` varchar(200) NOT NULL COMMENT '具体检测项目（如 金属抗拉强度/断后伸长率）',
-  `sample_name` varchar(200) DEFAULT NULL COMMENT '样品名称（前端传）',
+  `sample_name` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT '样品名称（前端传）',
   `material` varchar(200) DEFAULT NULL COMMENT '材质/材料（前端传）',
   `sample_type` varchar(120) DEFAULT NULL COMMENT '样品类型（前端传）',
-  `original_no` varchar(120) DEFAULT NULL COMMENT '原始编号（前端传）',
+  `original_no` varchar(520) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT '原始编号（前端传）',
   `test_code` varchar(40) DEFAULT NULL COMMENT '检测代码（如 OS001；也用于委外识别）',
-  `standard_code` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT '检测标准编号（GB/T ...）',
+  `standard_code` varchar(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT '检测标准编号（GB/T ...）',
   `department_id` smallint unsigned DEFAULT NULL COMMENT '执行部门ID',
   `group_id` smallint unsigned DEFAULT NULL COMMENT '执行小组ID（L/M/C）',
-  `quantity` int NOT NULL DEFAULT '1' COMMENT '件数/数量',
+  `quantity` int NOT NULL DEFAULT '0' COMMENT '件数/数量',
   `unit_price` decimal(10,2) DEFAULT NULL COMMENT '单价（下单时冻结；非标可手填）',
   `discount_rate` decimal(5,2) DEFAULT NULL COMMENT '折扣率（百分比整数0-100，如10表示10%），从付款方带出，可修改',
   `final_unit_price` decimal(10,2) DEFAULT NULL COMMENT '折后单价',
+  `lab_price` decimal(10,2) DEFAULT NULL COMMENT '实验室报价',
+  `unpaid_amount` decimal(12,2) DEFAULT NULL COMMENT '开票未到款金额',
+  `invoice_prefill_price` decimal(10,2) DEFAULT NULL COMMENT '开票预填价（管理员确认后存储）',
+  `invoice_prefill_confirmed` tinyint(1) NOT NULL DEFAULT '0' COMMENT '开票预填价是否已确认（0=未确认，1=已确认）',
+  `invoice_status` enum('未结算','已结算','已到账') NOT NULL DEFAULT '未结算' COMMENT '开票状态（未结算/已结算/已到账）',
   `line_total` decimal(12,2) DEFAULT NULL COMMENT '行小计=折后单价*数量（可应用计算回填）',
   `machine_hours` decimal(8,2) NOT NULL DEFAULT '0.00' COMMENT '机时（记录）',
   `work_hours` decimal(8,2) NOT NULL DEFAULT '0.00' COMMENT '工时（记录）',
@@ -517,12 +764,12 @@ CREATE TABLE `test_items` (
   `is_outsourced` tinyint(1) NOT NULL DEFAULT '0' COMMENT '是否委外（从价格项/代码识别后冻结）',
   `seq_no` int DEFAULT NULL COMMENT '流转顺序号（可选，用于按实验室顺序展示）',
   `sample_preparation` varchar(255) DEFAULT NULL COMMENT '样品预处理（前端传）',
-  `note` varchar(255) DEFAULT NULL COMMENT '备注（前端传）',
+  `note` varchar(800) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT '备注（前端传）',
   `status` enum('new','assigned','running','waiting_review','report_uploaded','completed','cancelled') NOT NULL DEFAULT 'new' COMMENT '项目状态（精简）',
   `abnormal_condition` varchar(255) DEFAULT NULL COMMENT '异常情况',
   `current_assignee` varchar(20) DEFAULT NULL COMMENT '当前执行人（users.user_id 工号），便于我的任务查询',
   `arrival_mode` enum('on_site','delivery') DEFAULT NULL COMMENT '样品到达方式：现场/寄样',
-  `sample_arrival_status` enum('arrived','not_arrived') NOT NULL DEFAULT 'not_arrived' COMMENT '样品是否已到（未到则流程受限）',
+  `sample_arrival_status` enum('arrived','not_arrived') CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT '样品是否已到（未到则流程受限）',
   `service_urgency` enum('normal','urgent_1_5x','urgent_2x') NOT NULL DEFAULT 'normal' COMMENT '服务加急类型: normal-不加急, urgent_1_5x-加急1.5倍, urgent_2x-特急2倍',
   `equipment_id` int DEFAULT NULL COMMENT '使用的设备ID',
   `check_notes` text COMMENT '审批备注',
@@ -535,10 +782,14 @@ CREATE TABLE `test_items` (
   `field_test_time` datetime DEFAULT NULL COMMENT '现场测试时间',
   `actual_delivery_date` date DEFAULT NULL COMMENT '实际交付日期',
   `business_note` text COMMENT '业务备注',
-  `actual_sample_quantity` int DEFAULT NULL COMMENT '实际样品数量',
+  `invoice_note` varchar(500) DEFAULT NULL COMMENT '开票备注',
+  `actual_sample_quantity` decimal(10,2) DEFAULT NULL COMMENT '实际样品数量',
   `price_note` int DEFAULT NULL COMMENT '价格备注',
-  `unit` varchar(20) DEFAULT '机时' COMMENT '单位（机时/样品数/元素/点位）',
+  `unit` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT '单位（机时/样品数/元素/点位）',
   `business_confirmed` tinyint(1) NOT NULL DEFAULT '0' COMMENT '业务确认价格',
+  `addon_reason` varchar(100) DEFAULT NULL COMMENT '加测原因：增加样品、增加测试人员、样品评估不足、增加测试时段、更换设备',
+  `addon_target` enum('sales','employee') DEFAULT NULL COMMENT '加测对象：sales-业务员, employee-实验员',
+  `unit_mismatch_reviewed` tinyint(1) DEFAULT '0' COMMENT '0单位一致 1单位不一致未处理 2单位不一致已处理',
   PRIMARY KEY (`test_item_id`),
   KEY `fk_ti_price` (`price_id`),
   KEY `fk_ti_dept` (`department_id`),
@@ -548,6 +799,7 @@ CREATE TABLE `test_items` (
   KEY `idx_ti_group_status` (`group_id`,`status`),
   KEY `idx_ti_supervisor` (`supervisor_id`),
   KEY `idx_ti_technician` (`technician_id`),
+  KEY `idx_ti_field_test_time` (`field_test_time`),
   CONSTRAINT `fk_ti_assignee` FOREIGN KEY (`current_assignee`) REFERENCES `users` (`user_id`) ON DELETE SET NULL ON UPDATE CASCADE,
   CONSTRAINT `fk_ti_dept` FOREIGN KEY (`department_id`) REFERENCES `departments` (`department_id`) ON DELETE SET NULL ON UPDATE CASCADE,
   CONSTRAINT `fk_ti_group` FOREIGN KEY (`group_id`) REFERENCES `lab_groups` (`group_id`) ON DELETE SET NULL ON UPDATE CASCADE,
@@ -555,7 +807,7 @@ CREATE TABLE `test_items` (
   CONSTRAINT `fk_ti_price` FOREIGN KEY (`price_id`) REFERENCES `price` (`price_id`) ON DELETE SET NULL ON UPDATE CASCADE,
   CONSTRAINT `fk_ti_supervisor` FOREIGN KEY (`supervisor_id`) REFERENCES `users` (`user_id`) ON DELETE SET NULL ON UPDATE CASCADE,
   CONSTRAINT `fk_ti_technician` FOREIGN KEY (`technician_id`) REFERENCES `users` (`user_id`) ON DELETE SET NULL ON UPDATE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=92 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='检测项目：大类/细项直存；支持非标、加测、委外';
+) ENGINE=InnoDB AUTO_INCREMENT=12814 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='检测项目：大类/细项直存；支持非标、加测、委外';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -605,72 +857,6 @@ CREATE TABLE `users` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
--- Table structure for table `notifications`
---
-
-DROP TABLE IF EXISTS `notifications`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `notifications` (
-  `notification_id` bigint unsigned NOT NULL AUTO_INCREMENT COMMENT '通知ID',
-  `user_id` varchar(20) NOT NULL COMMENT '接收用户ID（users.user_id 工号）',
-  `title` varchar(255) NOT NULL COMMENT '通知标题',
-  `content` text NOT NULL COMMENT '通知内容',
-  `type` enum('raw_data_upload','addon_request','system','other') NOT NULL DEFAULT 'other' COMMENT '通知类型',
-  `is_read` tinyint(1) NOT NULL DEFAULT '0' COMMENT '是否已读',
-  `related_order_id` varchar(20) DEFAULT NULL COMMENT '关联委托单号（orders.order_id）',
-  `related_test_item_id` bigint unsigned DEFAULT NULL COMMENT '关联检测项目ID（test_items.test_item_id）',
-  `related_file_id` bigint unsigned DEFAULT NULL COMMENT '关联文件ID（project_files.file_id）',
-  `related_addon_request_id` bigint unsigned DEFAULT NULL COMMENT '关联加测申请ID（addon_requests.request_id）',
-  `created_at` datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) COMMENT '创建时间',
-  `read_at` datetime(3) DEFAULT NULL COMMENT '阅读时间',
-  PRIMARY KEY (`notification_id`),
-  KEY `idx_notifications_user` (`user_id`),
-  KEY `idx_notifications_read` (`is_read`),
-  KEY `idx_notifications_created` (`created_at`),
-  KEY `idx_notifications_order` (`related_order_id`),
-  KEY `idx_notifications_test_item` (`related_test_item_id`),
-  KEY `idx_notifications_file` (`related_file_id`),
-  KEY `idx_notifications_addon_request` (`related_addon_request_id`),
-  CONSTRAINT `fk_notifications_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE ON UPDATE CASCADE,
-  CONSTRAINT `fk_notifications_order` FOREIGN KEY (`related_order_id`) REFERENCES `orders` (`order_id`) ON DELETE SET NULL ON UPDATE CASCADE,
-  CONSTRAINT `fk_notifications_test_item` FOREIGN KEY (`related_test_item_id`) REFERENCES `test_items` (`test_item_id`) ON DELETE SET NULL ON UPDATE CASCADE,
-  CONSTRAINT `fk_notifications_file` FOREIGN KEY (`related_file_id`) REFERENCES `project_files` (`file_id`) ON DELETE SET NULL ON UPDATE CASCADE,
-  CONSTRAINT `fk_notifications_addon_request` FOREIGN KEY (`related_addon_request_id`) REFERENCES `addon_requests` (`request_id`) ON DELETE SET NULL ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='消息通知表';
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `addon_requests`
---
-
-DROP TABLE IF EXISTS `addon_requests`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `addon_requests` (
-  `request_id` bigint unsigned NOT NULL AUTO_INCREMENT COMMENT '加测申请ID',
-  `applicant_id` varchar(20) NOT NULL COMMENT '申请人ID（users.user_id 工号）',
-  `order_id` varchar(20) DEFAULT NULL COMMENT '关联委托单号（orders.order_id）',
-  `test_item_data` json NOT NULL COMMENT '检测项目数据（JSON格式）',
-  `status` enum('pending','approved','rejected') NOT NULL DEFAULT 'pending' COMMENT '申请状态',
-  `note` text COMMENT '申请备注',
-  `approved_by` varchar(20) DEFAULT NULL COMMENT '审核人ID（users.user_id 工号）',
-  `approved_at` datetime(3) DEFAULT NULL COMMENT '审核时间',
-  `test_item_id` bigint unsigned DEFAULT NULL COMMENT '创建的检测项目ID（test_items.test_item_id）',
-  `created_at` datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) COMMENT '创建时间',
-  PRIMARY KEY (`request_id`),
-  KEY `idx_addon_requests_applicant` (`applicant_id`),
-  KEY `idx_addon_requests_order` (`order_id`),
-  KEY `idx_addon_requests_status` (`status`),
-  KEY `idx_addon_requests_created` (`created_at`),
-  CONSTRAINT `fk_addon_requests_applicant` FOREIGN KEY (`applicant_id`) REFERENCES `users` (`user_id`) ON DELETE RESTRICT ON UPDATE CASCADE,
-  CONSTRAINT `fk_addon_requests_order` FOREIGN KEY (`order_id`) REFERENCES `orders` (`order_id`) ON DELETE SET NULL ON UPDATE CASCADE,
-  CONSTRAINT `fk_addon_requests_approved_by` FOREIGN KEY (`approved_by`) REFERENCES `users` (`user_id`) ON DELETE SET NULL ON UPDATE CASCADE,
-  CONSTRAINT `fk_addon_requests_test_item` FOREIGN KEY (`test_item_id`) REFERENCES `test_items` (`test_item_id`) ON DELETE SET NULL ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='加测申请表';
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
 -- Dumping routines for database 'jitri2'
 --
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
@@ -683,4 +869,4 @@ CREATE TABLE `addon_requests` (
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2025-12-05 15:34:50
+-- Dump completed on 2026-05-15 14:54:16

@@ -13,6 +13,24 @@ import { useSocket } from '../../hooks/useSocket.js';
 import * as XLSX from 'xlsx';
 import './CommissionForm.css';
 
+/** 导出弹窗内网格按钮：满格宽度，由 grid 列宽控制 */
+const EXPORT_MODAL_GRID_BTN = {
+  width: '100%',
+  boxSizing: 'border-box',
+  padding: '10px 12px',
+  fontSize: '14px',
+};
+
+/** 显微区主按钮：与进度条并排时自适应，不挤出横向滚动 */
+const EXPORT_MICROGRAPH_BUTTON_STYLE = {
+  flex: '1 1 160px',
+  minWidth: 120,
+  maxWidth: '100%',
+  boxSizing: 'border-box',
+  padding: '10px 12px',
+  fontSize: '14px',
+};
+
 // 服务加急选项常量，避免每次渲染创建新数组
 const SERVICE_URGENCY_OPTIONS = [
   { value: 'normal', label: '不加急' },
@@ -157,6 +175,10 @@ const resolveStandardLineTotal = (item, calculatedLineTotal) => {
 
 /** 机加工组 test_items.group_id，其实验室报价恒等于标准总价 line_total，不参与 0.7 比例规则 */
 const MACHINING_GROUP_ID = 8;
+const CROSS_DEPARTMENT_LEADER_DEPARTMENT_IDS = new Set([5, 7]);
+
+const isCrossDepartmentLeader = (u) =>
+  u?.role === 'leader' && CROSS_DEPARTMENT_LEADER_DEPARTMENT_IDS.has(Number(u?.department_id));
 
 // 计算实验室报价（groupId 为 test_items.group_id）
 const calculateLabPrice = (finalUnitPrice, lineTotal, groupId) => {
@@ -366,6 +388,14 @@ const CommissionForm = () => {
   const [showBatchUploadModal, setShowBatchUploadModal] = useState(false);
   const [deletingItems, setDeletingItems] = useState(new Set()); // 正在删除的项目ID集合
   const [showExportModal, setShowExportModal] = useState(false); // 导出弹框状态
+  const [micrographExporting, setMicrographExporting] = useState(false);
+  const [micrographProgress, setMicrographProgress] = useState({
+    phase: 'idle',
+    percent: null,
+    detail: '',
+  });
+  const micrographFolderInputRef = useRef(null);
+  const micrographUploadAbortRef = useRef(null);
   const operationColumnRef = useRef(null); // 操作列的引用
   const [selectAllLoading, setSelectAllLoading] = useState(false);
   const [copiedFieldTestTime, setCopiedFieldTestTime] = useState('');
@@ -892,12 +922,12 @@ const CommissionForm = () => {
 
   const canLeaderEditItem = (item) => {
     if (!item) {
-      // 对于 department_id=5 的 leader，允许选择所有项目
-      return leaderDepartmentId === 5;
+      // 对于跨部门室主任（委外/技术支持），允许选择所有项目
+      return CROSS_DEPARTMENT_LEADER_DEPARTMENT_IDS.has(leaderDepartmentId);
     }
     const itemDept = Number(item.department_id);
-    if (leaderDepartmentId === 5) {
-      // 委外室主任可以查看和选择所有部门的项目（与后端权限一致）
+    if (CROSS_DEPARTMENT_LEADER_DEPARTMENT_IDS.has(leaderDepartmentId)) {
+      // 跨部门室主任可以查看和选择所有部门的项目（与后端权限一致）
       return true;
     }
     if (leaderDepartmentId !== null) {
@@ -1270,10 +1300,9 @@ const CommissionForm = () => {
           }
         }
 
-        // 委外室主任（department_id=5 且 role=leader）分配负责人时：
+        // 跨部门室主任（委外/技术支持）分配负责人时：
         // 负责人范围 = 所有部门的组长 + 当前登录账号自己
-        const isOutsourceLeader =
-          storedUser?.role === 'leader' && Number(storedUser?.department_id) === 5;
+        const isOutsourceLeader = isCrossDepartmentLeader(storedUser);
 
         if (!users.length) {
           if (isOutsourceLeader) {
@@ -1286,7 +1315,7 @@ const CommissionForm = () => {
           }
         }
 
-        // 确保委外室主任自己也在可选列表中
+        // 确保跨部门室主任自己也在可选列表中
         if (isOutsourceLeader && storedUser) {
           const currentUserId =
             storedUser.user_id ?? storedUser.id ?? storedUser.userId ?? null;
@@ -1367,7 +1396,24 @@ const CommissionForm = () => {
         return false;
       })();
 
-      if (storedUser && (storedUser.role === 'supervisor' || storedUser.role === 'leader') && supervisorMatchesCurrentUser) {
+      const currentUserDepartmentId =
+        storedUser?.department_id !== null && storedUser?.department_id !== undefined
+          ? Number(storedUser.department_id)
+          : null;
+      const itemDepartmentId =
+        item?.department_id !== null && item?.department_id !== undefined
+          ? Number(item.department_id)
+          : null;
+      const isCrossLeaderInOwnDepartment =
+        isCrossDepartmentLeader(storedUser) &&
+        currentUserDepartmentId !== null &&
+        itemDepartmentId !== null &&
+        currentUserDepartmentId === itemDepartmentId;
+      const canIncludeCurrentUserAsTechnician =
+        (storedUser && (storedUser.role === 'supervisor' || storedUser.role === 'leader') && supervisorMatchesCurrentUser) ||
+        isCrossLeaderInOwnDepartment;
+
+      if (canIncludeCurrentUserAsTechnician) {
         const currentUserOption = {
           id: storedUser.user_id ?? storedUser.id ?? storedUser.userId,
           name: storedUser.name || storedUser.account || '',
@@ -3887,7 +3933,7 @@ const CommissionForm = () => {
         alert('必须选择同一委托单号下的项目');
         return;
       }
-      // 仅物化部门和化学组用户可见该功能；再次校验所选项目均为物化部门或化学组
+      // 物化部门(2)用户使用；再次校验所选项目均为物化部门或化学组
       const nonWH = selectedData.find(it => !['2', '6'].includes(String(it.department_id)));
       if (nonWH) {
         alert('仅支持物化部门(2)及化学组(6)的项目导出物化报告');
@@ -3906,6 +3952,79 @@ const CommissionForm = () => {
       setShowExportModal(false);
     } catch (e) {
       alert(e.message || '导出失败');
+    }
+  };
+
+  const handleCancelMicrographUpload = () => {
+    micrographUploadAbortRef.current?.abort();
+  };
+
+  const handleMicrographFolderChange = async (e) => {
+    const fileList = e.target.files;
+    if (!fileList || fileList.length === 0) return;
+    micrographUploadAbortRef.current?.abort();
+    const ac = new AbortController();
+    micrographUploadAbortRef.current = ac;
+    setMicrographExporting(true);
+    setMicrographProgress({ phase: 'upload', percent: 0, detail: '准备上传…' });
+    try {
+      if (selectedItems.length === 0) {
+        alert('请先选择检测项目');
+        return;
+      }
+      const selectedData = getSelectedRowsSync();
+      const uniqueOrders = Array.from(new Set(selectedData.map(it => it.order_id)));
+      if (uniqueOrders.length !== 1) {
+        alert('必须选择同一委托单号下的项目');
+        return;
+      }
+      const nonXW = selectedData.find(it => String(it.department_id) !== '1');
+      if (nonXW) {
+        alert('仅支持显微部门(1)的项目导出显微报告');
+        return;
+      }
+      const orderId = uniqueOrders[0];
+      const testItemIds = [...new Set(selectedItems.map(normalizeTestItemId))];
+      const files = Array.from(fileList);
+      const firstRel = files[0]?.webkitRelativePath || '';
+      const rootName =
+        firstRel.includes('/') ? firstRel.split('/')[0] : firstRel.includes('\\') ? firstRel.split('\\')[0] : '显微图片汇总';
+      const safeTitle = String(rootName).replace(/[<>:"/\\|?*]/g, '').trim() || '显微图片汇总';
+      const blob = await api.generateMicrographWordUpload({
+        files,
+        documentTitle: safeTitle,
+        order_id: orderId,
+        test_item_ids: testItemIds,
+        signal: ac.signal,
+        onProgress: (ev) => {
+          setMicrographProgress({
+            phase: ev.phase,
+            percent: ev.percent,
+            detail: ev.detail || '',
+          });
+        },
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${orderId}_显微报告.docx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      setShowExportModal(false);
+      alert('显微报告导出成功');
+    } catch (err) {
+      if (err.message === '已取消上传') {
+        setMicrographProgress({ phase: 'idle', percent: null, detail: '' });
+      } else {
+        alert(err.message || '导出失败');
+      }
+    } finally {
+      micrographUploadAbortRef.current = null;
+      setMicrographExporting(false);
+      setMicrographProgress({ phase: 'idle', percent: null, detail: '' });
+      e.target.value = '';
     }
   };
 
@@ -4158,7 +4277,7 @@ const CommissionForm = () => {
               )}
             </div>
           </div>
-          {(user?.role === 'admin' || user?.role === 'viewer' || (user?.role === 'leader' && Number(user?.department_id) === 5)) && (
+          {(user?.role === 'admin' || user?.role === 'viewer' || isCrossDepartmentLeader(user)) && (
             <div className="filter-group department-filter-group">
               <label>部门:</label>
               <select
@@ -6167,57 +6286,186 @@ const CommissionForm = () => {
               <button className="close-button" onClick={() => setShowExportModal(false)}>×</button>
             </div>
             <div className="file-modal-body">
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', padding: '20px' }}>
-                <button 
-                  className="btn btn-success" 
-                  style={{ padding: '10px 20px', fontSize: '14px', backgroundColor: '#28a745', color: 'white' }}
-                  onClick={handleExportExcel}
-                >
-                  导出Excel
-                </button>
-                {user?.role === 'admin' && (
-                  <button 
-                    className="btn btn-primary" 
-                    style={{ padding: '10px 20px', fontSize: '14px' }}
-                    onClick={handleExportOrderTemplate}
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '15px',
+                  width: '100%',
+                  boxSizing: 'border-box',
+                }}
+              >
+                <div className="export-modal-actions-grid">
+                  <button
+                    type="button"
+                    className="btn btn-success"
+                    style={{ ...EXPORT_MODAL_GRID_BTN, backgroundColor: '#28a745', color: 'white' }}
+                    onClick={handleExportExcel}
                   >
-                    导出委托单模板
+                    导出Excel
                   </button>
-                )}
-                {user?.role === 'admin' && (
-                  <button 
-                    className="btn btn-info" 
-                    style={{ padding: '10px 20px', fontSize: '14px' }}
-                    onClick={handleExportProcessTemplate}
-                  >
-                    导出流转单模板
-                  </button>
-                )}
-                {(user?.role === 'admin' || user?.role === 'sales') && (
-                  <button 
-                    className="btn btn-secondary" 
-                    style={{ padding: '10px 20px', fontSize: '14px', backgroundColor: '#6c757d', color: 'white' }}
-                    onClick={handleExportBillsTemplate}
-                  >
-                    导出测试服务清单模板
-                  </button>
-                )}
-                {user?.role !== 'admin' ? null : null}
-                {(() => {
-                  // 排除业务员角色
-                  if (user?.role === 'sales') return false;
-                  if (['2', '6'].includes(String(user?.department_id))) return true;
-                  const selectedData = getSelectedRowsSync();
-                  if (selectedData.length === 0) return false;
-                  return selectedData.every(it => ['2', '6'].includes(String(it.department_id)));
-                })() && (
-                  <button 
-                    className="btn btn-warning" 
-                    style={{ padding: '10px 20px', fontSize: '14px', backgroundColor: '#f0ad4e', color: 'white' }}
-                    onClick={handleExportWH}
-                  >
-                    检测报告（物化）
-                  </button>
+                  {user?.role === 'admin' && (
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      style={{ ...EXPORT_MODAL_GRID_BTN }}
+                      onClick={handleExportOrderTemplate}
+                    >
+                      导出委托单模板
+                    </button>
+                  )}
+                  {user?.role === 'admin' && (
+                    <button
+                      type="button"
+                      className="btn btn-info"
+                      style={{ ...EXPORT_MODAL_GRID_BTN }}
+                      onClick={handleExportProcessTemplate}
+                    >
+                      导出流转单模板
+                    </button>
+                  )}
+                  {(user?.role === 'admin' || user?.role === 'sales') && (
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      style={{ ...EXPORT_MODAL_GRID_BTN, backgroundColor: '#6c757d', color: 'white' }}
+                      onClick={handleExportBillsTemplate}
+                    >
+                      导出测试服务清单模板
+                    </button>
+                  )}
+                  {Number(user?.department_id) === 2 && (
+                    <button
+                      type="button"
+                      className="btn btn-warning"
+                      style={{
+                        ...EXPORT_MODAL_GRID_BTN,
+                        gridColumn: '1 / -1',
+                        backgroundColor: '#f0ad4e',
+                        color: 'white',
+                      }}
+                      onClick={handleExportWH}
+                    >
+                      检测报告（物化）
+                    </button>
+                  )}
+                </div>
+                {Number(user?.department_id) === 1 && (
+                  <>
+                    <input
+                      ref={micrographFolderInputRef}
+                      type="file"
+                      style={{ display: 'none' }}
+                      multiple
+                      onChange={handleMicrographFolderChange}
+                      {...{ webkitdirectory: '' }}
+                    />
+                    <div
+                      style={{
+                        padding: '12px 0 0',
+                        borderTop: '1px solid #eee',
+                        marginTop: 4,
+                        width: '100%',
+                        boxSizing: 'border-box',
+                      }}
+                    >
+                      <p style={{ fontSize: 12, color: '#666', margin: '0 0 10px', lineHeight: 1.5 }}>
+                        显微：先选择同一委托单下的显微检测项目，再点击下面按钮选择<strong>整个图片文件夹</strong>上传（建议
+                        Chrome/Edge）。系统会用显微报告模板填充占位符，并按最底层子文件夹分组嵌入 .jpg/.jpeg 图片。
+                        文件较多时上传与生成可能较慢。
+                      </p>
+                      <div
+                        style={{
+                          display: 'flex',
+                          flexWrap: 'wrap',
+                          alignItems: 'flex-start',
+                          justifyContent: 'flex-start',
+                          gap: 12,
+                          width: '100%',
+                          boxSizing: 'border-box',
+                        }}
+                      >
+                        <button
+                          type="button"
+                          className="btn btn-primary"
+                          style={{
+                            ...EXPORT_MICROGRAPH_BUTTON_STYLE,
+                            backgroundColor: '#6f42c1',
+                            borderColor: '#6f42c1',
+                            color: 'white',
+                          }}
+                          disabled={micrographExporting}
+                          onClick={() => micrographFolderInputRef.current?.click()}
+                        >
+                          {micrographExporting
+                            ? micrographProgress.phase === 'upload'
+                              ? `上传中${
+                                  micrographProgress.percent != null ? ` ${micrographProgress.percent}%` : '…'
+                                }`
+                              : `服务器处理中${
+                                  micrographProgress.percent != null ? ` ${micrographProgress.percent}%` : '…'
+                                }`
+                            : '导出显微报告'}
+                        </button>
+                        <div
+                          style={{
+                            flex: '1 1 200px',
+                            minWidth: 0,
+                            maxWidth: '100%',
+                            fontSize: 12,
+                            color: '#444',
+                            lineHeight: 1.45,
+                            alignSelf: 'flex-start',
+                          }}
+                        >
+                          {micrographExporting ? (
+                            <>
+                              <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                                {micrographProgress.phase === 'upload' ? '① 上传到服务器' : '② 服务器生成 Word'}
+                              </div>
+                              {micrographProgress.detail ? (
+                                <div style={{ color: '#666', marginBottom: 6 }}>{micrographProgress.detail}</div>
+                              ) : null}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', minWidth: 0 }}>
+                                <div style={{ flex: '1 1 auto', minWidth: 0 }}>
+                                  {micrographProgress.percent != null ? (
+                                    <div className="micrograph-progress-track">
+                                      <div
+                                        className="micrograph-progress-fill"
+                                        style={{ width: `${micrographProgress.percent}%` }}
+                                      />
+                                    </div>
+                                  ) : (
+                                    <div className="micrograph-progress-track">
+                                      <div className="micrograph-progress-indeterminate" />
+                                    </div>
+                                  )}
+                                </div>
+                                <button
+                                  type="button"
+                                  className="btn btn-secondary btn-small"
+                                  style={{
+                                    flex: '0 0 auto',
+                                    padding: '6px 12px',
+                                    fontSize: 12,
+                                    whiteSpace: 'nowrap',
+                                  }}
+                                  onClick={handleCancelMicrographUpload}
+                                >
+                                  取消
+                                </button>
+                              </div>
+                              {micrographProgress.phase === 'server' ? (
+                                <div style={{ marginTop: 6, color: '#888', fontSize: 11 }}>
+                                  解析文件夹与打包文档耗时与图片数量有关，请稍候…
+                                </div>
+                              ) : null}
+                            </>
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
+                  </>
                 )}
               </div>
             </div>
