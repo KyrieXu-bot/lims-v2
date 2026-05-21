@@ -242,6 +242,7 @@ const TOGGLEABLE_COLUMNS = [
   { key: 'service_urgency', label: '服务加急' },
   { key: 'supervisor_name', label: '负责人' },
   { key: 'standard_price', label: '标准单价' },
+  { key: 'estimated_delivery_date', label: '预计交付日期' },
   { key: 'technician_name', label: '测试人员' },
   { key: 'assignment_note', label: '指派备注' },
   { key: 'field_test_time', label: '现场测试时间' },
@@ -949,6 +950,13 @@ const CommissionForm = () => {
     if (field === 'unit' && role !== 'admin') {
       return false;
     }
+    if (
+      item &&
+      ['estimated_delivery_date', 'delivery_date_confirmed'].includes(field) &&
+      Number(item.delivery_date_confirmed ?? 0) === 1
+    ) {
+      return false;
+    }
     if (item && item.status === 'cancelled') {
       return false;
     }
@@ -987,7 +995,7 @@ const CommissionForm = () => {
     if (role === 'supervisor') {
       const baseFields = [
         'supervisor_name', 'unit_price', 'technician_name', 'assignment_note',
-        'field_test_time', 'equipment_name'
+        'estimated_delivery_date', 'delivery_date_confirmed', 'field_test_time', 'equipment_name'
       ];
       // 如果组长将自己分配为实验员，则额外允许编辑计费数量、机时、工时、价格
       if (item && item.technician_name === user?.name) {
@@ -2068,6 +2076,8 @@ const CommissionForm = () => {
         '数量': item.quantity || '',
         '开单单位': item.unit || '',
         '标准单价': formatCurrencyPlain(item.standard_price),
+        '预计交付日期': formatDate(item.estimated_delivery_date),
+        '是否确认交付日期': Number(item.delivery_date_confirmed ?? 0) === 1 ? '是' : '否',
         '单价修改情况': formatUnitMismatchStatus(item.unit_mismatch_reviewed),
         '标准总价': formatCurrencyPlain(item.line_total),
         '业务总价': formatCurrencyPlain(item.final_unit_price),
@@ -2142,6 +2152,8 @@ const CommissionForm = () => {
         { wch: 8 },   // 数量
         { wch: 8 },   // 开单单位
         { wch: 12 },  // 标准单价
+        { wch: 12 },  // 预计交付日期
+        { wch: 12 },  // 是否确认交付日期
         { wch: 12 },  // 单价修改情况
         { wch: 12 },  // 标准总价
         { wch: 12 },  // 业务总价
@@ -2595,7 +2607,8 @@ const CommissionForm = () => {
           sampleTypeLabel: getSampleTypeLabel(item.sample_type),
           original_no: item.original_no || '',
           test_item: formatTestItemName(item) || '',
-          test_method: item.test_method || '',
+          standard_code: item.standard_code || '',
+          test_method: item.standard_code || '',
           sample_preparation: item.sample_preparation,
           samplePrepYesSymbol: item.sample_preparation === 1 ? '☑' : '☐',
           samplePrepNoSymbol: item.sample_preparation === 0 ? '☑' : '☐',
@@ -2686,7 +2699,7 @@ const CommissionForm = () => {
           sample_code: `${firstItem.order_id}-${String(index + 1).padStart(3, '0')}`,
           test_item: formatTestItemName(item) || '',
           project_code: item.test_code || '',
-          method: item.test_method || '',
+          method: item.standard_code || '',
           quantity: item.quantity || '',
           note: item.note || '',
           original_no: item.original_no || '',
@@ -3322,6 +3335,34 @@ const CommissionForm = () => {
     }
   };
 
+  const handleConfirmDeliveryDate = async (item, e) => {
+    if (e) e.stopPropagation();
+    const deliveryDate = formatDateForInput(item?.estimated_delivery_date);
+    if (!deliveryDate) {
+      alert('请先填写预计交付日期');
+      return;
+    }
+    try {
+      const userLocal = JSON.parse(localStorage.getItem('lims_user') || 'null');
+      const r = await fetch(`/api/test-items/${item.test_item_id}`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${userLocal.token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ estimated_delivery_date: deliveryDate, delivery_date_confirmed: 1 })
+      });
+      if (!r.ok) {
+        const errorText = await r.text();
+        throw new Error(errorText || '确认预计交付日期失败');
+      }
+      setData(prev => prev.map(x => (
+        x.test_item_id === item.test_item_id
+          ? { ...x, estimated_delivery_date: deliveryDate, delivery_date_confirmed: 1 }
+          : x
+      )));
+    } catch (e) {
+      alert(e.message || '确认预计交付日期失败');
+    }
+  };
+
   const handleSaveEdit = async (field, value, testItemId) => {
     const statusKey = `${testItemId}-${field}`;
     
@@ -3337,6 +3378,14 @@ const CommissionForm = () => {
 
       // 获取当前项，用于后续计算和合并
       const currentItem = data.find(x => x.test_item_id === testItemId) || {};
+      if (
+        ['estimated_delivery_date', 'delivery_date_confirmed'].includes(field) &&
+        Number(currentItem.delivery_date_confirmed ?? 0) === 1
+      ) {
+        setSavingStatus(prev => ({ ...prev, [statusKey]: 'idle' }));
+        alert('预计交付日期已确认，不能再修改');
+        return;
+      }
       const isLocked = isItemBusinessConfirmed(currentItem);
       if (isLocked) {
         const allowedWhenLocked = ['invoice_prefill_price', 'invoice_note', 'invoice_prefill_confirmed'];
@@ -3371,6 +3420,18 @@ const CommissionForm = () => {
           if (!hasStandardPrice) {
             alert('请先填写标准单价，才能分配测试人员');
             // 清除保存状态，阻止保存
+            setSavingStatus(prev => ({ ...prev, [statusKey]: 'idle' }));
+            return;
+          }
+
+          if (!hasValue(currentItem.estimated_delivery_date)) {
+            alert('请先填写预计交付日期，才能分配测试人员');
+            setSavingStatus(prev => ({ ...prev, [statusKey]: 'idle' }));
+            return;
+          }
+
+          if (Number(currentItem.delivery_date_confirmed ?? 0) !== 1) {
+            alert('请先确认预计交付日期，才能分配测试人员');
             setSavingStatus(prev => ({ ...prev, [statusKey]: 'idle' }));
             return;
           }
@@ -3471,6 +3532,11 @@ const CommissionForm = () => {
           // datetime-local格式已经是MySQL DATETIME兼容的格式
           updateData.field_test_time = value;
         }
+      }
+
+      if (field === 'estimated_delivery_date') {
+        updateData.estimated_delivery_date = value === '' || value === undefined || value === null ? null : value;
+        updateData.delivery_date_confirmed = 0;
       }
       
       // 特殊处理discount_rate：验证输入范围并保存为十位数（如90表示90%）
@@ -3843,6 +3909,18 @@ const CommissionForm = () => {
   const formatDate = (dateString) => {
     if (!dateString) return '';
     return new Date(dateString).toLocaleDateString('zh-CN');
+  };
+
+  const formatDateForInput = (dateString) => {
+    if (!dateString) return '';
+    if (typeof dateString === 'string' && /^\d{4}-\d{2}-\d{2}/.test(dateString)) {
+      return dateString.slice(0, 10);
+    }
+    const parsed = new Date(dateString);
+    if (Number.isNaN(parsed.getTime())) return '';
+    const offset = parsed.getTimezoneOffset();
+    const local = new Date(parsed.getTime() - offset * 60000);
+    return local.toISOString().slice(0, 10);
   };
 
   const formatDateTime = (dateString) => {
@@ -4537,6 +4615,7 @@ const CommissionForm = () => {
                     {renderColumnHeader('service_urgency', '服务加急', 'order-creator-field narrow-col')}
                     {renderColumnHeader('supervisor_name', '负责人', 'lab-field narrow-col')}
                     {renderColumnHeader('standard_price', '标准单价', 'lab-field')}
+                    {renderColumnHeader('estimated_delivery_date', '预计交付日期', 'lab-field')}
                     {renderColumnHeader('technician_name', '测试人员', 'lab-field narrow-col')}
                     {renderColumnHeader('assignment_note', '指派备注', 'lab-field note-col')}
                     {renderColumnHeader('field_test_time', '现场测试时间', 'lab-field')}
@@ -5297,6 +5376,55 @@ const CommissionForm = () => {
                             {formatCurrency(item.standard_price)}
                           </span>
                         )}
+                      </td>
+                      <td className={getColumnCellClass('estimated_delivery_date', 'lab-field')} data-column-key="estimated_delivery_date">
+                        <div className="editable-field-container">
+                          {canEditField('estimated_delivery_date', item) ? (
+                            <>
+                              <div className="delivery-date-edit-row">
+                                <input
+                                  type="date"
+                                  className="editable-input date-input"
+                                  value={formatDateForInput(item.estimated_delivery_date)}
+                                  onChange={(e) => {
+                                    const nextDate = e.target.value || null;
+                                    setData(prev => prev.map(x => (
+                                      x.test_item_id === item.test_item_id
+                                        ? { ...x, estimated_delivery_date: nextDate, delivery_date_confirmed: 0 }
+                                        : x
+                                    )));
+                                  }}
+                                  onBlur={async (e) => {
+                                    try {
+                                      await handleSaveEdit('estimated_delivery_date', e.target.value || null, item.test_item_id);
+                                    } catch (error) {
+                                      alert('保存预计交付日期失败：' + error.message);
+                                    }
+                                  }}
+                                  onClick={(e) => e.stopPropagation()}
+                                />
+                                <button
+                                  type="button"
+                                  className="delivery-date-confirm-btn"
+                                  onMouseDown={(e) => e.preventDefault()}
+                                  onClick={(e) => handleConfirmDeliveryDate(item, e)}
+                                  disabled={!item.estimated_delivery_date || Number(item.delivery_date_confirmed ?? 0) === 1}
+                                  title={Number(item.delivery_date_confirmed ?? 0) === 1 ? '预计交付日期已确认' : '确认预计交付日期'}
+                                >
+                                  {Number(item.delivery_date_confirmed ?? 0) === 1 ? '已确认' : '确认'}
+                                </button>
+                              </div>
+                              <SavingIndicator testItemId={item.test_item_id} field="estimated_delivery_date" />
+                            </>
+                          ) : (
+                            <span {...withReadonlyFieldProps(item, 'estimated_delivery_date')}>
+                              {formatDate(item.estimated_delivery_date)}
+                              {Number(item.delivery_date_confirmed ?? 0) === 1 && (
+                                <span style={{ marginLeft: '4px', color: '#28a745', fontWeight: 'bold' }}>✓</span>
+                              )}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className={getColumnCellClass('technician_name', 'lab-field narrow-col')} data-column-key="technician_name">
                         {canEditField('technician_name', item) ? (

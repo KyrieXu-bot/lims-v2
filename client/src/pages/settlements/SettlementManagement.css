@@ -1,0 +1,110 @@
+.settlements-table-container {
+  overflow-x: auto;
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  background: var(--white);
+}
+
+.settlements-table {
+  min-width: 1480px;
+  table-layout: fixed;
+  margin-bottom: 0;
+  box-shadow: none;
+}
+
+.settlements-table th,
+.settlements-table td {
+  overflow: hidden;
+}
+
+.settlements-table th:nth-child(1),
+.settlements-table td:nth-child(1) {
+  width: 190px;
+}
+
+.settlements-table th:nth-child(2),
+.settlements-table td:nth-child(2) {
+  width: 105px;
+}
+
+.settlements-table th:nth-child(3),
+.settlements-table td:nth-child(3) {
+  width: 170px;
+}
+
+.settlements-table th:nth-child(4),
+.settlements-table td:nth-child(4) {
+  width: 160px;
+}
+
+.settlements-table th:nth-child(5),
+.settlements-table td:nth-child(5),
+.settlements-table th:nth-child(6),
+.settlements-table td:nth-child(6) {
+  width: 110px;
+}
+
+.settlements-table th:nth-child(7),
+.settlements-table td:nth-child(7) {
+  width: 105px;
+}
+
+.settlements-table th:nth-child(8),
+.settlements-table td:nth-child(8) {
+  width: 260px;
+}
+
+.settlements-table th:nth-child(9),
+.settlements-table td:nth-child(9) {
+  width: 95px;
+}
+
+.settlements-table th:nth-child(10),
+.settlements-table td:nth-child(10) {
+  width: 115px;
+}
+
+.settlements-table th:nth-child(11),
+.settlements-table td:nth-child(11) {
+  width: 95px;
+}
+
+.settlements-table th:nth-child(12),
+.settlements-table td:nth-child(12) {
+  width: 105px;
+}
+
+.settlements-table th {
+  white-space: nowrap;
+}
+
+.settlements-table td {
+  word-break: normal;
+}
+
+.settlement-detail-cell {
+  white-space: nowrap;
+}
+
+.settlement-detail-link {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  word-break: normal;
+  vertical-align: middle;
+}
+
+.settlement-money-cell {
+  white-space: nowrap;
+}
+
+.settlements-table .btn {
+  margin-bottom: 2px;
+}
+
+@media (max-width: 767px) {
+  .settlements-table {
+    min-width: 1320px;
+  }
+}

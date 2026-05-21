@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { api } from '../../api';
 import React from 'react';
+import DetailViewLink from '../../components/DetailViewLink.jsx';
+import './SettlementManagement.css';
 
 export default function SettlementManagement() {
   const [settlements, setSettlements] = useState([]);
@@ -411,8 +413,8 @@ export default function SettlementManagement() {
         </div>
       )}
 
-      <div className="table-container" style={{ marginTop: '20px' }}>
-        <table className="table">
+      <div className="table-container settlements-table-container" style={{ marginTop: '20px' }}>
+        <table className="table settlements-table">
           <thead>
             <tr>
               <th>票号</th>
@@ -443,7 +445,14 @@ export default function SettlementManagement() {
                     <>
                       <td>{settlement.invoice_number || '-'}</td>
                       <td>{formatDate(settlement.invoice_date)}</td>
-                      <td>{settlement.order_ids}</td>
+                      <td className="settlement-detail-cell">
+                        <DetailViewLink
+                          text={settlement.order_ids || ''}
+                          maxLength={18}
+                          fieldName="委托单号组"
+                          className="settlement-detail-link"
+                        />
+                      </td>
                       <td style={{ position: 'relative', overflow: 'visible' }}>
                         <input
                           ref={customerInputRef}
@@ -570,13 +579,41 @@ export default function SettlementManagement() {
                     <>
                       <td>{settlement.invoice_number || '-'}</td>
                       <td>{formatDate(settlement.invoice_date)}</td>
-                      <td>{settlement.order_ids}</td>
-                      <td>{settlement.display_customer_name || settlement.customer_name || '-'}</td>
-                      <td>{formatCurrency(settlement.invoice_amount)}</td>
-                      <td>{formatCurrency(settlement.received_amount)}</td>
+                      <td className="settlement-detail-cell">
+                        <DetailViewLink
+                          text={settlement.order_ids || ''}
+                          maxLength={18}
+                          fieldName="委托单号组"
+                          className="settlement-detail-link"
+                        />
+                      </td>
+                      <td className="settlement-detail-cell">
+                        <DetailViewLink
+                          text={settlement.display_customer_name || settlement.customer_name || ''}
+                          maxLength={12}
+                          fieldName="客户名称"
+                          className="settlement-detail-link"
+                        />
+                      </td>
+                      <td className="settlement-money-cell">{formatCurrency(settlement.invoice_amount)}</td>
+                      <td className="settlement-money-cell">{formatCurrency(settlement.received_amount)}</td>
                       <td>{formatDate(settlement.received_date)}</td>
-                      <td>{settlement.remarks || '-'}</td>
-                      <td>{settlement.assignee_name || '-'}</td>
+                      <td className="settlement-detail-cell settlement-remarks-cell">
+                        <DetailViewLink
+                          text={settlement.remarks || ''}
+                          maxLength={24}
+                          fieldName="备注"
+                          className="settlement-detail-link"
+                        />
+                      </td>
+                      <td className="settlement-detail-cell">
+                        <DetailViewLink
+                          text={settlement.assignee_name || ''}
+                          maxLength={8}
+                          fieldName="业务人员"
+                          className="settlement-detail-link"
+                        />
+                      </td>
                       <td>{settlement.customer_nature || '-'}</td>
                       <td>
                         <span
@@ -621,6 +658,5 @@ export default function SettlementManagement() {
     </div>
   );
 }
-
 
 

@@ -2390,6 +2390,52 @@
   flex-shrink: 0 !important;
 }
 
+.commission-form .data-table th[data-column-key="estimated_delivery_date"],
+.commission-form .data-table td[data-column-key="estimated_delivery_date"] {
+  min-width: 150px !important;
+  width: 150px !important;
+  max-width: 150px !important;
+  white-space: nowrap !important;
+}
+
+.delivery-date-edit-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: nowrap;
+  width: 100%;
+}
+
+.delivery-date-edit-row .realtime-editable-cell {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.delivery-date-edit-row .editable-input.date-input {
+  width: 92px;
+  min-width: 92px;
+  box-sizing: border-box;
+}
+
+.delivery-date-confirm-btn {
+  padding: 2px 6px;
+  font-size: 11px;
+  min-width: auto;
+  background-color: #28a745;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  line-height: 1.2;
+  flex-shrink: 0;
+}
+
+.delivery-date-confirm-btn:disabled {
+  background-color: #6c757d;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
 /* 测试总价异常比值标红样式 */
 .price-highlight-red {
   color: #dc3545 !important;

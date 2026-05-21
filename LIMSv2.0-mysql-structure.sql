@@ -750,6 +750,8 @@ CREATE TABLE `test_items` (
   `group_id` smallint unsigned DEFAULT NULL COMMENT '执行小组ID（L/M/C）',
   `quantity` int NOT NULL DEFAULT '0' COMMENT '件数/数量',
   `unit_price` decimal(10,2) DEFAULT NULL COMMENT '单价（下单时冻结；非标可手填）',
+  `estimated_delivery_date` date DEFAULT NULL COMMENT '预计交付日期',
+  `delivery_date_confirmed` tinyint(1) NOT NULL DEFAULT '0' COMMENT '是否确认交付日期（0=未确认，1=已确认）',
   `discount_rate` decimal(5,2) DEFAULT NULL COMMENT '折扣率（百分比整数0-100，如10表示10%），从付款方带出，可修改',
   `final_unit_price` decimal(10,2) DEFAULT NULL COMMENT '折后单价',
   `lab_price` decimal(10,2) DEFAULT NULL COMMENT '实验室报价',

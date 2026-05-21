@@ -208,7 +208,7 @@ router.post('/', requireRole(CREATE_ROLES), async (req, res) => {
     final_unit_price, line_total, machine_hours = 0, work_hours = 0, is_add_on = 0, is_outsourced = 0,
     seq_no, sample_preparation, note, status = 'new', current_assignee, supervisor_id, technician_id,
     arrival_mode, sample_arrival_status, equipment_id, check_notes, test_notes,
-    actual_sample_quantity, actual_delivery_date, field_test_time, price_note,
+    actual_sample_quantity, actual_delivery_date, estimated_delivery_date, field_test_time, price_note,
     assignment_note, business_note, abnormal_condition, service_urgency, unit, addon_reason, addon_target
   } = req.body || {};
 
@@ -449,9 +449,9 @@ router.put('/:id', requireRole(EDIT_ROLES), async (req, res) => {
     final_unit_price, line_total, lab_price, machine_hours, work_hours, is_add_on, is_outsourced,
     seq_no, sample_preparation, note, status, current_assignee, supervisor_id, technician_id,
     arrival_mode, sample_arrival_status, equipment_id, check_notes, test_notes, unit,
-    actual_sample_quantity, actual_delivery_date, field_test_time, price_note,
+    actual_sample_quantity, actual_delivery_date, estimated_delivery_date, field_test_time, price_note,
     assignment_note, business_note, invoice_note, abnormal_condition, service_urgency, business_confirmed,
-    unit_mismatch_reviewed, addon_reason, addon_target, invoice_prefill_price, invoice_prefill_confirmed, invoice_status
+    unit_mismatch_reviewed, delivery_date_confirmed, addon_reason, addon_target, invoice_prefill_price, invoice_prefill_confirmed, invoice_status
   } = req.body || {};
 
   // 处理空字符串，将其转换为null，这样数据库可以接受空值
@@ -491,7 +491,8 @@ router.put('/:id', requireRole(EDIT_ROLES), async (req, res) => {
       const [oldRows] = await pool.query(
         `SELECT order_id, price_id, supervisor_id, technician_id, current_assignee, department_id,
                 unit_price, final_unit_price, price_note, discount_rate, machine_hours, work_hours,
-                actual_sample_quantity, line_total, business_confirmed, status, unit_mismatch_reviewed
+                actual_sample_quantity, line_total, business_confirmed, status, unit_mismatch_reviewed,
+                estimated_delivery_date, delivery_date_confirmed
          FROM test_items
          WHERE test_item_id = ?`,
         [req.params.id]
@@ -540,6 +541,37 @@ router.put('/:id', requireRole(EDIT_ROLES), async (req, res) => {
         if (Number.isFinite(m)) mismatchVal = m;
       }
 
+      const hasNonNegativeNumber = (value) => {
+        if (value === undefined || value === null || value === '') return false;
+        const num = Number(value);
+        return Number.isFinite(num) && num >= 0;
+      };
+      const mergedEstimatedDeliveryDate = hasField('estimated_delivery_date')
+        ? processDate(estimated_delivery_date)
+        : oldData.estimated_delivery_date;
+      let deliveryConfirmedVal = Number(oldData.delivery_date_confirmed ?? 0);
+      if (hasField('delivery_date_confirmed')) {
+        const d = Number(delivery_date_confirmed);
+        if (Number.isFinite(d)) deliveryConfirmedVal = d === 1 ? 1 : 0;
+      }
+      if (hasField('estimated_delivery_date') && !hasField('delivery_date_confirmed')) {
+        deliveryConfirmedVal = 0;
+      }
+      if (Number(oldData.delivery_date_confirmed ?? 0) === 1) {
+        if (hasField('estimated_delivery_date')) {
+          await pool.query('ROLLBACK');
+          return res.status(400).json({ error: '预计交付日期已确认，不能再修改' });
+        }
+        if (hasField('delivery_date_confirmed') && deliveryConfirmedVal !== 1) {
+          await pool.query('ROLLBACK');
+          return res.status(400).json({ error: '预计交付日期已确认，不能取消确认' });
+        }
+      }
+      if (hasField('delivery_date_confirmed') && deliveryConfirmedVal === 1 && !mergedEstimatedDeliveryDate) {
+        await pool.query('ROLLBACK');
+        return res.status(400).json({ error: '请先填写预计交付日期，再确认' });
+      }
+
       if (
         assigningTester &&
         (req.user.role === 'leader' || req.user.role === 'supervisor') &&
@@ -552,6 +584,24 @@ router.put('/:id', requireRole(EDIT_ROLES), async (req, res) => {
       }
       
       // 构建动态更新语句
+      if (
+        assigningTester &&
+        (req.user.role === 'leader' || req.user.role === 'supervisor')
+      ) {
+        if (!hasNonNegativeNumber(hasField('unit_price') ? unit_price : oldData.unit_price)) {
+          await pool.query('ROLLBACK');
+          return res.status(400).json({ error: '请先填写标准单价，再分配测试人员' });
+        }
+        if (!mergedEstimatedDeliveryDate) {
+          await pool.query('ROLLBACK');
+          return res.status(400).json({ error: '请先填写预计交付日期，再分配测试人员' });
+        }
+        if (deliveryConfirmedVal !== 1) {
+          await pool.query('ROLLBACK');
+          return res.status(400).json({ error: '请先确认预计交付日期，再分配测试人员' });
+        }
+      }
+
       const updateFields = [];
       const updateValues = [];
       
@@ -602,6 +652,7 @@ router.put('/:id', requireRole(EDIT_ROLES), async (req, res) => {
       // 对于需要特殊处理的字段，传入处理后的值
       addUpdate('actual_sample_quantity', actual_sample_quantity, processValue(actual_sample_quantity));
       addUpdate('actual_delivery_date', actual_delivery_date, processDate(actual_delivery_date));
+      addUpdate('estimated_delivery_date', estimated_delivery_date, processDate(estimated_delivery_date));
       addUpdate('field_test_time', field_test_time, processDateTime(field_test_time));
       addUpdate('price_note', price_note);
       addUpdate('assignment_note', assignment_note);
@@ -611,6 +662,11 @@ router.put('/:id', requireRole(EDIT_ROLES), async (req, res) => {
       addUpdate('service_urgency', service_urgency, normalizeServiceUrgencyForDb(service_urgency));
       addUpdate('business_confirmed', business_confirmed);
       addUpdate('unit_mismatch_reviewed', unit_mismatch_reviewed);
+      addUpdate('delivery_date_confirmed', delivery_date_confirmed);
+      if (hasField('estimated_delivery_date') && !hasField('delivery_date_confirmed')) {
+        updateFields.push('delivery_date_confirmed = ?');
+        updateValues.push(0);
+      }
       addUpdate('addon_reason', addon_reason);
       addUpdate('addon_target', addon_target);
       // 添加开票相关字段
@@ -850,7 +906,7 @@ router.post('/batch-assign', requireRole(['admin', 'leader', 'supervisor']), asy
       // 获取更新前的数据
       const placeholders = testItemIds.map(() => '?').join(',');
       const [oldRows] = await pool.query(
-        `SELECT test_item_id, supervisor_id, technician_id, current_assignee, department_id, unit_mismatch_reviewed FROM test_items WHERE test_item_id IN (${placeholders})`,
+        `SELECT test_item_id, supervisor_id, technician_id, current_assignee, department_id, unit_price, unit_mismatch_reviewed, estimated_delivery_date, delivery_date_confirmed FROM test_items WHERE test_item_id IN (${placeholders})`,
         testItemIds
       );
 
@@ -874,6 +930,26 @@ router.post('/batch-assign', requireRole(['admin', 'leader', 'supervisor']), asy
       }
       
       // 构建更新字段
+      if (technician_id && (user.role === 'supervisor' || user.role === 'leader')) {
+        const missingUnitPrice = oldRows.some((row) => {
+          if (row.unit_price === undefined || row.unit_price === null || row.unit_price === '') return true;
+          const num = Number(row.unit_price);
+          return !Number.isFinite(num) || num < 0;
+        });
+        if (missingUnitPrice) {
+          await pool.query('ROLLBACK');
+          return res.status(400).json({ error: '存在未填写标准单价的项目，请先填写后再分配测试人员' });
+        }
+        if (oldRows.some((row) => !row.estimated_delivery_date)) {
+          await pool.query('ROLLBACK');
+          return res.status(400).json({ error: '存在未填写预计交付日期的项目，请先填写后再分配测试人员' });
+        }
+        if (oldRows.some((row) => Number(row.delivery_date_confirmed ?? 0) !== 1)) {
+          await pool.query('ROLLBACK');
+          return res.status(400).json({ error: '存在未确认预计交付日期的项目，请先确认后再分配测试人员' });
+        }
+      }
+
       const updateFields = ['status = ?'];
       const updateValues = [status];
       
@@ -1036,5 +1112,3 @@ router.post('/:id/uncancel', requireAnyRole(['admin', 'sales']), async (req, res
 });
 
 export default router;
-
-
