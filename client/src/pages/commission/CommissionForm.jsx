@@ -4172,7 +4172,7 @@ const CommissionForm = () => {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="搜索委托单号、客户名称、检测项目、委托联系人、付款联系人、负责人名字、测试人员..."
+                placeholder="搜索委托单号、客户名称、检测项目、委托联系人、付款联系人、业务负责人、实验负责人、测试人员..."
                 onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
               />
               <div className="search-buttons">
