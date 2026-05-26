@@ -165,6 +165,22 @@
   flex-shrink: 0;
 }
 
+.multi-order-search-summary {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 1px solid #d7e7f7;
+  border-radius: 4px;
+  background: #f6fbff;
+  color: #2c3e50;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.multi-order-search-missing {
+  color: #b45309;
+  font-weight: 500;
+}
+
 /* 小按钮样式 */
 .btn-small {
   padding: 6px 10px !important;

@@ -5,7 +5,8 @@ import {
   buildCommissionListFilters,
   COMMISSION_FORM_LIST_SELECT_JOINS,
   commissionListWhereNeedsOrderJoins,
-  COMMISSION_FORM_PAGE_IDS_JOIN_BLOCK
+  COMMISSION_FORM_PAGE_IDS_JOIN_BLOCK,
+  parseCommissionOrderIds
 } from '../lib/commissionFormListQuery.js';
 
 /**
@@ -179,8 +180,17 @@ router.get('/commission-form', async (req, res) => {
        LEFT JOIN commissioners comm ON comm.commissioner_id = o.commissioner_id`
       : 'FROM test_items ti';
     const [cnt] = await pool.query(`SELECT COUNT(*) as cnt ${countFrom} ${where}`, params);
+    const orderIds = parseCommissionOrderIds(req);
+    let matchedOrderIds = undefined;
+    if (orderIds.length > 0) {
+      const [matchedRows] = await pool.query(
+        `SELECT DISTINCT ti.order_id ${countFrom} ${where} ORDER BY ti.order_id`,
+        params
+      );
+      matchedOrderIds = matchedRows.map((row) => row.order_id).filter(Boolean);
+    }
 
-    res.json({ data: rows, total: cnt[0].cnt });
+    res.json({ data: rows, total: cnt[0].cnt, matched_order_ids: matchedOrderIds });
   } catch (e) {
     console.error('Error fetching commission form data:', e);
     return res.status(500).json({ error: e.message });

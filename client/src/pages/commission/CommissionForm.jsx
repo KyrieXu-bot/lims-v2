@@ -13,6 +13,9 @@ import { useSocket } from '../../hooks/useSocket.js';
 import * as XLSX from 'xlsx';
 import './CommissionForm.css';
 
+/** 物化报告模板导出入口（暂停时 false，handleExportWH 逻辑保留） */
+const WH_REPORT_TEMPLATE_EXPORT_ENABLED = false;
+
 /** 导出弹窗内网格按钮：满格宽度，由 grid 列宽控制 */
 const EXPORT_MODAL_GRID_BTN = {
   width: '100%',
@@ -58,6 +61,34 @@ function normalizeTestItemId(id) {
   if (id === null || id === undefined) return id;
   const n = Number(id);
   return Number.isFinite(n) ? n : id;
+}
+
+const ORDER_ID_TOKEN_REGEX = /^JC[A-Z0-9_-]+$/i;
+
+function parseMultiOrderSearch(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return { isMultiOrderSearch: false, orderIds: [] };
+
+  const tokens = raw
+    .split(/[\s,，、;；|]+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+
+  const orderIds = [];
+  const seen = new Set();
+  tokens.forEach((token) => {
+    if (!ORDER_ID_TOKEN_REGEX.test(token)) return;
+    const normalized = token.toUpperCase();
+    if (!seen.has(normalized)) {
+      seen.add(normalized);
+      orderIds.push(normalized);
+    }
+  });
+
+  return {
+    isMultiOrderSearch: tokens.length > 1 && tokens.length === orderIds.length,
+    orderIds
+  };
 }
 
 function isSameTestItemId(a, b) {
@@ -357,6 +388,7 @@ const CommissionForm = () => {
   const [page, setPage] = useState(() => (savedViewState?.page ? Number(savedViewState.page) : 1));
   const [pageSize] = useState(100);
   const [searchQuery, setSearchQuery] = useState(() => savedViewState?.searchQuery || '');
+  const [multiOrderSearchInfo, setMultiOrderSearchInfo] = useState(null);
   const [statusFilter, setStatusFilter] = useState(() => savedViewState?.statusFilter || []); // 改为数组，支持多选
   const [departmentFilter, setDepartmentFilter] = useState(() => savedViewState?.departmentFilter || '');
   const [monthFilter, setMonthFilter] = useState(() => savedViewState?.monthFilter || '');
@@ -690,16 +722,27 @@ const CommissionForm = () => {
       };
     });
 
+  const appendSearchParams = (params) => {
+    const parsed = parseMultiOrderSearch(searchQuery);
+    if (parsed.isMultiOrderSearch) {
+      params.set('q', '');
+      parsed.orderIds.forEach((orderId) => params.append('order_ids', orderId));
+    } else {
+      params.set('q', searchQuery);
+    }
+    return parsed;
+  };
+
   const fetchAllMatchingItems = async () => {
     if (fullSelectionCacheRef.current) {
       return fullSelectionCacheRef.current;
     }
     const totalCount = Math.max(total || 0, pageSize);
     const params = new URLSearchParams({
-      q: searchQuery,
       page: '1',
       pageSize: totalCount.toString(),
     });
+    appendSearchParams(params);
     // 支持多状态筛选
     if (statusFilter && statusFilter.length > 0) {
       statusFilter.forEach(status => params.append('status', status));
@@ -1044,10 +1087,10 @@ const CommissionForm = () => {
     try {      
       // 直接使用fetch而不是通过api对象
       const params = new URLSearchParams({
-        q: searchQuery,
         page: page.toString(),
         pageSize: pageSize.toString(),
       });
+      const parsedSearch = appendSearchParams(params);
       
       // 支持多状态筛选
       if (statusFilter && statusFilter.length > 0) {
@@ -1073,6 +1116,17 @@ const CommissionForm = () => {
       const processedData = enrichCommissionListRows(Array.isArray(data.data) ? data.data : []);
       setData(processedData);
       setTotal(data.total);
+      if (parsedSearch.isMultiOrderSearch) {
+        const foundOrderIds = Array.isArray(data.matched_order_ids)
+          ? data.matched_order_ids.map((id) => String(id).toUpperCase())
+          : [...new Set(processedData.map((item) => String(item.order_id || '').toUpperCase()).filter(Boolean))];
+        setMultiOrderSearchInfo({
+          requestedOrderIds: parsedSearch.orderIds,
+          foundOrderIds
+        });
+      } else {
+        setMultiOrderSearchInfo(null);
+      }
     } catch (error) {
       console.error('获取委托单登记表数据失败:', error);
       console.error('错误详情:', error.message);
@@ -1529,6 +1583,7 @@ const CommissionForm = () => {
 
   const handleReset = () => {
     setSearchQuery('');
+    setMultiOrderSearchInfo(null);
     setStatusFilter([]);
     setDepartmentFilter('');
     setMonthFilter('');
@@ -4160,6 +4215,15 @@ const CommissionForm = () => {
     }, 10);
   };
 
+  const missingOrderIds = multiOrderSearchInfo
+    ? multiOrderSearchInfo.requestedOrderIds.filter(
+        (orderId) => !multiOrderSearchInfo.foundOrderIds.includes(orderId)
+      )
+    : [];
+  const multiOrderFoundCount = multiOrderSearchInfo
+    ? multiOrderSearchInfo.foundOrderIds.length
+    : 0;
+
   return (
     <div className="commission-form">
       {/* 搜索和筛选区域 - 首行 */}
@@ -4172,7 +4236,7 @@ const CommissionForm = () => {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="搜索委托单号、客户名称、检测项目、委托联系人、付款联系人、业务负责人、实验负责人、测试人员..."
+                placeholder="搜索委托单号、客户名称、检测项目；多个单号可用逗号、顿号、空格分隔..."
                 onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
               />
               <div className="search-buttons">
@@ -4454,6 +4518,18 @@ const CommissionForm = () => {
             )}
           </div>
         </div>
+        {multiOrderSearchInfo && (
+          <div className="multi-order-search-summary">
+            <span>
+              搜索出来 {multiOrderFoundCount} 个单号
+            </span>
+            {missingOrderIds.length > 0 && (
+              <span className="multi-order-search-missing">
+                ，有单号未搜索到：{missingOrderIds.join('、')}
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       {/* 数据表格 */}
@@ -6462,7 +6538,7 @@ const CommissionForm = () => {
                       导出测试服务清单模板
                     </button>
                   )}
-                  {Number(user?.department_id) === 2 && (
+                  {WH_REPORT_TEMPLATE_EXPORT_ENABLED && Number(user?.department_id) === 2 && (
                     <button
                       type="button"
                       className="btn btn-warning"

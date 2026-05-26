@@ -155,6 +155,20 @@ export function commissionListWhereNeedsOrderJoins(req) {
   return true;
 }
 
+export function parseCommissionOrderIds(req) {
+  const raw = req.query?.order_ids;
+  const values = Array.isArray(raw) ? raw : (raw ? [raw] : []);
+  const seen = new Set();
+  return values
+    .flatMap((value) => String(value).split(/[\s,，、;；|]+/))
+    .map((value) => value.trim().toUpperCase())
+    .filter((value) => {
+      if (!/^JC[A-Z0-9_-]+$/.test(value) || seen.has(value)) return false;
+      seen.add(value);
+      return true;
+    });
+}
+
 /** 与 COUNT 查询一致：仅 orders / customers / commissioners，供分页 id 子查询使用 */
 export const COMMISSION_FORM_PAGE_IDS_JOIN_BLOCK = `
       FROM test_items ti
@@ -173,6 +187,7 @@ export function buildCommissionListFilters(req) {
   const filters = [];
   const params = [];
   const user = req.user;
+  const orderIds = parseCommissionOrderIds(req);
 
   if (user.role === 'admin') {
     // 全部
@@ -204,7 +219,11 @@ export function buildCommissionListFilters(req) {
     params.push('cancelled');
   }
 
-  if (q) {
+  if (orderIds.length > 0) {
+    const placeholders = orderIds.map(() => '?').join(',');
+    filters.push(`ti.order_id IN (${placeholders})`);
+    params.push(...orderIds);
+  } else if (q) {
     const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
     if (dateRegex.test(q)) {
       filters.push('DATE(ti.field_test_time) = ?');
