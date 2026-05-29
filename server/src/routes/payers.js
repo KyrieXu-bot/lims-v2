@@ -9,13 +9,19 @@ router.use(requireAuth);
 router.get('/options', async (req, res) => {
   const pool = await getPool();
   const [rows] = await pool.query(
-    `SELECT p.payer_id, p.contact_name, c.customer_name
+    `SELECT p.payer_id, p.customer_id, p.contact_name, c.customer_name
      FROM payers p
      JOIN customers c ON c.customer_id = p.customer_id
      WHERE p.is_active = 1 AND c.is_active = 1
      ORDER BY c.customer_name, p.contact_name`
   );
-  res.json(rows.map(r => ({ payer_id: r.payer_id, label: `${r.contact_name} (${r.customer_name})` })));
+  res.json(rows.map(r => ({
+    payer_id: r.payer_id,
+    customer_id: r.customer_id,
+    contact_name: r.contact_name,
+    customer_name: r.customer_name,
+    label: `${r.contact_name} (${r.customer_name})`
+  })));
 });
 
 // list with join
@@ -36,10 +42,34 @@ router.get('/', async (req, res) => {
   const where = 'WHERE ' + filters.join(' AND ');
 
   const [rows] = await pool.query(
-    `SELECT p.*, c.customer_name, u.name AS owner_name
+    `SELECT
+       p.*,
+       c.customer_name,
+       u.name AS owner_name,
+       COALESCE(b.prepaid_balance, 0) AS prepaid_balance,
+       COALESCE(b.settlement_debit_amount, 0) AS settlement_debit_amount,
+       COALESCE(b.receipt_credit_amount, 0) AS receipt_credit_amount,
+       COALESCE(b.current_balance, 0) AS current_balance,
+       COALESCE(ps.pending_settlement_amount, 0) AS pending_settlement_amount
      FROM payers p
      JOIN customers c ON c.customer_id = p.customer_id
      LEFT JOIN users u ON u.user_id = p.owner_user_id
+     LEFT JOIN (
+       SELECT
+         payer_id,
+         SUM(CASE WHEN transaction_type = 'prepayment_credit' AND direction = 'credit' THEN amount ELSE 0 END) AS prepaid_balance,
+         SUM(CASE WHEN transaction_type = 'settlement_debit' AND direction = 'debit' THEN amount ELSE 0 END) AS settlement_debit_amount,
+         SUM(CASE WHEN transaction_type = 'invoice_receipt_credit' AND direction = 'credit' THEN amount ELSE 0 END) AS receipt_credit_amount,
+         SUM(CASE WHEN direction = 'credit' THEN amount ELSE -amount END) AS current_balance
+       FROM payer_balance_transactions
+       GROUP BY payer_id
+     ) b ON b.payer_id = p.payer_id
+     LEFT JOIN (
+       SELECT payer_id, SUM(invoice_amount) AS pending_settlement_amount
+       FROM settlements
+       WHERE settlement_type = 'invoice' AND approval_status = 'pending'
+       GROUP BY payer_id
+     ) ps ON ps.payer_id = p.payer_id
      ${where}
      ORDER BY p.payer_id DESC
      LIMIT ? OFFSET ?`, [...params, Number(pageSize), offset]
@@ -51,6 +81,61 @@ router.get('/', async (req, res) => {
      ${where}`, params
   );
   res.json({ data: rows, total: cnt[0].cnt });
+});
+
+router.get('/:id/ledger', async (req, res) => {
+  const pool = await getPool();
+  const [payerRows] = await pool.query(
+    `SELECT p.*, c.customer_name
+     FROM payers p
+     JOIN customers c ON c.customer_id = p.customer_id
+     WHERE p.payer_id = ?`,
+    [req.params.id]
+  );
+  if (payerRows.length === 0) return res.status(404).json({ error: 'Not found' });
+
+  const [summaryRows] = await pool.query(
+    `SELECT
+       COALESCE(SUM(CASE WHEN transaction_type = 'prepayment_credit' AND direction = 'credit' THEN amount ELSE 0 END), 0) AS prepaid_balance,
+       COALESCE(SUM(CASE WHEN transaction_type = 'settlement_debit' AND direction = 'debit' THEN amount ELSE 0 END), 0) AS settlement_debit_amount,
+       COALESCE(SUM(CASE WHEN transaction_type = 'invoice_receipt_credit' AND direction = 'credit' THEN amount ELSE 0 END), 0) AS receipt_credit_amount,
+       COALESCE(SUM(CASE WHEN direction = 'credit' THEN amount ELSE -amount END), 0) AS current_balance
+     FROM payer_balance_transactions
+     WHERE payer_id = ?`,
+    [req.params.id]
+  );
+  const [pendingRows] = await pool.query(
+    `SELECT COALESCE(SUM(invoice_amount), 0) AS pending_settlement_amount
+     FROM settlements
+     WHERE payer_id = ? AND settlement_type = 'invoice' AND approval_status = 'pending'`,
+    [req.params.id]
+  );
+  const [transactions] = await pool.query(
+    `SELECT
+       t.*,
+       s.settlement_type,
+       s.invoice_number,
+       s.invoice_date,
+       s.order_ids,
+       s.payment_status,
+       s.approval_status,
+       u.name AS created_by_name
+     FROM payer_balance_transactions t
+     LEFT JOIN settlements s ON s.settlement_id = t.settlement_id
+     LEFT JOIN users u ON u.user_id = t.created_by
+     WHERE t.payer_id = ?
+     ORDER BY t.occurred_at DESC, t.transaction_id DESC`,
+    [req.params.id]
+  );
+
+  res.json({
+    payer: payerRows[0],
+    summary: {
+      ...summaryRows[0],
+      pending_settlement_amount: pendingRows[0]?.pending_settlement_amount || 0
+    },
+    transactions
+  });
 });
 
 router.post('/', requireAnyRole(['admin', 'sales']), async (req, res) => {

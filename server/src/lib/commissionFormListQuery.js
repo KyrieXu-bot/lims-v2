@@ -26,6 +26,7 @@ export const COMMISSION_FORM_LIST_SELECT_JOINS = `
         COALESCE(comm.commissioner_name, c.customer_name) as customer_commissioner_name,
         comm.address as customer_commissioner_address,
         o.commissioner_id,
+        o.payer_id,
         u.name as assignee_name,
         u.account as assignee_account,
         ti.current_assignee,
@@ -141,7 +142,7 @@ export const COMMISSION_FORM_LIST_SELECT_JOINS = `
         FROM project_files
         GROUP BY test_item_id
       ) pf ON pf.test_item_id = ti.test_item_id
-      LEFT JOIN settlements s ON JSON_CONTAINS(s.test_item_ids, CAST(ti.test_item_id AS JSON), '$')
+      LEFT JOIN settlements s ON s.settlement_type = 'invoice' AND JSON_CONTAINS(s.test_item_ids, CAST(ti.test_item_id AS JSON), '$')
       LEFT JOIN customers c_settlement ON c_settlement.customer_id = s.customer_id`;
 
 /**

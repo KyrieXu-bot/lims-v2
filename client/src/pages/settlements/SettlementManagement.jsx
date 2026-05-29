@@ -9,6 +9,7 @@ export default function SettlementManagement() {
   const [loading, setLoading] = useState(true);
   const [editingSettlement, setEditingSettlement] = useState(null);
   const [editForm, setEditForm] = useState({
+    invoice_number: '',
     invoice_amount: '',
     received_amount: '',
     received_date: '',
@@ -17,8 +18,21 @@ export default function SettlementManagement() {
     customer_name: '',
     customer_id: '',
     customer_nature: '',
+    payer_id: '',
     assignee_id: ''
   });
+  const [showPrepaymentModal, setShowPrepaymentModal] = useState(false);
+  const [prepaymentForm, setPrepaymentForm] = useState({
+    payer_id: '',
+    invoice_number: '',
+    invoice_date: '',
+    invoice_amount: '',
+    received_amount: '',
+    received_date: '',
+    payment_status: '已到款',
+    remarks: ''
+  });
+  const [payerOptions, setPayerOptions] = useState([]);
   const [assigneeOptions, setAssigneeOptions] = useState([]);
   const [customerSearchResults, setCustomerSearchResults] = useState([]);
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
@@ -29,7 +43,17 @@ export default function SettlementManagement() {
   useEffect(() => {
     loadSettlements();
     loadAssigneeOptions();
+    loadPayerOptions();
   }, []);
+
+  async function loadPayerOptions() {
+    try {
+      const data = await api.getPayerOptions();
+      setPayerOptions(data);
+    } catch (e) {
+      console.error('加载付款方列表失败:', e);
+    }
+  }
 
   async function loadAssigneeOptions() {
     try {
@@ -82,6 +106,7 @@ export default function SettlementManagement() {
     
     setEditingSettlement(settlement);
     setEditForm({
+      invoice_number: settlement.invoice_number || '',
       invoice_amount: settlement.invoice_amount || '',
       received_amount: settlement.received_amount || '',
       received_date: formatDateForInput(settlement.received_date),
@@ -90,6 +115,7 @@ export default function SettlementManagement() {
       customer_name: settlement.display_customer_name || settlement.customer_name || '',
       customer_id: settlement.customer_id || '',
       customer_nature: settlement.customer_nature || '',
+      payer_id: settlement.payer_id || '',
       assignee_id: settlement.assignee_id || ''
     });
     setCustomerSearchQuery(settlement.display_customer_name || settlement.customer_name || '');
@@ -100,6 +126,7 @@ export default function SettlementManagement() {
   function handleCancelEdit() {
     setEditingSettlement(null);
     setEditForm({
+      invoice_number: '',
       invoice_amount: '',
       received_amount: '',
       received_date: '',
@@ -108,6 +135,7 @@ export default function SettlementManagement() {
       customer_name: '',
       customer_id: '',
       customer_nature: '',
+      payer_id: '',
       assignee_id: ''
     });
     setCustomerSearchQuery('');
@@ -205,6 +233,7 @@ export default function SettlementManagement() {
       };
 
       const updateData = {};
+      updateData.invoice_number = editForm.invoice_number || null;
       if (editForm.invoice_amount !== undefined && editForm.invoice_amount !== '') {
         updateData.invoice_amount = parseFloat(editForm.invoice_amount);
       }
@@ -240,6 +269,9 @@ export default function SettlementManagement() {
       if (editForm.customer_nature !== undefined) {
         updateData.customer_nature = editForm.customer_nature;
       }
+      if (editForm.payer_id !== undefined) {
+        updateData.payer_id = editForm.payer_id || null;
+      }
       if (editForm.assignee_id !== undefined) {
         updateData.assignee_id = editForm.assignee_id;
       }
@@ -271,6 +303,28 @@ export default function SettlementManagement() {
       '部分到款': '#ffc107'
     };
     return colorMap[status] || '#6c757d';
+  }
+
+  function getSettlementTypeText(type) {
+    return type === 'prepayment' ? '预存充值' : '开票结算';
+  }
+
+  function getApprovalStatusText(status) {
+    const map = {
+      pending: '待审批',
+      approved: '已通过',
+      rejected: '已退回'
+    };
+    return map[status] || '待审批';
+  }
+
+  function getApprovalStatusColor(status) {
+    const map = {
+      pending: '#f0ad4e',
+      approved: '#28a745',
+      rejected: '#dc3545'
+    };
+    return map[status] || '#6c757d';
   }
 
   function formatDate(dateStr) {
@@ -340,6 +394,66 @@ export default function SettlementManagement() {
     }
   }
 
+  async function handleCreatePrepayment() {
+    const selectedPayer = payerOptions.find(p => String(p.payer_id) === String(prepaymentForm.payer_id));
+    if (!selectedPayer) {
+      alert('请选择付款方');
+      return;
+    }
+    if (!prepaymentForm.invoice_number) {
+      alert('预存充值必须先填写发票票号');
+      return;
+    }
+    const amount = Number(prepaymentForm.invoice_amount);
+    if (!prepaymentForm.invoice_date || !Number.isFinite(amount) || amount <= 0) {
+      alert('请填写有效的预存金额和开票日期');
+      return;
+    }
+
+    try {
+      await api.createSettlement({
+        settlement_type: 'prepayment',
+        payer_id: prepaymentForm.payer_id,
+        customer_id: selectedPayer.customer_id || null,
+        customer_name: selectedPayer.customer_name || null,
+        invoice_number: prepaymentForm.invoice_number,
+        invoice_date: prepaymentForm.invoice_date,
+        invoice_amount: amount,
+        received_amount: prepaymentForm.received_amount ? Number(prepaymentForm.received_amount) : amount,
+        received_date: prepaymentForm.received_date || prepaymentForm.invoice_date,
+        payment_status: prepaymentForm.payment_status || '已到款',
+        remarks: prepaymentForm.remarks || null
+      });
+      alert('预存充值流水已创建，等待管理员审批');
+      setShowPrepaymentModal(false);
+      setPrepaymentForm({
+        payer_id: '',
+        invoice_number: '',
+        invoice_date: '',
+        invoice_amount: '',
+        received_amount: '',
+        received_date: '',
+        payment_status: '已到款',
+        remarks: ''
+      });
+      loadSettlements();
+    } catch (e) {
+      alert('创建预存充值流水失败: ' + e.message);
+    }
+  }
+
+  async function handleApproval(settlement, action) {
+    const actionText = action === 'approved' ? '审批通过' : '审批退回';
+    if (!window.confirm(`确定要${actionText}这条流水吗？`)) return;
+    try {
+      await api.approveSettlement(settlement.settlement_id, { action });
+      alert(`${actionText}成功`);
+      loadSettlements();
+    } catch (e) {
+      alert(`${actionText}失败: ` + e.message);
+    }
+  }
+
   // 检查用户权限
   const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
   // 管理员、部门ID为5的室主任或业务员可以访问
@@ -373,6 +487,12 @@ export default function SettlementManagement() {
   return (
     <div>
       <h2>费用结算</h2>
+
+      <div className="toolbar" style={{ marginTop: 12 }}>
+        <button className="btn btn-primary" onClick={() => setShowPrepaymentModal(true)}>
+          新增预存充值
+        </button>
+      </div>
 
       {/* 下拉框使用 fixed 定位，避免被表格裁剪 */}
       {showCustomerDropdown && customerSearchResults.length > 0 && (
@@ -413,13 +533,111 @@ export default function SettlementManagement() {
         </div>
       )}
 
+      {showPrepaymentModal && (
+        <div className="file-modal-overlay" onClick={() => setShowPrepaymentModal(false)}>
+          <div className="file-modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 620 }}>
+            <div className="modal-header">
+              <h3>新增预存充值</h3>
+              <button className="close-button" onClick={() => setShowPrepaymentModal(false)}>×</button>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: 12, alignItems: 'center' }}>
+              <label>付款方</label>
+              <select
+                className="input"
+                value={prepaymentForm.payer_id}
+                onChange={(e) => setPrepaymentForm({ ...prepaymentForm, payer_id: e.target.value })}
+              >
+                <option value="">请选择付款方</option>
+                {payerOptions.map(payer => (
+                  <option key={payer.payer_id} value={payer.payer_id}>
+                    {payer.label}
+                  </option>
+                ))}
+              </select>
+
+              <label>发票票号</label>
+              <input
+                className="input"
+                value={prepaymentForm.invoice_number}
+                onChange={(e) => setPrepaymentForm({ ...prepaymentForm, invoice_number: e.target.value })}
+                placeholder="预存充值审批前必须填写"
+              />
+
+              <label>开票日期</label>
+              <input
+                className="input"
+                type="date"
+                value={prepaymentForm.invoice_date}
+                onChange={(e) => setPrepaymentForm({ ...prepaymentForm, invoice_date: e.target.value })}
+              />
+
+              <label>预存金额</label>
+              <input
+                className="input"
+                type="number"
+                step="0.01"
+                min="0"
+                value={prepaymentForm.invoice_amount}
+                onChange={(e) => setPrepaymentForm({
+                  ...prepaymentForm,
+                  invoice_amount: e.target.value,
+                  received_amount: prepaymentForm.received_amount || e.target.value
+                })}
+              />
+
+              <label>到账金额</label>
+              <input
+                className="input"
+                type="number"
+                step="0.01"
+                min="0"
+                value={prepaymentForm.received_amount}
+                onChange={(e) => setPrepaymentForm({ ...prepaymentForm, received_amount: e.target.value })}
+              />
+
+              <label>到账日期</label>
+              <input
+                className="input"
+                type="date"
+                value={prepaymentForm.received_date}
+                onChange={(e) => setPrepaymentForm({ ...prepaymentForm, received_date: e.target.value })}
+              />
+
+              <label>到款情况</label>
+              <select
+                className="input"
+                value={prepaymentForm.payment_status}
+                onChange={(e) => setPrepaymentForm({ ...prepaymentForm, payment_status: e.target.value })}
+              >
+                <option value="已到款">已到款</option>
+                <option value="部分到款">部分到款</option>
+                <option value="未到款">未到款</option>
+              </select>
+
+              <label>备注</label>
+              <input
+                className="input"
+                value={prepaymentForm.remarks}
+                onChange={(e) => setPrepaymentForm({ ...prepaymentForm, remarks: e.target.value })}
+              />
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
+              <button className="btn btn-secondary" onClick={() => setShowPrepaymentModal(false)}>取消</button>
+              <button className="btn btn-primary" onClick={handleCreatePrepayment}>创建预存流水</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="table-container settlements-table-container" style={{ marginTop: '20px' }}>
         <table className="table settlements-table">
           <thead>
             <tr>
               <th>票号</th>
+              <th>类型</th>
               <th>开票日期</th>
               <th>委托单号组</th>
+              <th>付款方</th>
               <th>客户名称</th>
               <th>开票金额</th>
               <th>到账金额</th>
@@ -428,13 +646,14 @@ export default function SettlementManagement() {
               <th>业务人员</th>
               <th>企业性质</th>
               <th>到款情况</th>
+              <th>审批状态</th>
               <th>操作</th>
             </tr>
           </thead>
           <tbody>
             {settlements.length === 0 ? (
               <tr>
-                <td colSpan="12" style={{ textAlign: 'center', padding: '20px' }}>
+                <td colSpan="15" style={{ textAlign: 'center', padding: '20px' }}>
                   暂无结算记录
                 </td>
               </tr>
@@ -443,7 +662,17 @@ export default function SettlementManagement() {
                 <tr key={settlement.settlement_id}>
                   {editingSettlement?.settlement_id === settlement.settlement_id ? (
                     <>
-                      <td>{settlement.invoice_number || '-'}</td>
+                      <td>
+                        <input
+                          type="text"
+                          className="input"
+                          value={editForm.invoice_number}
+                          onChange={(e) => setEditForm({ ...editForm, invoice_number: e.target.value })}
+                          placeholder="票号"
+                          style={{ width: '130px', padding: '4px' }}
+                        />
+                      </td>
+                      <td>{getSettlementTypeText(settlement.settlement_type)}</td>
                       <td>{formatDate(settlement.invoice_date)}</td>
                       <td className="settlement-detail-cell">
                         <DetailViewLink
@@ -452,6 +681,21 @@ export default function SettlementManagement() {
                           fieldName="委托单号组"
                           className="settlement-detail-link"
                         />
+                      </td>
+                      <td>
+                        <select
+                          className="input"
+                          value={editForm.payer_id || ''}
+                          onChange={(e) => setEditForm({ ...editForm, payer_id: e.target.value })}
+                          style={{ width: '160px', padding: '4px' }}
+                        >
+                          <option value="">请选择</option>
+                          {payerOptions.map(payer => (
+                            <option key={payer.payer_id} value={payer.payer_id}>
+                              {payer.label}
+                            </option>
+                          ))}
+                        </select>
                       </td>
                       <td style={{ position: 'relative', overflow: 'visible' }}>
                         <input
@@ -532,6 +776,11 @@ export default function SettlementManagement() {
                         </select>
                       </td>
                       <td>
+                        <span style={{ color: getApprovalStatusColor(settlement.approval_status), fontWeight: 'bold' }}>
+                          {getApprovalStatusText(settlement.approval_status)}
+                        </span>
+                      </td>
+                      <td>
                         <select
                           className="input"
                           value={editForm.customer_nature || ''}
@@ -578,12 +827,21 @@ export default function SettlementManagement() {
                   ) : (
                     <>
                       <td>{settlement.invoice_number || '-'}</td>
+                      <td>{getSettlementTypeText(settlement.settlement_type)}</td>
                       <td>{formatDate(settlement.invoice_date)}</td>
                       <td className="settlement-detail-cell">
                         <DetailViewLink
                           text={settlement.order_ids || ''}
                           maxLength={18}
                           fieldName="委托单号组"
+                          className="settlement-detail-link"
+                        />
+                      </td>
+                      <td className="settlement-detail-cell">
+                        <DetailViewLink
+                          text={settlement.payer_contact_name ? `${settlement.payer_contact_name} (${settlement.payer_customer_name || ''})` : ''}
+                          maxLength={14}
+                          fieldName="付款方"
                           className="settlement-detail-link"
                         />
                       </td>
@@ -626,6 +884,16 @@ export default function SettlementManagement() {
                         </span>
                       </td>
                       <td>
+                        <span
+                          style={{
+                            color: getApprovalStatusColor(settlement.approval_status),
+                            fontWeight: 'bold'
+                          }}
+                        >
+                          {getApprovalStatusText(settlement.approval_status)}
+                        </span>
+                      </td>
+                      <td>
                         {canEditSettlement() && (
                           <>
                             <button
@@ -641,6 +909,24 @@ export default function SettlementManagement() {
                             >
                               删除
                             </button>
+                            {user?.role === 'admin' && settlement.approval_status !== 'approved' && (
+                              <button
+                                className="btn btn-success btn-sm"
+                                onClick={() => handleApproval(settlement, 'approved')}
+                                style={{ marginLeft: '5px' }}
+                              >
+                                审批通过
+                              </button>
+                            )}
+                            {user?.role === 'admin' && settlement.approval_status !== 'rejected' && (
+                              <button
+                                className="btn btn-secondary btn-sm"
+                                onClick={() => handleApproval(settlement, 'rejected')}
+                                style={{ marginLeft: '5px' }}
+                              >
+                                退回
+                              </button>
+                            )}
                           </>
                         )}
                         {!canEditSettlement() && (
@@ -658,5 +944,3 @@ export default function SettlementManagement() {
     </div>
   );
 }
-
-

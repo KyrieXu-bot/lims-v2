@@ -34,6 +34,11 @@ export default function Payers() {
 
   const totalPages = Math.max(1, Math.ceil(total/pageSize));
 
+  function formatCurrency(value) {
+    const amount = Number(value || 0);
+    return `¥${amount.toFixed(2)}`;
+  }
+
   return (
     <div>
       <h2>付款人</h2>
@@ -49,7 +54,7 @@ export default function Payers() {
       <table className="table">
         <thead>
           <tr>
-            <th>ID</th><th>付款人</th><th>客户</th><th>电话号码</th><th>付款期限 (天)</th><th>折扣 (%)</th><th>业务员</th><th>状态</th><th>操作</th>
+            <th>ID</th><th>付款人</th><th>客户</th><th>电话号码</th><th>预存余额</th><th>待结算金额</th><th>当前余额</th><th>付款期限 (天)</th><th>折扣 (%)</th><th>业务员</th><th>状态</th><th>操作</th>
           </tr>
         </thead>
         <tbody>
@@ -59,11 +64,17 @@ export default function Payers() {
               <td>{it.contact_name}</td>
               <td>{it.customer_name}</td>
               <td>{it.contact_phone}</td>
+              <td>{formatCurrency(it.prepaid_balance)}</td>
+              <td>{formatCurrency(it.pending_settlement_amount)}</td>
+              <td style={{ color: Number(it.current_balance || 0) < 0 ? '#dc3545' : '#28a745', fontWeight: 600 }}>
+                {formatCurrency(it.current_balance)}
+              </td>
               <td>{it.payment_term_days}</td>
               <td>{it.discount_rate !== null && it.discount_rate !== undefined ? `${it.discount_rate}%` : ''}</td>
               <td>{it.owner_user_id ? `${it.owner_name||''}（${it.owner_user_id}）` : ''}</td>
               <td>{it.is_active ? <span className="badge">启用</span> : <span className="badge">禁用</span>}</td>
               <td className="actions">
+                <button className="btn" onClick={()=>navigate(`/payers/${it.payer_id}/ledger`)}>查看流水</button>
                 <button className="btn" onClick={()=>navigate(`/payers/${it.payer_id}`)}>编辑</button>
                 <button className="btn" onClick={async ()=>{ if (confirm('Delete?')) { await api.deletePayer(it.payer_id); load(); }}}>删除</button>
               </td>

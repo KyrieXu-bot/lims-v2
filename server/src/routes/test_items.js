@@ -470,6 +470,17 @@ router.put('/:id', requireRole(EDIT_ROLES), async (req, res) => {
     return value;
   };
 
+  const normalizeDateForCompare = (value) => {
+    const dateValue = processDate(value);
+    if (!dateValue) return null;
+    if (dateValue instanceof Date && !Number.isNaN(dateValue.getTime())) {
+      return dateValue.toISOString().slice(0, 10);
+    }
+    const str = String(dateValue);
+    if (str.includes('T')) return str.split('T')[0];
+    return str.slice(0, 10);
+  };
+
   // 处理日期时间字段，将ISO格式转换为MySQL DATETIME格式
   const processDateTime = (value) => {
     if (value === '' || value === undefined || value === null) return null;
@@ -529,11 +540,11 @@ router.put('/:id', requireRole(EDIT_ROLES), async (req, res) => {
         return res.status(403).json({ error: '无权编辑其他部门的检测项目' });
       }
       
-      const mergedTechnicianId = hasField('technician_id') ? processValue(technician_id) : oldData.technician_id;
+      const requestedTechnicianId = hasField('technician_id') ? processValue(technician_id) : null;
       const assigningTester =
-        mergedTechnicianId !== null &&
-        mergedTechnicianId !== undefined &&
-        String(mergedTechnicianId).trim() !== '';
+        requestedTechnicianId !== null &&
+        requestedTechnicianId !== undefined &&
+        String(requestedTechnicianId).trim() !== '';
 
       let mismatchVal = Number(oldData.unit_mismatch_reviewed ?? 0);
       if (hasField('unit_mismatch_reviewed')) {
@@ -549,16 +560,19 @@ router.put('/:id', requireRole(EDIT_ROLES), async (req, res) => {
       const mergedEstimatedDeliveryDate = hasField('estimated_delivery_date')
         ? processDate(estimated_delivery_date)
         : oldData.estimated_delivery_date;
+      const estimatedDeliveryDateChanged =
+        hasField('estimated_delivery_date') &&
+        normalizeDateForCompare(estimated_delivery_date) !== normalizeDateForCompare(oldData.estimated_delivery_date);
       let deliveryConfirmedVal = Number(oldData.delivery_date_confirmed ?? 0);
       if (hasField('delivery_date_confirmed')) {
         const d = Number(delivery_date_confirmed);
         if (Number.isFinite(d)) deliveryConfirmedVal = d === 1 ? 1 : 0;
       }
-      if (hasField('estimated_delivery_date') && !hasField('delivery_date_confirmed')) {
+      if (estimatedDeliveryDateChanged && !hasField('delivery_date_confirmed')) {
         deliveryConfirmedVal = 0;
       }
       if (Number(oldData.delivery_date_confirmed ?? 0) === 1) {
-        if (hasField('estimated_delivery_date')) {
+        if (estimatedDeliveryDateChanged) {
           await pool.query('ROLLBACK');
           return res.status(400).json({ error: '预计交付日期已确认，不能再修改' });
         }
@@ -663,7 +677,7 @@ router.put('/:id', requireRole(EDIT_ROLES), async (req, res) => {
       addUpdate('business_confirmed', business_confirmed);
       addUpdate('unit_mismatch_reviewed', unit_mismatch_reviewed);
       addUpdate('delivery_date_confirmed', delivery_date_confirmed);
-      if (hasField('estimated_delivery_date') && !hasField('delivery_date_confirmed')) {
+      if (estimatedDeliveryDateChanged && !hasField('delivery_date_confirmed')) {
         updateFields.push('delivery_date_confirmed = ?');
         updateValues.push(0);
       }

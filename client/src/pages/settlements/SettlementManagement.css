@@ -6,7 +6,7 @@
 }
 
 .settlements-table {
-  min-width: 1480px;
+  min-width: 1880px;
   table-layout: fixed;
   margin-bottom: 0;
   box-shadow: none;
@@ -74,6 +74,21 @@
   width: 105px;
 }
 
+.settlements-table th:nth-child(13),
+.settlements-table td:nth-child(13) {
+  width: 95px;
+}
+
+.settlements-table th:nth-child(14),
+.settlements-table td:nth-child(14) {
+  width: 100px;
+}
+
+.settlements-table th:nth-child(15),
+.settlements-table td:nth-child(15) {
+  width: 260px;
+}
+
 .settlements-table th {
   white-space: nowrap;
 }
@@ -103,8 +118,49 @@
   margin-bottom: 2px;
 }
 
+.file-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(17, 24, 39, 0.42);
+}
+
+.file-modal-content {
+  width: min(100%, 680px);
+  max-height: 90vh;
+  overflow: auto;
+  border-radius: 8px;
+  background: var(--white);
+  box-shadow: var(--shadow-lg, 0 20px 45px rgba(15, 23, 42, 0.24));
+  padding: 20px;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.modal-header h3 {
+  margin: 0;
+}
+
+.close-button {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font-size: 24px;
+  line-height: 1;
+}
+
 @media (max-width: 767px) {
   .settlements-table {
-    min-width: 1320px;
+    min-width: 1880px;
   }
 }

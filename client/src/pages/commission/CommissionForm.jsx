@@ -441,14 +441,18 @@ const CommissionForm = () => {
   // 结算相关状态
   const [showSettlementModal, setShowSettlementModal] = useState(false);
   const [settlementForm, setSettlementForm] = useState({
+    settlement_method: 'invoice',
     invoice_date: '',
     invoice_amount: '',
     remarks: '',
     customer_id: '',
     customer_name: '',
     customer_nature: '',
+    payer_id: '',
     assignee_id: '',
-    invoice_number: ''
+    invoice_number: '',
+    prepayment_lots: [],
+    prepayment_total_balance: 0
   });
   const [settlementOrderIds, setSettlementOrderIds] = useState('');
   const [customerSearchQuery, setCustomerSearchQuery] = useState('');
@@ -3063,19 +3067,41 @@ const CommissionForm = () => {
     const orderIds = [...new Set(selectedData.map(item => item.order_id))];
     setSettlementOrderIds(orderIds.join('-'));
 
+    const payerIds = [...new Set(selectedData.map(item => item.payer_id).filter(Boolean))];
+    if (payerIds.length > 1) {
+      alert('所选检测项目涉及多个付款方，请按付款方分别发起结算');
+      return;
+    }
+
     // 预填第一个委托单的客户信息
     const firstItem = selectedData[0];
     const customerName = firstItem.customer_commissioner_name || firstItem.customer_name || '';
+    const payerId = payerIds[0] || '';
+    let prepaymentLots = [];
+    let prepaymentTotalBalance = 0;
+    if (payerId) {
+      try {
+        const prepaymentInfo = await api.getPayerPrepaymentLots(payerId);
+        prepaymentLots = prepaymentInfo.lots || [];
+        prepaymentTotalBalance = Number(prepaymentInfo.total_balance || 0);
+      } catch (e) {
+        console.error('加载付款方预存余额失败:', e);
+      }
+    }
     setCustomerSearchQuery(customerName);
     setSettlementForm({
+      settlement_method: 'invoice',
       invoice_date: '',
       invoice_amount: '',
       remarks: '',
       customer_id: firstItem.customer_id || '',
       customer_name: customerName,
       customer_nature: firstItem.customer_nature || '',
+      payer_id: payerId,
       assignee_id: firstItem.current_assignee || '',
-      invoice_number: ''
+      invoice_number: '',
+      prepayment_lots: prepaymentLots,
+      prepayment_total_balance: prepaymentTotalBalance
     });
 
     // 加载业务人员选项
@@ -3124,20 +3150,34 @@ const CommissionForm = () => {
     const rawInv = settlementForm.invoice_amount;
     const invoiceAmountNum =
       rawInv === '' || rawInv === null || rawInv === undefined ? NaN : parseFloat(String(rawInv).trim());
+    const paymentMethod = settlementForm.settlement_method || 'invoice';
+    const needsInvoiceFields = paymentMethod === 'invoice' || paymentMethod === 'mixed';
+    const prepaymentBalance = Number(settlementForm.prepayment_total_balance || 0);
+    const prepaidUsedAmount = Math.min(prepaymentBalance, Number.isFinite(invoiceAmountNum) ? invoiceAmountNum : 0);
+    const newInvoiceAmount = Math.max((Number.isFinite(invoiceAmountNum) ? invoiceAmountNum : 0) - prepaymentBalance, 0);
     if (
-      !settlementForm.invoice_number ||
-      !settlementForm.invoice_date ||
+      (needsInvoiceFields && (!settlementForm.invoice_number || !settlementForm.invoice_date)) ||
       !Number.isFinite(invoiceAmountNum) ||
       invoiceAmountNum < 0 ||
       (!settlementForm.customer_id && !settlementForm.customer_name)
     ) {
-      alert('请填写必填项：票号、开票日期、开票金额（可为0）和开票单位');
+      alert(needsInvoiceFields
+        ? '请填写必填项：票号、开票日期、结算金额（可为0）和开票单位'
+        : '请填写必填项：结算金额（可为0）和开票单位');
       return;
     }
 
     // 验证票号格式（20-30位数字）
-    if (!/^\d{20,30}$/.test(settlementForm.invoice_number)) {
+    if (needsInvoiceFields && !/^\d{20,30}$/.test(settlementForm.invoice_number)) {
       alert('票号必须是20-30位数字');
+      return;
+    }
+    if (paymentMethod === 'prepaid' && prepaymentBalance < invoiceAmountNum) {
+      alert('预存余额不足，请选择组合支付');
+      return;
+    }
+    if (paymentMethod === 'mixed' && newInvoiceAmount <= 0) {
+      alert('预存余额足够，无需组合支付。请选择余额支付，或选择纯开票支付。');
       return;
     }
 
@@ -3186,14 +3226,16 @@ const CommissionForm = () => {
 
     try {
       await api.createSettlement({
+        settlement_method: paymentMethod,
         invoice_number: settlementForm.invoice_number || null,
-        invoice_date: settlementForm.invoice_date,
+        invoice_date: settlementForm.invoice_date || new Date().toISOString().slice(0, 10),
         order_ids: settlementOrderIds,
         invoice_amount: invoiceAmountNum,
         remarks: settlementForm.remarks || null,
         customer_id: settlementForm.customer_id || null,
         customer_name: settlementForm.customer_name || null,
         customer_nature: settlementForm.customer_nature || null,
+        payer_id: settlementForm.payer_id || null,
         assignee_id: settlementForm.assignee_id || null,
         test_item_ids: test_item_ids,
         test_item_amounts: test_item_amounts
@@ -3202,14 +3244,18 @@ const CommissionForm = () => {
       // 先关闭模态框和重置表单
       setShowSettlementModal(false);
       setSettlementForm({
+        settlement_method: 'invoice',
         invoice_date: '',
         invoice_amount: '',
         remarks: '',
         customer_id: '',
         customer_name: '',
         customer_nature: '',
+        payer_id: '',
         assignee_id: '',
-        invoice_number: ''
+        invoice_number: '',
+        prepayment_lots: [],
+        prepayment_total_balance: 0
       });
       setCustomerSearchQuery('');
       setSettlementOrderIds('');
@@ -4227,7 +4273,7 @@ const CommissionForm = () => {
   return (
     <div className="commission-form">
       {/* 搜索和筛选区域 - 首行 */}
-      <div className="filters">
+      <div className={`filters ${showSettlementModal ? 'filters-behind-modal' : ''}`}>
         <div className="filter-row">
           <div className="filter-group search-group">
             <label>搜索:</label>
@@ -6679,8 +6725,16 @@ const CommissionForm = () => {
 
       {/* 费用结算模态框 */}
       {showSettlementModal && (
-        <div className="file-modal-overlay" onClick={() => setShowSettlementModal(false)}>
-          <div className="file-modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '600px' }}>
+        <div
+          className="file-modal-overlay"
+          style={{ zIndex: 50000 }}
+          onClick={() => setShowSettlementModal(false)}
+        >
+          <div
+            className="file-modal-content"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: '600px', zIndex: 50001 }}
+          >
             <div className="file-modal-header">
               <h3>费用结算</h3>
               <button className="close-button" onClick={() => setShowSettlementModal(false)}>×</button>
@@ -6689,20 +6743,74 @@ const CommissionForm = () => {
               <div style={{ padding: '10px', backgroundColor: '#f0f0f0', borderRadius: '4px', marginBottom: '10px' }}>
                 <strong>委托单号组：</strong>{settlementOrderIds || '无'}
               </div>
-              <div style={{ position: 'relative', marginBottom: '15px' }}>
+              <div style={{ marginBottom: '15px' }}>
                 <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
-                  票号 <span style={{ color: 'red' }}>*</span>
+                  结算方式 <span style={{ color: 'red' }}>*</span>
                 </label>
-                <input
-                  type="text"
-                  className="input"
-                  value={settlementForm.invoice_number}
-                  onChange={(e) => setSettlementForm({ ...settlementForm, invoice_number: e.target.value })}
-                  placeholder="输入票号（20-30位数字）"
-                  style={{ width: '100%', padding: '8px' }}
-                  maxLength={30}
-                />
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  {[
+                    { value: 'invoice', label: '纯开票支付' },
+                    { value: 'prepaid', label: '余额支付' },
+                    { value: 'mixed', label: '组合支付' }
+                  ].map(option => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      className={settlementForm.settlement_method === option.value ? 'btn btn-primary' : 'btn btn-secondary'}
+                      onClick={() => setSettlementForm({ ...settlementForm, settlement_method: option.value })}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
               </div>
+              {settlementForm.settlement_method !== 'invoice' && (
+                <div style={{ padding: '10px', backgroundColor: '#f7fbff', border: '1px solid #d7e8ff', borderRadius: '4px', marginBottom: '15px' }}>
+                  <div style={{ marginBottom: '6px' }}>
+                    <strong>付款方预存总余额：</strong>{formatCurrency(settlementForm.prepayment_total_balance || 0)}
+                  </div>
+                  {(settlementForm.prepayment_lots || []).length === 0 ? (
+                    <div style={{ color: '#dc3545' }}>当前付款方暂无可用预存票余额。</div>
+                  ) : (
+                    <div style={{ display: 'grid', gap: '4px' }}>
+                      {(settlementForm.prepayment_lots || []).map(lot => (
+                        <div key={lot.settlement_id} style={{ fontSize: '13px', color: '#555' }}>
+                          票号 {lot.invoice_number}：剩余 {formatCurrency(lot.remaining_amount)}，开票日期 {lot.invoice_date ? formatDate(lot.invoice_date) : '-'}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {(() => {
+                    const total = Number(settlementForm.invoice_amount || 0);
+                    const balance = Number(settlementForm.prepayment_total_balance || 0);
+                    const prepaid = Math.min(total, balance);
+                    const deficit = Math.max(total - balance, 0);
+                    return total > 0 ? (
+                      <div style={{ marginTop: '8px', fontSize: '13px' }}>
+                        本次预计余额抵扣 {formatCurrency(prepaid)}
+                        {deficit > 0 && <span style={{ color: '#dc3545' }}>，余额不足，还需新开票 {formatCurrency(deficit)}</span>}
+                      </div>
+                    ) : null;
+                  })()}
+                </div>
+              )}
+              {(settlementForm.settlement_method === 'invoice' || settlementForm.settlement_method === 'mixed') && (
+                <div style={{ position: 'relative', marginBottom: '15px' }}>
+                  <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
+                    {settlementForm.settlement_method === 'mixed' ? '不足部分新开票号' : '票号'} <span style={{ color: 'red' }}>*</span>
+                  </label>
+                  <input
+                    type="text"
+                    className="input"
+                    value={settlementForm.invoice_number}
+                    onChange={(e) => setSettlementForm({ ...settlementForm, invoice_number: e.target.value })}
+                    placeholder="输入票号（20-30位数字）"
+                    style={{ width: '100%', padding: '8px' }}
+                    maxLength={30}
+                  />
+                </div>
+              )}
+              {(settlementForm.settlement_method === 'invoice' || settlementForm.settlement_method === 'mixed') && (
               <div style={{ position: 'relative', marginBottom: '15px' }}>
                 <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
                   开票单位 <span style={{ color: 'red' }}>*</span>
@@ -6758,6 +6866,8 @@ const CommissionForm = () => {
                   </div>
                 )}
               </div>
+              )}
+              {(settlementForm.settlement_method === 'invoice' || settlementForm.settlement_method === 'mixed') && (
               <div style={{ marginBottom: '15px' }}>
                 <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
                   企业性质
@@ -6777,9 +6887,11 @@ const CommissionForm = () => {
                   <option value="研究所">研究所</option>
                 </select>
               </div>
+              )}
+              {(settlementForm.settlement_method === 'invoice' || settlementForm.settlement_method === 'mixed') && (
               <div style={{ marginBottom: '15px' }}>
                 <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
-                  开票日期 <span style={{ color: 'red' }}>*</span>
+                  {settlementForm.settlement_method === 'mixed' ? '不足部分开票日期' : '开票日期'} <span style={{ color: 'red' }}>*</span>
                 </label>
                 <input
                   type="date"
@@ -6789,9 +6901,10 @@ const CommissionForm = () => {
                   style={{ width: '100%', padding: '8px' }}
                 />
               </div>
+              )}
               <div style={{ marginBottom: '15px' }}>
                 <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
-                  开票金额 <span style={{ color: 'red' }}>*</span>
+                  结算金额 <span style={{ color: 'red' }}>*</span>
                 </label>
                 <input
                   type="number"

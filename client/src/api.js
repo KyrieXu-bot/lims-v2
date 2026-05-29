@@ -703,6 +703,34 @@ export const api = {
     const r = await fetch(`${API_BASE}/api/settlements/assignees`, { headers: this.authHeaders() });
     return readApiJson(r, '获取业务人员列表失败');
   },
+  async updateSettlement(data, settlementId) {
+    const r = await fetch(`${API_BASE}/api/settlements/${settlementId}`, {
+      method: 'PUT',
+      headers: this.authHeaders(),
+      body: JSON.stringify(data)
+    });
+    return readApiJson(r, '更新结算记录失败');
+  },
+  async approveSettlement(settlementId, data) {
+    const r = await fetch(`${API_BASE}/api/settlements/${settlementId}/approval`, {
+      method: 'POST',
+      headers: this.authHeaders(),
+      body: JSON.stringify(data)
+    });
+    return readApiJson(r, '审批结算记录失败');
+  },
+  async getPayerPrepaymentLots(payerId) {
+    const r = await fetch(`${API_BASE}/api/settlements/payers/${payerId}/prepayment-lots`, { headers: this.authHeaders() });
+    return readApiJson(r, '获取付款方预存余额失败');
+  },
+  async getPayerOptions() {
+    const r = await fetch(`${API_BASE}/api/payers/options`, { headers: this.authHeaders() });
+    return readApiJson(r, '获取付款方列表失败');
+  },
+  async getPayerLedger(payerId) {
+    const r = await fetch(`${API_BASE}/api/payers/${payerId}/ledger`, { headers: this.authHeaders() });
+    return readApiJson(r, '获取付款方流水失败');
+  },
 
   // 转单管理API
   async getOrderTransferChain(orderId) {

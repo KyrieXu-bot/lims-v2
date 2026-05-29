@@ -52,6 +52,16 @@
   z-index: 12000; /* 整体置于表格/固定列之上 */
 }
 
+.filters.filters-behind-modal {
+  z-index: 1 !important;
+}
+
+.filters.filters-behind-modal .status-multiselect-wrapper,
+.filters.filters-behind-modal .status-dropdown,
+.filters.filters-behind-modal .filter-group:has(.status-multiselect-wrapper) {
+  z-index: 1 !important;
+}
+
 .filter-row {
   display: flex;
   gap: 12px;
@@ -798,10 +808,12 @@
   display: flex;
   justify-content: center;
   align-items: center;
-  z-index: 20000; /* 覆盖筛选栏与表格，确保搜索栏被遮挡变灰 */
+  z-index: 50000; /* 覆盖筛选栏、状态下拉、顶部导航与表格固定列 */
 }
 
 .file-modal-content {
+  position: relative;
+  z-index: 50001;
   background: white;
   border-radius: 8px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
