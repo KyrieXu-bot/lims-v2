@@ -487,6 +487,56 @@ export const api = {
     return readApiJson(r, 'Fetch failed');
   },
 
+  // equipment bookings
+  async listBookingDepartments() {
+    const r = await fetch(`${API_BASE}/api/equipment-bookings/departments`, { headers: this.authHeaders() });
+    return readApiJson(r, 'Fetch failed');
+  },
+  async listBookingEquipment({ q = '', department_id = '' } = {}) {
+    const params = new URLSearchParams();
+    if (q) params.set('q', q);
+    if (department_id) params.set('department_id', department_id);
+    const r = await fetch(`${API_BASE}/api/equipment-bookings/equipment?${params.toString()}`, { headers: this.authHeaders() });
+    return readApiJson(r, 'Fetch failed');
+  },
+  async listEquipmentBookings({ from = '', to = '', equipment_id = '', department_id = '', mine = false } = {}) {
+    const params = new URLSearchParams();
+    if (from) params.set('from', from);
+    if (to) params.set('to', to);
+    if (equipment_id) params.set('equipment_id', equipment_id);
+    if (department_id) params.set('department_id', department_id);
+    if (mine) params.set('mine', 'true');
+    const r = await fetch(`${API_BASE}/api/equipment-bookings?${params.toString()}`, { headers: this.authHeaders() });
+    return readApiJson(r, 'Fetch failed');
+  },
+  async createEquipmentBooking(payload) {
+    const r = await fetch(`${API_BASE}/api/equipment-bookings`, {
+      method: 'POST',
+      headers: this.authHeaders(),
+      body: JSON.stringify(payload)
+    });
+    return readApiJson(r, 'Create failed');
+  },
+  async updateEquipmentBooking(id, payload) {
+    const r = await fetch(`${API_BASE}/api/equipment-bookings/${id}`, {
+      method: 'PUT',
+      headers: this.authHeaders(),
+      body: JSON.stringify(payload)
+    });
+    return readApiJson(r, 'Update failed');
+  },
+  async cancelEquipmentBooking(id) {
+    const r = await fetch(`${API_BASE}/api/equipment-bookings/${id}/cancel`, {
+      method: 'POST',
+      headers: this.authHeaders()
+    });
+    return readApiJson(r, 'Cancel failed');
+  },
+  async getBookingOrderTestItems(orderId) {
+    const r = await fetch(`${API_BASE}/api/equipment-bookings/order/${encodeURIComponent(orderId)}/test-items`, { headers: this.authHeaders() });
+    return readApiJson(r, 'Fetch failed');
+  },
+
   // sample tracking
   async listSampleTracking({ q = '', page = 1, pageSize = 20, status, lab_type, order_id } = {}) {
     const params = new URLSearchParams({ q, page, pageSize });

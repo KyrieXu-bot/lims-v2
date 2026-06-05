@@ -20,6 +20,7 @@ import OrderDelete from './pages/orders/OrderDelete.jsx';
 import CommissionForm from './pages/commission/CommissionForm.jsx';
 import ReportManagement from './pages/reports/ReportManagement.jsx';
 import EquipmentList from './pages/commission/EquipmentList.jsx';
+import EquipmentBooking from './pages/equipment_booking/EquipmentBooking.jsx';
 import Statistics from './pages/statistics/Statistics.jsx';
 import SettlementManagement from './pages/settlements/SettlementManagement.jsx';
 import Profile from './pages/Profile.jsx';
@@ -78,6 +79,7 @@ function Layout({ children }) {
               )}
               {/* 平台设备清单 - 所有角色都可以看到 */}
               <NavLink to="/equipment-list" className={({isActive})=>isActive?'active':''}>平台设备清单</NavLink>
+              <NavLink to="/equipment-booking" className={({isActive})=>isActive?'active':''}>设备预约</NavLink>
               {/* 管理员可以看到价目表 */}
               {user.role === 'admin' && (
                 <NavLink to="/price" className={({isActive})=>isActive?'active':''}>价目表</NavLink>
@@ -212,6 +214,7 @@ export default function App() {
       <Route path="/statistics" element={<PCRouteWrapper><Layout><Statistics/></Layout></PCRouteWrapper>} />
       <Route path="/settlements" element={<PCRouteWrapper><Layout><SettlementManagement/></Layout></PCRouteWrapper>} />
       <Route path="/equipment-list" element={<PCRouteWrapper><Layout><EquipmentList/></Layout></PCRouteWrapper>} />
+      <Route path="/equipment-booking" element={<PCRouteWrapper><Layout><EquipmentBooking/></Layout></PCRouteWrapper>} />
       <Route path="/profile" element={<PCRouteWrapper><Layout><Profile/></Layout></PCRouteWrapper>} />
       <Route path="/notifications" element={<PCRouteWrapper><Layout><Notifications/></Layout></PCRouteWrapper>} />
       <Route path="/" element={<RootRedirect />} />
