@@ -522,8 +522,14 @@ router.put('/:id', requireRole(EDIT_ROLES), async (req, res) => {
       if (isBusinessConfirmed) {
         // 价格确认后仅放开状态流转和备注字段，其他字段保持锁定（管理员可改开票相关字段）
         const allowedAfterConfirm = new Set(['status', 'assignment_note', 'test_notes', 'business_note']);
-        if (req.user.role === 'admin') {
+        const userRoles = new Set([req.user.role, ...(Array.isArray(req.user.roles) ? req.user.roles : [])]);
+        if (userRoles.has('admin')) {
           ['invoice_prefill_price', 'invoice_note', 'invoice_prefill_confirmed', 'invoice_status'].forEach((k) =>
+            allowedAfterConfirm.add(k)
+          );
+        }
+        if (userRoles.has('sales')) {
+          ['invoice_prefill_price', 'invoice_prefill_confirmed'].forEach((k) =>
             allowedAfterConfirm.add(k)
           );
         }
@@ -557,6 +563,16 @@ router.put('/:id', requireRole(EDIT_ROLES), async (req, res) => {
         const num = Number(value);
         return Number.isFinite(num) && num >= 0;
       };
+      const mergedBusinessConfirmed = hasField('business_confirmed')
+        ? (business_confirmed === 1 || business_confirmed === true || business_confirmed === '1')
+        : isBusinessConfirmed;
+      const mergedFinalUnitPrice = hasField('final_unit_price') ? final_unit_price : oldData.final_unit_price;
+      const hasConfirmedFinalPrice = mergedBusinessConfirmed && hasNonNegativeNumber(mergedFinalUnitPrice);
+      const invoicePrefillTouched = hasField('invoice_prefill_price') || hasField('invoice_prefill_confirmed');
+      if (invoicePrefillTouched && !hasConfirmedFinalPrice) {
+        await pool.query('ROLLBACK');
+        return res.status(400).json({ error: '请先确认测试总价后，再修改或确认开票预填价' });
+      }
       const mergedEstimatedDeliveryDate = hasField('estimated_delivery_date')
         ? processDate(estimated_delivery_date)
         : oldData.estimated_delivery_date;
@@ -684,7 +700,16 @@ router.put('/:id', requireRole(EDIT_ROLES), async (req, res) => {
       addUpdate('addon_reason', addon_reason);
       addUpdate('addon_target', addon_target);
       // 添加开票相关字段
-      addUpdate('invoice_prefill_price', invoice_prefill_price);
+      const shouldSyncInvoicePrefillFromFinal =
+        hasConfirmedFinalPrice &&
+        (hasField('business_confirmed') || hasField('final_unit_price')) &&
+        !hasField('invoice_prefill_price');
+      if (shouldSyncInvoicePrefillFromFinal) {
+        updateFields.push('invoice_prefill_price = ?');
+        updateValues.push(Number(mergedFinalUnitPrice));
+      } else {
+        addUpdate('invoice_prefill_price', invoice_prefill_price);
+      }
       addUpdate('invoice_prefill_confirmed', invoice_prefill_confirmed);
       addUpdate('invoice_status', invoice_status);
       

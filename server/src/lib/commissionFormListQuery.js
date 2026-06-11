@@ -116,6 +116,7 @@ export const COMMISSION_FORM_LIST_SELECT_JOINS = `
         s.settlement_id AS __settlement_alloc_id,
         s.invoice_amount AS __settlement_invoice_amount,
         s.test_item_ids AS __settlement_test_item_ids,
+        sia_sum.allocated_amount AS __settlement_item_allocated_amount,
         s.invoice_number,
         s.invoice_date as settlement_invoice_date,
         COALESCE(s.customer_name, c_settlement.customer_name) as settlement_customer_name
@@ -143,6 +144,11 @@ export const COMMISSION_FORM_LIST_SELECT_JOINS = `
         GROUP BY test_item_id
       ) pf ON pf.test_item_id = ti.test_item_id
       LEFT JOIN settlements s ON s.settlement_type = 'invoice' AND JSON_CONTAINS(s.test_item_ids, CAST(ti.test_item_id AS JSON), '$')
+      LEFT JOIN (
+        SELECT settlement_id, test_item_id, SUM(amount) AS allocated_amount
+        FROM settlement_item_payment_allocations
+        GROUP BY settlement_id, test_item_id
+      ) sia_sum ON sia_sum.settlement_id = s.settlement_id AND sia_sum.test_item_id = ti.test_item_id
       LEFT JOIN customers c_settlement ON c_settlement.customer_id = s.customer_id`;
 
 /**

@@ -1,0 +1,76 @@
+.payer-ledger-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  background: var(--white);
+}
+
+.payer-ledger-table {
+  min-width: 1420px;
+  table-layout: fixed;
+  margin-bottom: 0;
+  box-shadow: none;
+}
+
+.payer-ledger-table th,
+.payer-ledger-table td {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.payer-ledger-table th:nth-child(1),
+.payer-ledger-table td:nth-child(1) {
+  width: 190px;
+}
+
+.payer-ledger-table th:nth-child(2),
+.payer-ledger-table td:nth-child(2) {
+  width: 135px;
+}
+
+.payer-ledger-table th:nth-child(3),
+.payer-ledger-table td:nth-child(3) {
+  width: 80px;
+}
+
+.payer-ledger-table th:nth-child(4),
+.payer-ledger-table td:nth-child(4) {
+  width: 130px;
+}
+
+.payer-ledger-table th:nth-child(5),
+.payer-ledger-table td:nth-child(5) {
+  width: 140px;
+}
+
+.payer-ledger-table th:nth-child(6),
+.payer-ledger-table td:nth-child(6) {
+  width: 220px;
+}
+
+.payer-ledger-table th:nth-child(7),
+.payer-ledger-table td:nth-child(7) {
+  width: 230px;
+}
+
+.payer-ledger-table th:nth-child(8),
+.payer-ledger-table td:nth-child(8) {
+  width: 260px;
+}
+
+.payer-ledger-table th:nth-child(9),
+.payer-ledger-table td:nth-child(9) {
+  width: 120px;
+}
+
+.payer-ledger-detail-link {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  word-break: normal;
+  vertical-align: middle;
+}

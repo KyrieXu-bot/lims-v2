@@ -26,7 +26,7 @@ router.get('/options', async (req, res) => {
 
 // list with join
 router.get('/', async (req, res) => {
-  const { q = '', page = 1, pageSize = 20, is_active } = req.query;
+  const { q = '', page = 1, pageSize = 20, is_active, customer_id } = req.query;
   const offset = (Number(page)-1) * Number(pageSize);
   const pool = await getPool();
   const like = `%${q}%`;
@@ -39,6 +39,10 @@ router.get('/', async (req, res) => {
     filters.push('p.is_active = ?');
     params.push(Number(is_active));
   }
+  if (customer_id !== undefined && String(customer_id).trim() !== '') {
+    filters.push('p.customer_id = ?');
+    params.push(customer_id);
+  }
   const where = 'WHERE ' + filters.join(' AND ');
 
   const [rows] = await pool.query(
@@ -50,6 +54,7 @@ router.get('/', async (req, res) => {
        COALESCE(b.settlement_debit_amount, 0) AS settlement_debit_amount,
        COALESCE(b.receipt_credit_amount, 0) AS receipt_credit_amount,
        COALESCE(b.current_balance, 0) AS current_balance,
+       COALESCE(us.unsettled_amount, 0) AS unsettled_amount,
        COALESCE(ps.pending_settlement_amount, 0) AS pending_settlement_amount
      FROM payers p
      JOIN customers c ON c.customer_id = p.customer_id
@@ -65,11 +70,25 @@ router.get('/', async (req, res) => {
        GROUP BY payer_id
      ) b ON b.payer_id = p.payer_id
      LEFT JOIN (
-       SELECT payer_id, SUM(invoice_amount) AS pending_settlement_amount
+       SELECT payer_id, SUM(GREATEST(COALESCE(invoice_amount, 0) - COALESCE(received_amount, 0), 0)) AS pending_settlement_amount
        FROM settlements
-       WHERE settlement_type = 'invoice' AND approval_status = 'pending'
+       WHERE settlement_type = 'invoice'
+         AND invoice_number IS NOT NULL
+         AND invoice_number <> ''
+         AND payment_status IN ('未到款', '部分到款')
        GROUP BY payer_id
      ) ps ON ps.payer_id = p.payer_id
+     LEFT JOIN (
+       SELECT o.payer_id, SUM(COALESCE(ti.final_unit_price, 0)) AS unsettled_amount
+       FROM test_items ti
+       JOIN orders o ON o.order_id = ti.order_id
+       WHERE o.payer_id IS NOT NULL
+         AND (ti.business_confirmed = 1 OR ti.business_confirmed = '1')
+         AND ti.final_unit_price IS NOT NULL
+         AND COALESCE(ti.invoice_status, '未结算') = '未结算'
+         AND ti.status != 'cancelled'
+       GROUP BY o.payer_id
+     ) us ON us.payer_id = p.payer_id
      ${where}
      ORDER BY p.payer_id DESC
      LIMIT ? OFFSET ?`, [...params, Number(pageSize), offset]
@@ -105,9 +124,24 @@ router.get('/:id/ledger', async (req, res) => {
     [req.params.id]
   );
   const [pendingRows] = await pool.query(
-    `SELECT COALESCE(SUM(invoice_amount), 0) AS pending_settlement_amount
+    `SELECT COALESCE(SUM(GREATEST(COALESCE(invoice_amount, 0) - COALESCE(received_amount, 0), 0)), 0) AS pending_settlement_amount
      FROM settlements
-     WHERE payer_id = ? AND settlement_type = 'invoice' AND approval_status = 'pending'`,
+     WHERE payer_id = ?
+       AND settlement_type = 'invoice'
+       AND invoice_number IS NOT NULL
+       AND invoice_number <> ''
+       AND payment_status IN ('未到款', '部分到款')`,
+    [req.params.id]
+  );
+  const [unsettledRows] = await pool.query(
+    `SELECT COALESCE(SUM(COALESCE(ti.final_unit_price, 0)), 0) AS unsettled_amount
+     FROM test_items ti
+     JOIN orders o ON o.order_id = ti.order_id
+     WHERE o.payer_id = ?
+       AND (ti.business_confirmed = 1 OR ti.business_confirmed = '1')
+       AND ti.final_unit_price IS NOT NULL
+       AND COALESCE(ti.invoice_status, '未结算') = '未结算'
+       AND ti.status != 'cancelled'`,
     [req.params.id]
   );
   const [transactions] = await pool.query(
@@ -132,6 +166,7 @@ router.get('/:id/ledger', async (req, res) => {
     payer: payerRows[0],
     summary: {
       ...summaryRows[0],
+      unsettled_amount: unsettledRows[0]?.unsettled_amount || 0,
       pending_settlement_amount: pendingRows[0]?.pending_settlement_amount || 0
     },
     transactions

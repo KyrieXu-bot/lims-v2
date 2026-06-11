@@ -459,6 +459,9 @@ const CommissionForm = () => {
   const [customerSearchResults, setCustomerSearchResults] = useState([]);
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const [settlementAssigneeOptions, setSettlementAssigneeOptions] = useState([]);
+  const [showAllocationModal, setShowAllocationModal] = useState(false);
+  const [allocationDetail, setAllocationDetail] = useState(null);
+  const [allocationLoading, setAllocationLoading] = useState(false);
   // 取消/删除申请相关状态
   const [showCancellationModal, setShowCancellationModal] = useState(false);
   const [cancellationItem, setCancellationItem] = useState(null);
@@ -990,6 +993,26 @@ const CommissionForm = () => {
       item.business_confirmed === true ||
       item.business_confirmed === '1');
 
+  const hasValidFinalUnitPrice = (item) => {
+    if (!item || item.final_unit_price === null || item.final_unit_price === undefined || item.final_unit_price === '') {
+      return false;
+    }
+    const value = Number(item.final_unit_price);
+    return Number.isFinite(value) && value >= 0;
+  };
+
+  const canUseFinalPriceForInvoice = (item) => isItemBusinessConfirmed(item) && hasValidFinalUnitPrice(item);
+
+  const getInvoicePrefillPriceValue = (item) => {
+    if (item?.invoice_prefill_price !== null && item?.invoice_prefill_price !== undefined && item?.invoice_prefill_price !== '') {
+      return Number(item.invoice_prefill_price);
+    }
+    if (canUseFinalPriceForInvoice(item)) {
+      return Number(item.final_unit_price);
+    }
+    return null;
+  };
+
   const canEditField = (field, item = null) => {
     const role = user?.role;
     if (!role) return false;
@@ -1015,8 +1038,13 @@ const CommissionForm = () => {
       } else if (['assignment_note', 'test_notes', 'business_note'].includes(field)) {
         // 放开三类备注，继续走角色权限判断
       } else if (
+        (role === 'admin' || role === 'sales') &&
+        ['invoice_prefill_price', 'invoice_prefill_confirmed'].includes(field)
+      ) {
+        return true;
+      } else if (
         role === 'admin' &&
-        ['invoice_prefill_price', 'invoice_note', 'invoice_prefill_confirmed'].includes(field)
+        field === 'invoice_note'
       ) {
         return true;
       } else {
@@ -1030,7 +1058,7 @@ const CommissionForm = () => {
       return canLeaderEditItem(item);
     }
     if (role === 'sales') {
-      return ['final_unit_price', 'business_note'].includes(field);
+      return ['final_unit_price', 'business_note', 'invoice_prefill_price', 'invoice_prefill_confirmed'].includes(field);
     }
     if (role === 'employee') {
       return [
@@ -2169,9 +2197,9 @@ const CommissionForm = () => {
         '票号': item.invoice_number || '',
         '开票日期': item.settlement_invoice_date ? formatDate(item.settlement_invoice_date) : '',
         '开票客户名称': item.settlement_customer_name || '',
-        '开票预填价': item.invoice_prefill_price !== null && item.invoice_prefill_price !== undefined 
-          ? formatCurrencyPlain(item.invoice_prefill_price)
-          : (calculateInvoicePrefillPrice(item) !== null ? formatCurrencyPlain(calculateInvoicePrefillPrice(item)) : ''),
+        '开票预填价': getInvoicePrefillPriceValue(item) !== null
+          ? formatCurrencyPlain(getInvoicePrefillPriceValue(item))
+          : '',
         '开票金额': formatCurrencyPlain(item.unpaid_amount),
         '开票备注': item.invoice_note || '',
         '开票状态': item.invoice_status || '未结算'
@@ -3047,6 +3075,29 @@ const CommissionForm = () => {
   };
 
   // 结算相关函数
+  const handleShowAllocationDetail = async (item) => {
+    if (!item?.test_item_id) return;
+    setShowAllocationModal(true);
+    setAllocationLoading(true);
+    setAllocationDetail({
+      item,
+      total_amount: 0,
+      allocations: []
+    });
+    try {
+      const detail = await api.getSettlementItemPaymentAllocations(item.test_item_id);
+      setAllocationDetail({
+        item,
+        ...detail
+      });
+    } catch (error) {
+      alert('获取结算分摊明细失败：' + error.message);
+      setShowAllocationModal(false);
+    } finally {
+      setAllocationLoading(false);
+    }
+  };
+
   const handleSettlementClick = async () => {
     if (selectedItems.length === 0) {
       alert('请先选择要结算的检测项目');
@@ -3064,6 +3115,12 @@ const CommissionForm = () => {
     }
 
     // 获取所有委托单号（去重）
+    const invalidFinalPriceItems = selectedData.filter(item => !canUseFinalPriceForInvoice(item));
+    if (invalidFinalPriceItems.length > 0) {
+      alert('存在未确认测试总价的检测项目，不能发起结算。请先确认业务测试总价。');
+      return;
+    }
+
     const orderIds = [...new Set(selectedData.map(item => item.order_id))];
     setSettlementOrderIds(orderIds.join('-'));
 
@@ -3151,27 +3208,18 @@ const CommissionForm = () => {
     const invoiceAmountNum =
       rawInv === '' || rawInv === null || rawInv === undefined ? NaN : parseFloat(String(rawInv).trim());
     const paymentMethod = settlementForm.settlement_method || 'invoice';
-    const needsInvoiceFields = paymentMethod === 'invoice' || paymentMethod === 'mixed';
     const prepaymentBalance = Number(settlementForm.prepayment_total_balance || 0);
     const prepaidUsedAmount = Math.min(prepaymentBalance, Number.isFinite(invoiceAmountNum) ? invoiceAmountNum : 0);
     const newInvoiceAmount = Math.max((Number.isFinite(invoiceAmountNum) ? invoiceAmountNum : 0) - prepaymentBalance, 0);
     if (
-      (needsInvoiceFields && (!settlementForm.invoice_number || !settlementForm.invoice_date)) ||
       !Number.isFinite(invoiceAmountNum) ||
       invoiceAmountNum < 0 ||
       (!settlementForm.customer_id && !settlementForm.customer_name)
     ) {
-      alert(needsInvoiceFields
-        ? '请填写必填项：票号、开票日期、结算金额（可为0）和开票单位'
-        : '请填写必填项：结算金额（可为0）和开票单位');
+      alert('请填写必填项：结算金额（可为0）和开票单位');
       return;
     }
 
-    // 验证票号格式（20-30位数字）
-    if (needsInvoiceFields && !/^\d{20,30}$/.test(settlementForm.invoice_number)) {
-      alert('票号必须是20-30位数字');
-      return;
-    }
     if (paymentMethod === 'prepaid' && prepaymentBalance < invoiceAmountNum) {
       alert('预存余额不足，请选择组合支付');
       return;
@@ -3194,21 +3242,16 @@ const CommissionForm = () => {
     }
 
     // 验证：检查是否有开票预填价为空的项目
-    const emptyPrefillItems = selectedData.filter(item => {
-      const prefillPrice = item.invoice_prefill_price !== null && item.invoice_prefill_price !== undefined
-        ? item.invoice_prefill_price
-        : calculateInvoicePrefillPrice(item);
-      return prefillPrice === null;
-    });
+    const emptyPrefillItems = selectedData.filter(item => !canUseFinalPriceForInvoice(item));
     
     if (emptyPrefillItems.length > 0) {
-      alert('有检测项目的开票预填价为空，无法结算。请确保所有项目都已填写必需的字段（标准单价、计费数量、折扣）。');
+      alert('存在未确认测试总价的检测项目，不能发起结算。请先确认业务测试总价。');
       return;
     }
     
     // 验证：检查是否有已结算的项目
     const settledItems = selectedData.filter(item => 
-      item.invoice_status === '已结算' || item.invoice_status === '已到账'
+      ['已申请', '已开票', '已到账'].includes(item.invoice_status)
     );
     
     if (settledItems.length > 0) {
@@ -3217,24 +3260,22 @@ const CommissionForm = () => {
     }
     
     const test_item_ids = selectedData.map(item => item.test_item_id);
-    // 使用开票预填价作为分配依据
+    // 使用业务已确认的测试总价作为分配依据
     const test_item_amounts = selectedData.map(item => {
-      return item.invoice_prefill_price !== null && item.invoice_prefill_price !== undefined
-        ? item.invoice_prefill_price
-        : calculateInvoicePrefillPrice(item);
+      return getInvoicePrefillPriceValue(item);
     });
 
     try {
       await api.createSettlement({
         settlement_method: paymentMethod,
-        invoice_number: settlementForm.invoice_number || null,
-        invoice_date: settlementForm.invoice_date || new Date().toISOString().slice(0, 10),
+        invoice_number: null,
+        invoice_date: null,
         order_ids: settlementOrderIds,
         invoice_amount: invoiceAmountNum,
         remarks: settlementForm.remarks || null,
         customer_id: settlementForm.customer_id || null,
         customer_name: settlementForm.customer_name || null,
-        customer_nature: settlementForm.customer_nature || null,
+        customer_nature: null,
         payer_id: settlementForm.payer_id || null,
         assignee_id: settlementForm.assignee_id || null,
         test_item_ids: test_item_ids,
@@ -3400,6 +3441,10 @@ const CommissionForm = () => {
     if (window.confirm('是否确认？确认后不可更改')) {
       try {
         const userLocal = JSON.parse(localStorage.getItem('lims_user') || 'null');
+        if (!hasValidFinalUnitPrice(item)) {
+          alert('请先填写有效的测试总价');
+          return;
+        }
         
         // 确认价格时，同时计算并保存lab_price
         const calculatedLabPrice = calculateLabPrice(
@@ -3407,7 +3452,10 @@ const CommissionForm = () => {
           item.line_total,
           item.group_id
         );
-        const updatePayload = { business_confirmed: 1 };
+        const updatePayload = {
+          business_confirmed: 1,
+          invoice_prefill_price: Number(item.final_unit_price)
+        };
         if (calculatedLabPrice !== null) {
           updatePayload.lab_price = calculatedLabPrice;
         }
@@ -3422,7 +3470,11 @@ const CommissionForm = () => {
         // Update local state
         setData(prev => prev.map(x => {
           if (x.test_item_id === item.test_item_id) {
-            const updated = { ...x, business_confirmed: 1 };
+            const updated = {
+              ...x,
+              business_confirmed: 1,
+              invoice_prefill_price: Number(item.final_unit_price)
+            };
             if (calculatedLabPrice !== null) {
               updated.lab_price = calculatedLabPrice;
             }
@@ -3493,7 +3545,10 @@ const CommissionForm = () => {
         const isStatusField = field === 'status';
         const isAllowedNoteField = ['assignment_note', 'test_notes', 'business_note'].includes(field);
         const isAdminInvoiceField = allowedWhenLocked.includes(field) && user?.role === 'admin';
-        if (!isStatusField && !isAllowedNoteField && !isAdminInvoiceField) {
+        const isSalesInvoicePriceField =
+          ['invoice_prefill_price', 'invoice_prefill_confirmed'].includes(field) &&
+          user?.role === 'sales';
+        if (!isStatusField && !isAllowedNoteField && !isAdminInvoiceField && !isSalesInvoicePriceField) {
           setSavingStatus(prev => ({ ...prev, [statusKey]: 'idle' }));
           alert('业务已确认价格，不能修改此字段');
           return;
@@ -4273,7 +4328,7 @@ const CommissionForm = () => {
   return (
     <div className="commission-form">
       {/* 搜索和筛选区域 - 首行 */}
-      <div className={`filters ${showSettlementModal ? 'filters-behind-modal' : ''}`}>
+      <div className={`filters ${showSettlementModal || showAllocationModal ? 'filters-behind-modal' : ''}`}>
         <div className="filter-row">
           <div className="filter-group search-group">
             <label>搜索:</label>
@@ -4532,17 +4587,15 @@ const CommissionForm = () => {
             </button>
             {canAccessSettlement() && (
               <>
-                {canEditSettlement() && (
-                  <button 
-                    onClick={handleSettlementClick} 
-                    className="btn btn-primary"
-                    disabled={selectedItems.length === 0}
-                    style={{backgroundColor: '#ffc107', color: '#000', border: 'none'}}
+                <button 
+                  onClick={handleSettlementClick} 
+                  className="btn btn-primary"
+                  disabled={selectedItems.length === 0}
+                  style={{backgroundColor: '#ffc107', color: '#000', border: 'none'}}
 
-                  >
-                    结算 ({selectedItems.length})
-                  </button>
-                )}
+                >
+                  结算 ({selectedItems.length})
+                </button>
                 {canEditSettlement() && (
                   <button 
                     onClick={handleBatchDelete} 
@@ -5946,101 +5999,107 @@ const CommissionForm = () => {
                           </td>
                           <td className={getColumnCellClass('invoice_prefill_price', 'invoice-field')} data-column-key="invoice_prefill_price">
                             <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                              {item.invoice_prefill_confirmed === 1 ? (
-                                // 已确认，显示为只读
-                                <span>{item.invoice_prefill_price !== null && item.invoice_prefill_price !== undefined 
-                                  ? formatCurrency(item.invoice_prefill_price) 
-                                  : '-'}</span>
-                              ) : (
+                              {canEditField('invoice_prefill_price', item) && item.invoice_prefill_confirmed !== 1 ? (
                                 <>
-                                  {canEditSettlement() && canEditField('invoice_prefill_price', item) ? (
-                                    <>
-                                      {/* 未确认，显示可编辑的input输入框 */}
-                                      <input
-                                        type="number"
-                                        step="0.01"
-                                        min="0"
-                                        value={item.invoice_prefill_price !== null && item.invoice_prefill_price !== undefined 
-                                          ? item.invoice_prefill_price
-                                          : (calculateInvoicePrefillPrice(item) || '')}
-                                        onChange={(e) => {
-                                          const newValue = e.target.value === '' ? null : parseFloat(e.target.value);
-                                          // 实时更新本地数据
-                                          setData(prev => prev.map(x => 
-                                            x.test_item_id === item.test_item_id 
-                                              ? { ...x, invoice_prefill_price: newValue } 
-                                              : x
-                                          ));
-                                        }}
-                                        onBlur={async (e) => {
-                                          // 失焦时保存到数据库
-                                          const newValue = e.target.value === '' ? null : parseFloat(e.target.value);
-                                          if (newValue !== null && !isNaN(newValue) && newValue >= 0) {
-                                            try {
-                                              await handleSaveEdit('invoice_prefill_price', newValue, item.test_item_id);
-                                            } catch (error) {
-                                              alert('保存失败：' + error.message);
-                                            }
-                                          }
-                                        }}
-                                        onClick={(e) => e.stopPropagation()}
-                                        style={{
-                                          width: '100px',
-                                          padding: '4px 8px',
-                                          fontSize: '13px',
-                                          border: '1px solid #ddd',
-                                          borderRadius: '3px'
-                                        }}
-                                        placeholder="输入价格"
-                                      />
-                                      {/* 确认按钮 */}
-                                      <button
-                                        className="btn btn-sm"
-                                        style={{
-                                          padding: '2px 8px',
-                                          fontSize: '11px',
-                                          backgroundColor: '#28a745',
-                                          color: 'white',
-                                          border: 'none',
-                                          borderRadius: '3px',
-                                          cursor: 'pointer',
-                                          whiteSpace: 'nowrap'
-                                        }}
-                                        onClick={async (e) => {
-                                          e.stopPropagation();
-                                          const priceToSave = item.invoice_prefill_price !== null && item.invoice_prefill_price !== undefined
-                                            ? item.invoice_prefill_price
-                                            : calculateInvoicePrefillPrice(item);
-                                          if (priceToSave === null || priceToSave === '' || isNaN(priceToSave)) {
-                                            alert('请输入有效的开票预填价');
-                                            return;
-                                          }
-                                          try {
-                                            await handleSaveEdit('invoice_prefill_price', priceToSave, item.test_item_id);
-                                            await handleSaveEdit('invoice_prefill_confirmed', 1, item.test_item_id);
-                                          } catch (error) {
-                                            alert('保存失败：' + error.message);
-                                          }
-                                        }}
-                                      >
-                                        确认
-                                      </button>
-                                    </>
-                                  ) : (
-                                    // 业务员只能查看，不能编辑
-                                    <span>{item.invoice_prefill_price !== null && item.invoice_prefill_price !== undefined 
-                                      ? formatCurrency(item.invoice_prefill_price) 
-                                      : (calculateInvoicePrefillPrice(item) !== null ? formatCurrency(calculateInvoicePrefillPrice(item)) : '-')}</span>
-                                  )}
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    value={getInvoicePrefillPriceValue(item) ?? ''}
+                                    disabled={!canUseFinalPriceForInvoice(item)}
+                                    onChange={(e) => {
+                                      const newValue = e.target.value === '' ? null : parseFloat(e.target.value);
+                                      setData(prev => prev.map(x =>
+                                        x.test_item_id === item.test_item_id
+                                          ? { ...x, invoice_prefill_price: newValue }
+                                          : x
+                                      ));
+                                    }}
+                                    onBlur={async (e) => {
+                                      if (!canUseFinalPriceForInvoice(item)) return;
+                                      const newValue = e.target.value === '' ? null : parseFloat(e.target.value);
+                                      if (newValue !== null && !isNaN(newValue) && newValue >= 0) {
+                                        try {
+                                          await handleSaveEdit('invoice_prefill_price', newValue, item.test_item_id);
+                                        } catch (error) {
+                                          alert('保存失败：' + error.message);
+                                        }
+                                      }
+                                    }}
+                                    onClick={(e) => e.stopPropagation()}
+                                    style={{
+                                      width: '100px',
+                                      padding: '4px 8px',
+                                      fontSize: '13px',
+                                      border: '1px solid #ddd',
+                                      borderRadius: '3px',
+                                      backgroundColor: canUseFinalPriceForInvoice(item) ? '#fff' : '#f5f5f5'
+                                    }}
+                                    placeholder="输入价格"
+                                  />
+                                  <button
+                                    className="btn btn-sm"
+                                    style={{
+                                      padding: '2px 8px',
+                                      fontSize: '11px',
+                                      backgroundColor: '#28a745',
+                                      color: 'white',
+                                      border: 'none',
+                                      borderRadius: '3px',
+                                      cursor: canUseFinalPriceForInvoice(item) ? 'pointer' : 'not-allowed',
+                                      whiteSpace: 'nowrap',
+                                      opacity: canUseFinalPriceForInvoice(item) ? 1 : 0.55
+                                    }}
+                                    onClick={async (e) => {
+                                      e.stopPropagation();
+                                      if (!canUseFinalPriceForInvoice(item)) {
+                                        alert('请先确认测试总价后，再确认开票预填价');
+                                        return;
+                                      }
+                                      const priceToSave = getInvoicePrefillPriceValue(item);
+                                      if (priceToSave === null || Number.isNaN(Number(priceToSave))) {
+                                        alert('请输入有效的开票预填价');
+                                        return;
+                                      }
+                                      try {
+                                        await handleSaveEdit('invoice_prefill_price', priceToSave, item.test_item_id);
+                                        await handleSaveEdit('invoice_prefill_confirmed', 1, item.test_item_id);
+                                      } catch (error) {
+                                        alert('保存失败：' + error.message);
+                                      }
+                                    }}
+                                  >
+                                    确认
+                                  </button>
                                 </>
+                              ) : (
+                                <span>
+                                  {getInvoicePrefillPriceValue(item) !== null
+                                    ? formatCurrency(getInvoicePrefillPriceValue(item))
+                                    : '-'}
+                                </span>
                               )}
                             </div>
                           </td>
                           <td className={getColumnCellClass('unpaid_amount', 'invoice-field')} data-column-key="unpaid_amount">
-                            <span {...mergeAdminLock(item, 'unpaid_amount')}>
-                              {item.unpaid_amount !== null && item.unpaid_amount !== undefined && item.unpaid_amount !== '' 
-                                ? formatCurrency(item.unpaid_amount) 
-                                : '-'}
+                            <span {...mergeAdminLock(item, 'unpaid_amount')} className="settlement-amount-cell">
+                              <span>
+                                {item.unpaid_amount !== null && item.unpaid_amount !== undefined && item.unpaid_amount !== '' 
+                                  ? formatCurrency(item.unpaid_amount) 
+                                  : '-'}
+                              </span>
+                              {item.invoice_number && (
+                                <button
+                                  type="button"
+                                  className="allocation-detail-btn"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleShowAllocationDetail(item);
+                                  }}
+                                >
+                                  明细
+                                </button>
+                              )}
                             </span>
                           </td>
                           <td className={getColumnCellClass('invoice_note', 'invoice-field note-col')} data-column-key="invoice_note">
@@ -6723,6 +6782,54 @@ const CommissionForm = () => {
         </div>
       )}
 
+      {showAllocationModal && (
+        <div className="file-modal-overlay" onClick={() => setShowAllocationModal(false)}>
+          <div className="file-modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '720px' }}>
+            <div className="modal-header">
+              <h3>结算分摊明细</h3>
+              <button className="close-button" onClick={() => setShowAllocationModal(false)}>×</button>
+            </div>
+            {allocationLoading ? (
+              <div style={{ padding: '20px' }}>加载中...</div>
+            ) : (
+              <>
+                <div style={{ padding: '10px', backgroundColor: '#f7fbff', border: '1px solid #d7e8ff', borderRadius: '4px', marginBottom: '12px' }}>
+                  <div><strong>检测项目：</strong>{allocationDetail?.item?.test_item_name || allocationDetail?.item?.detail_name || '-'}</div>
+                  <div><strong>项目编号：</strong>{allocationDetail?.item?.test_code || '-'}</div>
+                  <div><strong>分摊合计：</strong>{formatCurrency(allocationDetail?.total_amount || 0)}</div>
+                </div>
+                {(allocationDetail?.allocations || []).length === 0 ? (
+                  <div style={{ padding: '16px', color: '#666' }}>暂无分摊明细</div>
+                ) : (
+                  <table className="allocation-detail-table">
+                    <thead>
+                      <tr>
+                        <th>结算流水</th>
+                        <th>来源</th>
+                        <th>票号</th>
+                        <th>开票日期</th>
+                        <th>分摊金额</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(allocationDetail?.allocations || []).map(row => (
+                        <tr key={row.item_allocation_id}>
+                          <td>{row.settlement_serial_number || '-'}</td>
+                          <td>{row.payment_source_type === 'prepayment' ? '预存抵扣' : '新开票'}</td>
+                          <td>{row.invoice_number || '-'}</td>
+                          <td>{row.invoice_date ? formatDate(row.invoice_date) : '-'}</td>
+                          <td>{formatCurrency(row.amount)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* 费用结算模态框 */}
       {showSettlementModal && (
         <div
@@ -6794,7 +6901,7 @@ const CommissionForm = () => {
                   })()}
                 </div>
               )}
-              {(settlementForm.settlement_method === 'invoice' || settlementForm.settlement_method === 'mixed') && (
+              {false && (
                 <div style={{ position: 'relative', marginBottom: '15px' }}>
                   <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
                     {settlementForm.settlement_method === 'mixed' ? '不足部分新开票号' : '票号'} <span style={{ color: 'red' }}>*</span>
@@ -6867,7 +6974,7 @@ const CommissionForm = () => {
                 )}
               </div>
               )}
-              {(settlementForm.settlement_method === 'invoice' || settlementForm.settlement_method === 'mixed') && (
+              {false && (
               <div style={{ marginBottom: '15px' }}>
                 <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
                   企业性质
@@ -6888,7 +6995,7 @@ const CommissionForm = () => {
                 </select>
               </div>
               )}
-              {(settlementForm.settlement_method === 'invoice' || settlementForm.settlement_method === 'mixed') && (
+              {false && (
               <div style={{ marginBottom: '15px' }}>
                 <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
                   {settlementForm.settlement_method === 'mixed' ? '不足部分开票日期' : '开票日期'} <span style={{ color: 'red' }}>*</span>

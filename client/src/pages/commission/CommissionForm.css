@@ -847,6 +847,46 @@
 }
 
 /* 导出弹窗：按钮随 modal 宽度自适应换行，不产生横向滚动条 */
+.settlement-amount-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.allocation-detail-btn {
+  border: 1px solid #bfdbfe;
+  border-radius: 4px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  padding: 4px 7px;
+  white-space: nowrap;
+}
+
+.allocation-detail-btn:hover {
+  background: #dbeafe;
+}
+
+.allocation-detail-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.allocation-detail-table th,
+.allocation-detail-table td {
+  border: 1px solid #e5e7eb;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.allocation-detail-table th {
+  background: #f8fafc;
+  font-weight: 600;
+}
+
 .export-modal-actions-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 148px), 1fr));

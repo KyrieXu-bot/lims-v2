@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../api.js';
+import DetailViewLink from '../../components/DetailViewLink.jsx';
+import './PayerLedger.css';
 
 const TX_TYPE_TEXT = {
   prepayment_credit: '预存入账',
@@ -63,40 +65,56 @@ export default function PayerLedger() {
         </div>
       </div>
 
-      <table className="table">
-        <thead>
-          <tr>
-            <th>时间</th>
-            <th>流水类型</th>
-            <th>方向</th>
-            <th>金额</th>
-            <th>结算流水</th>
-            <th>票号</th>
-            <th>委托单号组</th>
-            <th>备注</th>
-            <th>创建人</th>
-          </tr>
-        </thead>
-        <tbody>
-          {transactions.length === 0 ? (
-            <tr><td colSpan="9" style={{ textAlign: 'center', padding: 20 }}>暂无流水</td></tr>
-          ) : transactions.map(tx => (
-            <tr key={tx.transaction_id}>
-              <td>{formatDate(tx.occurred_at)}</td>
-              <td>{TX_TYPE_TEXT[tx.transaction_type] || tx.transaction_type}</td>
-              <td>{tx.direction === 'credit' ? '增加' : '扣减'}</td>
-              <td style={{ color: tx.direction === 'credit' ? '#28a745' : '#dc3545', fontWeight: 600 }}>
-                {tx.direction === 'credit' ? '+' : '-'}{formatCurrency(tx.amount)}
-              </td>
-              <td>{tx.settlement_id || '-'}</td>
-              <td>{tx.invoice_number || '-'}</td>
-              <td>{tx.order_ids || '-'}</td>
-              <td>{tx.remarks || '-'}</td>
-              <td>{tx.created_by_name || tx.created_by || '-'}</td>
+      <div className="payer-ledger-table-wrap">
+        <table className="table payer-ledger-table">
+          <thead>
+            <tr>
+              <th>时间</th>
+              <th>流水类型</th>
+              <th>方向</th>
+              <th>金额</th>
+              <th>结算流水</th>
+              <th>票号</th>
+              <th>委托单号组</th>
+              <th>备注</th>
+              <th>创建人</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {transactions.length === 0 ? (
+              <tr><td colSpan="9" style={{ textAlign: 'center', padding: 20 }}>暂无流水</td></tr>
+            ) : transactions.map(tx => (
+              <tr key={tx.transaction_id}>
+                <td>{formatDate(tx.occurred_at)}</td>
+                <td>{TX_TYPE_TEXT[tx.transaction_type] || tx.transaction_type}</td>
+                <td>{tx.direction === 'credit' ? '增加' : '扣减'}</td>
+                <td style={{ color: tx.direction === 'credit' ? '#28a745' : '#dc3545', fontWeight: 600 }}>
+                  {tx.direction === 'credit' ? '+' : '-'}{formatCurrency(tx.amount)}
+                </td>
+                <td>{tx.settlement_id || '-'}</td>
+                <td>
+                  <DetailViewLink
+                    text={tx.invoice_number || ''}
+                    maxLength={22}
+                    fieldName="票号"
+                    className="payer-ledger-detail-link"
+                  />
+                </td>
+                <td>{tx.order_ids || '-'}</td>
+                <td>
+                  <DetailViewLink
+                    text={tx.remarks || ''}
+                    maxLength={28}
+                    fieldName="备注"
+                    className="payer-ledger-detail-link"
+                  />
+                </td>
+                <td>{tx.created_by_name || tx.created_by || '-'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
