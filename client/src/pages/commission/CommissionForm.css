@@ -54,11 +54,21 @@
 
 .filters.filters-behind-modal {
   z-index: 1 !important;
+  opacity: 0.38;
+  filter: grayscale(0.15);
+  pointer-events: none;
 }
 
 .filters.filters-behind-modal .status-multiselect-wrapper,
 .filters.filters-behind-modal .status-dropdown,
-.filters.filters-behind-modal .filter-group:has(.status-multiselect-wrapper) {
+.filters.filters-behind-modal .filter-group:has(.status-multiselect-wrapper),
+.filters.filters-behind-modal .filter-row,
+.filters.filters-behind-modal .filter-group,
+.filters.filters-behind-modal .search-input-container,
+.filters.filters-behind-modal .search-buttons,
+.filters.filters-behind-modal input,
+.filters.filters-behind-modal select,
+.filters.filters-behind-modal button {
   z-index: 1 !important;
 }
 

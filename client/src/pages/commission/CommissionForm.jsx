@@ -1013,6 +1013,11 @@ const CommissionForm = () => {
     return null;
   };
 
+  const isItemUnsettledForSettlement = (item) => {
+    const status = String(item?.invoice_status || '未结算').trim();
+    return status === '' || status === '未结算';
+  };
+
   const canEditField = (field, item = null) => {
     const role = user?.role;
     if (!role) return false;
@@ -3007,6 +3012,66 @@ const CommissionForm = () => {
   };
 
   // 删除单个检测项目
+  const handleExportBillsExcelTemplate = async () => {
+    try {
+      const selectedData = await getSelectedItemsData();
+      if (selectedData.length === 0) {
+        alert('没有选中的检测项目数据');
+        return;
+      }
+
+      const testItemIds = selectedData.map(item => item.test_item_id);
+      const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
+      const headers = {
+        'Authorization': `Bearer ${user.token}`,
+        'Content-Type': 'application/json'
+      };
+
+      const response = await fetch('/api/templates/generate-bills-template-excel', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          test_item_ids: testItemIds
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: '导出失败' }));
+        throw new Error(errorData.error || `导出失败: ${response.status}`);
+      }
+
+      const contentDisposition = response.headers.get('Content-Disposition');
+      let fileName = '测试服务清单.xlsx';
+      if (contentDisposition) {
+        const fileNameMatch = contentDisposition.match(/filename\*=UTF-8''(.+)/);
+        if (fileNameMatch) {
+          fileName = decodeURIComponent(fileNameMatch[1]);
+        } else {
+          const fileNameMatch2 = contentDisposition.match(/filename="?(.+)"?/);
+          if (fileNameMatch2) {
+            fileName = fileNameMatch2[1];
+          }
+        }
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+
+      setShowExportModal(false);
+      alert('测试清单模板导出成功');
+    } catch (error) {
+      console.error('导出测试清单模板失败:', error);
+      alert('导出失败：' + error.message);
+    }
+  };
+
   const handleDeleteItem = async (testItemId) => {
     const item = data.find(x => x.test_item_id === testItemId);
     if (!item) return;
@@ -3111,6 +3176,12 @@ const CommissionForm = () => {
     }
     if (selectedData.length === 0) {
       alert('未找到选中的检测项目数据');
+      return;
+    }
+
+    const alreadySettledItems = selectedData.filter(item => !isItemUnsettledForSettlement(item));
+    if (alreadySettledItems.length > 0) {
+      alert('所选检测项目中存在已申请、已开票或已到账的项目，不能重复发起结算。请先删除对应结算记录后再重新发起。');
       return;
     }
 
@@ -3250,9 +3321,7 @@ const CommissionForm = () => {
     }
     
     // 验证：检查是否有已结算的项目
-    const settledItems = selectedData.filter(item => 
-      ['已申请', '已开票', '已到账'].includes(item.invoice_status)
-    );
+    const settledItems = selectedData.filter(item => !isItemUnsettledForSettlement(item));
     
     if (settledItems.length > 0) {
       alert('有检测项目已经结算过，不能进行二次结算');
@@ -4328,7 +4397,7 @@ const CommissionForm = () => {
   return (
     <div className="commission-form">
       {/* 搜索和筛选区域 - 首行 */}
-      <div className={`filters ${showSettlementModal || showAllocationModal ? 'filters-behind-modal' : ''}`}>
+      <div className={`filters ${showSettlementModal || showAllocationModal || showExportModal ? 'filters-behind-modal' : ''}`}>
         <div className="filter-row">
           <div className="filter-group search-group">
             <label>搜索:</label>
@@ -6641,6 +6710,16 @@ const CommissionForm = () => {
                       onClick={handleExportBillsTemplate}
                     >
                       导出测试服务清单模板
+                    </button>
+                  )}
+                  {(user?.role === 'admin' || user?.role === 'sales') && (
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      style={{ ...EXPORT_MODAL_GRID_BTN, backgroundColor: '#2f80ed', color: 'white' }}
+                      onClick={handleExportBillsExcelTemplate}
+                    >
+                      导出测试清单模板（新）
                     </button>
                   )}
                   {WH_REPORT_TEMPLATE_EXPORT_ENABLED && Number(user?.department_id) === 2 && (

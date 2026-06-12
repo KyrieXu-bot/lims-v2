@@ -846,7 +846,7 @@ router.post('/', requireAuth, async (req, res) => {
       }
 
       // 检查是否有已结算的项目
-      const settledItems = testItems.filter(item => ['已申请', '已开票', '已到账'].includes(item.invoice_status));
+      const settledItems = testItems.filter(item => item.invoice_status && item.invoice_status !== '未结算');
       if (settledItems.length > 0) {
         await connection.rollback();
         return res.status(400).json({ error: '有检测项目已经结算过，不能进行二次结算' });

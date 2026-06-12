@@ -10,6 +10,7 @@ import PizZip from 'pizzip';
 import Docxtemplater from 'docxtemplater';
 import ImageModule from 'docxtemplater-image-module-free';
 import imageSize from 'image-size';
+import ExcelJS from 'exceljs';
 import { requireAuth, requireAnyRole, requireDepartmentIds } from '../middleware/auth.js';
 import {
   decodeMulterOriginalName,
@@ -1151,6 +1152,325 @@ router.post('/generate-bills-template', requireAnyRole(['admin', 'sales']), asyn
     console.error('生成测试服务清单模板错误:', error);
     console.error('错误堆栈:', error.stack);
     res.status(500).json({ error: '生成测试服务清单模板失败', details: error.message });
+  }
+});
+
+// 生成新版 Excel 测试服务清单模板
+router.post('/generate-bills-template-excel', requireAnyRole(['admin', 'sales']), async (req, res) => {
+  const toNumber = (value, fallback = 0) => {
+    const num = Number(value);
+    return Number.isFinite(num) ? num : fallback;
+  };
+
+  const formatDate = (dateStr) => {
+    if (!dateStr) return '';
+    const date = new Date(dateStr);
+    if (Number.isNaN(date.getTime())) return '';
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}/${month}/${day}`;
+  };
+
+  const formatDateChinese = (date = new Date()) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}年${month}月${day}日`;
+  };
+
+  const formatToday = () => {
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, '0');
+    const day = String(today.getDate()).padStart(2, '0');
+    return `${year}.${month}.${day}`;
+  };
+
+  const convertUnit = (unit) => {
+    if (!unit) return '';
+    if (unit === '机时') return '小时';
+    if (unit === '样品数') return '件';
+    return unit;
+  };
+
+  const getUrgencyMultiplier = (value) => {
+    if (value === 'urgent_1_5x' || value === '1.5倍加急') return 1.5;
+    if (value === 'urgent_2x' || value === '2倍加急') return 2;
+    return 1;
+  };
+
+  const getUrgencyLabel = (value) => {
+    if (value === 'urgent_1_5x' || value === '1.5倍加急') return '1.5倍加急';
+    if (value === 'urgent_2x' || value === '2倍加急') return '2倍加急';
+    return '';
+  };
+
+  const numberToRmbUpper = (amount) => {
+    const num = Number(amount);
+    if (!Number.isFinite(num) || num < 0) return '零元整';
+    const fraction = ['角', '分'];
+    const digit = ['零', '壹', '贰', '叁', '肆', '伍', '陆', '柒', '捌', '玖'];
+    const unit = [
+      ['元', '万', '亿'],
+      ['', '拾', '佰', '仟']
+    ];
+    let money = Math.round(num * 100) / 100;
+    let result = '';
+
+    for (let i = 0; i < fraction.length; i += 1) {
+      const n = Math.floor(money * 10 * (10 ** i)) % 10;
+      result += (digit[n] + fraction[i]).replace(/零./, '');
+    }
+    result = result || '整';
+    money = Math.floor(money);
+
+    for (let i = 0; i < unit[0].length && money > 0; i += 1) {
+      let segment = '';
+      for (let j = 0; j < unit[1].length && money > 0; j += 1) {
+        segment = digit[money % 10] + unit[1][j] + segment;
+        money = Math.floor(money / 10);
+      }
+      result = segment.replace(/(零.)*零$/, '').replace(/^$/, '零') + unit[0][i] + result;
+    }
+
+    return result
+      .replace(/(零.)*零元/, '元')
+      .replace(/(零.)+/g, '零')
+      .replace(/^整$/, '零元整');
+  };
+
+  const cloneStyle = (style = {}) => JSON.parse(JSON.stringify(style || {}));
+
+  const copyRowStyle = (worksheet, sourceRowNumber, targetRowNumber) => {
+    const sourceRow = worksheet.getRow(sourceRowNumber);
+    const targetRow = worksheet.getRow(targetRowNumber);
+    targetRow.height = sourceRow.height;
+    for (let col = 1; col <= worksheet.columnCount; col += 1) {
+      targetRow.getCell(col).style = cloneStyle(sourceRow.getCell(col).style);
+    }
+  };
+
+  const mergeSafely = (worksheet, range) => {
+    try {
+      worksheet.mergeCells(range);
+    } catch {
+      // Edited templates can leave overlapping merge metadata; skip duplicates.
+    }
+  };
+
+  const thinBlackBorder = { style: 'thin', color: { argb: 'FF000000' } };
+
+  const setBorderSide = (cell, side) => {
+    cell.border = {
+      ...(cell.border || {}),
+      [side]: thinBlackBorder
+    };
+  };
+
+  const reinforceTotalPriceBoundary = (worksheet, rowNumber) => {
+    setBorderSide(worksheet.getCell(`I${rowNumber}`), 'right');
+    setBorderSide(worksheet.getCell(`J${rowNumber}`), 'right');
+    setBorderSide(worksheet.getCell(`K${rowNumber}`), 'left');
+  };
+
+  const reinforceMergedRowBox = (worksheet, rowNumber) => {
+    setBorderSide(worksheet.getCell(`A${rowNumber}`), 'left');
+    setBorderSide(worksheet.getCell(`A${rowNumber}`), 'right');
+    setBorderSide(worksheet.getCell(`D${rowNumber}`), 'right');
+    setBorderSide(worksheet.getCell(`L${rowNumber}`), 'right');
+  };
+
+  const resetStampImageAspect = (worksheet, totalStartRow) => {
+    const images = worksheet.getImages();
+    if (!images.length) return;
+    const stampImageId = images[0].imageId;
+    worksheet._media = worksheet._media.filter((media) => media.type !== 'image');
+    worksheet.addImage(stampImageId, {
+      tl: { col: 8, row: totalStartRow + 5.95 },
+      ext: { width: 230, height: 232 },
+      editAs: 'oneCell'
+    });
+  };
+
+  try {
+    const { test_item_ids = [] } = req.body || {};
+    if (!Array.isArray(test_item_ids) || test_item_ids.length === 0) {
+      return res.status(400).json({ error: 'test_item_ids 必填' });
+    }
+
+    const templatePath = path.join(__dirname, '..', 'templates', 'bills_templates.xlsx');
+    try {
+      await fs.access(templatePath);
+    } catch (error) {
+      console.error('Excel账单模板文件不存在:', error);
+      return res.status(404).json({ error: 'Excel账单模板文件不存在' });
+    }
+
+    const { getPool } = await import('../db.js');
+    const pool = await getPool();
+    const placeholders = test_item_ids.map(() => '?').join(',');
+    const [testItemRows] = await pool.query(
+      `SELECT ti.test_item_id,
+              ti.created_at AS create_time,
+              ti.order_id,
+              ti.price_note,
+              ti.unit,
+              ti.discount_rate,
+              ti.actual_sample_quantity,
+              ti.final_unit_price,
+              ti.category_name,
+              ti.detail_name,
+              ti.service_urgency,
+              c.customer_name,
+              comm.contact_name
+       FROM test_items ti
+       LEFT JOIN orders o ON o.order_id = ti.order_id
+       LEFT JOIN customers c ON o.customer_id = c.customer_id
+       LEFT JOIN commissioners comm ON o.commissioner_id = comm.commissioner_id
+       WHERE ti.test_item_id IN (${placeholders})
+       ORDER BY ti.order_id, ti.test_item_id`,
+      test_item_ids
+    );
+
+    if (testItemRows.length === 0) {
+      return res.status(400).json({ error: '未找到检测项目' });
+    }
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.readFile(templatePath);
+    const worksheet = workbook.worksheets[0];
+    if (!worksheet) {
+      return res.status(500).json({ error: 'Excel账单模板没有工作表' });
+    }
+
+    const existingMerges = [...(worksheet.model.merges || [])];
+    for (const range of existingMerges) {
+      try {
+        worksheet.unMergeCells(range);
+      } catch {
+        // Keep going when a manually edited workbook has unusual merge ranges.
+      }
+    }
+
+    const templateRowNumber = 8;
+    const extraRows = Math.max(testItemRows.length - 1, 0);
+    if (extraRows > 0) {
+      worksheet.spliceRows(templateRowNumber + 1, 0, ...Array.from({ length: extraRows }, () => []));
+    }
+
+    const dataStartRow = templateRowNumber;
+    const dataEndRow = templateRowNumber + testItemRows.length - 1;
+    const totalStartRow = dataEndRow + 1;
+
+    for (let rowNumber = dataStartRow; rowNumber <= dataEndRow; rowNumber += 1) {
+      copyRowStyle(worksheet, templateRowNumber, rowNumber);
+    }
+
+    const customerName = testItemRows[0]?.customer_name || '客户';
+    worksheet.getCell('B2').value = customerName;
+    worksheet.getCell('A5').value = `    在甲乙双方平等自愿、协商一致的原则下，根据甲方要求已完成分析测试服务，截至${formatDateChinese()}，甲方测试清单及收费情况总如下。`;
+    worksheet.getCell(`A${totalStartRow + 8}`).value = formatToday();
+
+    testItemRows.forEach((item, index) => {
+      const rowNumber = dataStartRow + index;
+      const row = worksheet.getRow(rowNumber);
+      const unit = convertUnit(item.unit);
+      const price = toNumber(item.price_note);
+      const quantity = toNumber(item.actual_sample_quantity);
+      const discountRate = toNumber(item.discount_rate, 100);
+      const discountFactor = discountRate / 100;
+      const urgencyMultiplier = getUrgencyMultiplier(item.service_urgency);
+      const finalPrice = toNumber(item.final_unit_price);
+      const calculatedTotal = price * quantity * discountFactor * urgencyMultiplier;
+
+      row.getCell(1).value = formatDate(item.create_time);
+      row.getCell(2).value = item.order_id || '';
+      row.getCell(3).value = [item.category_name, item.detail_name].filter(Boolean).join(' - ');
+      row.getCell(4).value = price;
+      row.getCell(5).value = unit ? `元/${unit}` : '元';
+      row.getCell(6).value = discountFactor;
+      row.getCell(6).numFmt = '0%';
+      row.getCell(7).value = quantity;
+      row.getCell(8).value = unit;
+      row.getCell(9).value = {
+        formula: `D${rowNumber}*G${rowNumber}*F${rowNumber}*${urgencyMultiplier}`,
+        result: Number(calculatedTotal.toFixed(2))
+      };
+      row.getCell(9).numFmt = '0.00';
+      row.getCell(11).value = finalPrice;
+      row.getCell(11).numFmt = '0.00';
+      row.getCell(12).value = getUrgencyLabel(item.service_urgency);
+      row.commit();
+    });
+
+    const untaxedCell = worksheet.getCell(`D${totalStartRow}`);
+    const taxCell = worksheet.getCell(`D${totalStartRow + 1}`);
+    const taxedCell = worksheet.getCell(`D${totalStartRow + 2}`);
+    const discountTotalCell = worksheet.getCell(`D${totalStartRow + 3}`);
+    const upperCell = worksheet.getCell(`D${totalStartRow + 4}`);
+    const untaxedResult = testItemRows.reduce((sum, item) => sum + toNumber(item.final_unit_price), 0);
+    const taxResult = untaxedResult * 0.06;
+    const taxedResult = untaxedResult + taxResult;
+
+    untaxedCell.value = {
+      formula: `SUM(K${dataStartRow}:K${dataEndRow})`,
+      result: Number(untaxedResult.toFixed(2))
+    };
+    taxCell.value = {
+      formula: `D${totalStartRow}*0.06`,
+      result: Number(taxResult.toFixed(2))
+    };
+    taxedCell.value = {
+      formula: `D${totalStartRow}+D${totalStartRow + 1}`,
+      result: Number(taxedResult.toFixed(2))
+    };
+    discountTotalCell.value = null;
+    upperCell.value = numberToRmbUpper(taxedResult);
+
+    [untaxedCell, taxCell, taxedCell].forEach((cell) => {
+      cell.numFmt = '0.00';
+    });
+
+    mergeSafely(worksheet, 'A1:L1');
+    mergeSafely(worksheet, 'B2:L2');
+    mergeSafely(worksheet, 'B3:L3');
+    mergeSafely(worksheet, 'A5:L5');
+    mergeSafely(worksheet, 'A6:L6');
+    mergeSafely(worksheet, 'D7:E7');
+    mergeSafely(worksheet, 'G7:H7');
+    mergeSafely(worksheet, 'I7:J7');
+    reinforceTotalPriceBoundary(worksheet, 7);
+
+    for (let rowNumber = dataStartRow; rowNumber <= dataEndRow; rowNumber += 1) {
+      mergeSafely(worksheet, `I${rowNumber}:J${rowNumber}`);
+      reinforceTotalPriceBoundary(worksheet, rowNumber);
+    }
+
+    for (let rowNumber = totalStartRow; rowNumber <= totalStartRow + 4; rowNumber += 1) {
+      mergeSafely(worksheet, `A${rowNumber}:C${rowNumber}`);
+      mergeSafely(worksheet, `D${rowNumber}:L${rowNumber}`);
+      reinforceMergedRowBox(worksheet, rowNumber);
+    }
+    mergeSafely(worksheet, `A${totalStartRow + 5}:L${totalStartRow + 5}`);
+    mergeSafely(worksheet, `A${totalStartRow + 6}:L${totalStartRow + 6}`);
+    mergeSafely(worksheet, `A${totalStartRow + 7}:L${totalStartRow + 7}`);
+    mergeSafely(worksheet, `A${totalStartRow + 8}:L${totalStartRow + 8}`);
+    reinforceMergedRowBox(worksheet, totalStartRow + 5);
+    resetStampImageAspect(worksheet, totalStartRow);
+
+    workbook.calcProperties.fullCalcOnLoad = true;
+    const buffer = await workbook.xlsx.writeBuffer();
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    const safeCustomerName = String(customerName).replace(/[<>:"/\\|?*]/g, '').trim() || '客户';
+    const fileName = `${safeCustomerName}-测试服务清单.xlsx`;
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`);
+    res.send(Buffer.from(buffer));
+  } catch (error) {
+    console.error('生成Excel测试服务清单模板错误:', error);
+    console.error('错误堆栈:', error.stack);
+    res.status(500).json({ error: '生成Excel测试服务清单模板失败', details: error.message });
   }
 });
 
