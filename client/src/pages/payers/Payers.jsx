@@ -54,7 +54,7 @@ export default function Payers() {
       <table className="table">
         <thead>
           <tr>
-            <th>ID</th><th>付款人</th><th>客户</th><th>电话号码</th><th>预存余额</th><th>未结算金额</th><th>待结算金额</th><th>当前余额</th><th>付款期限 (天)</th><th>折扣 (%)</th><th>业务员</th><th>状态</th><th>操作</th>
+            <th>ID</th><th>付款人</th><th>客户</th><th>电话号码</th><th>预存余额</th><th>未结算汇总</th><th>已申请汇总</th><th>已开票汇总</th><th>已到账汇总</th><th>当前余额</th><th>付款期限 (天)</th><th>折扣 (%)</th><th>业务员</th><th>状态</th><th>操作</th>
           </tr>
         </thead>
         <tbody>
@@ -66,7 +66,9 @@ export default function Payers() {
               <td>{it.contact_phone}</td>
               <td>{formatCurrency(it.prepaid_balance)}</td>
               <td>{formatCurrency(it.unsettled_amount)}</td>
-              <td>{formatCurrency(it.pending_settlement_amount)}</td>
+              <td>{formatCurrency(it.applied_amount)}</td>
+              <td>{formatCurrency(it.invoiced_amount)}</td>
+              <td>{formatCurrency(it.received_amount)}</td>
               <td style={{ color: Number(it.current_balance || 0) < 0 ? '#dc3545' : '#28a745', fontWeight: 600 }}>
                 {formatCurrency(it.current_balance)}
               </td>

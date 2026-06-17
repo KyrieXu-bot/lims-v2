@@ -54,8 +54,10 @@ router.get('/', async (req, res) => {
        COALESCE(b.settlement_debit_amount, 0) AS settlement_debit_amount,
        COALESCE(b.receipt_credit_amount, 0) AS receipt_credit_amount,
        COALESCE(b.current_balance, 0) AS current_balance,
-       COALESCE(us.unsettled_amount, 0) AS unsettled_amount,
-       COALESCE(ps.pending_settlement_amount, 0) AS pending_settlement_amount
+       COALESCE(ts.unsettled_amount, 0) AS unsettled_amount,
+       COALESCE(ss.applied_amount, 0) AS applied_amount,
+       COALESCE(ss.invoiced_amount, 0) AS invoiced_amount,
+       COALESCE(ts.received_amount, 0) AS received_amount
      FROM payers p
      JOIN customers c ON c.customer_id = p.customer_id
      LEFT JOIN users u ON u.user_id = p.owner_user_id
@@ -70,25 +72,49 @@ router.get('/', async (req, res) => {
        GROUP BY payer_id
      ) b ON b.payer_id = p.payer_id
      LEFT JOIN (
-       SELECT payer_id, SUM(GREATEST(COALESCE(invoice_amount, 0) - COALESCE(received_amount, 0), 0)) AS pending_settlement_amount
-       FROM settlements
-       WHERE settlement_type = 'invoice'
-         AND invoice_number IS NOT NULL
-         AND invoice_number <> ''
-         AND payment_status IN ('未到款', '部分到款')
-       GROUP BY payer_id
-     ) ps ON ps.payer_id = p.payer_id
-     LEFT JOIN (
-       SELECT o.payer_id, SUM(COALESCE(ti.final_unit_price, 0)) AS unsettled_amount
+       SELECT
+         o.payer_id,
+         SUM(CASE WHEN COALESCE(NULLIF(ti.invoice_status, ''), '未结算') = '未结算' THEN COALESCE(ti.final_unit_price, 0) ELSE 0 END) AS unsettled_amount,
+         SUM(CASE WHEN COALESCE(NULLIF(ti.invoice_status, ''), '未结算') = '已到账' THEN COALESCE(ti.final_unit_price, 0) ELSE 0 END) AS received_amount
        FROM test_items ti
        JOIN orders o ON o.order_id = ti.order_id
        WHERE o.payer_id IS NOT NULL
          AND (ti.business_confirmed = 1 OR ti.business_confirmed = '1')
          AND ti.final_unit_price IS NOT NULL
-         AND COALESCE(ti.invoice_status, '未结算') = '未结算'
+         AND ti.final_unit_price <> ''
          AND ti.status != 'cancelled'
        GROUP BY o.payer_id
-     ) us ON us.payer_id = p.payer_id
+     ) ts ON ts.payer_id = p.payer_id
+     LEFT JOIN (
+       SELECT
+         s.payer_id,
+         SUM(CASE
+           WHEN (s.invoice_number IS NULL OR s.invoice_number = '')
+             AND COALESCE(s.payment_status, '') NOT IN ('已到款', '部分到款')
+           THEN COALESCE(s.invoice_amount, 0)
+           ELSE 0
+         END) AS applied_amount,
+         SUM(CASE
+           WHEN s.invoice_number IS NOT NULL
+             AND s.invoice_number <> ''
+             AND COALESCE(s.payment_status, '') NOT IN ('已到款', '部分到款')
+           THEN COALESCE(s.invoice_amount, 0)
+           ELSE 0
+         END) AS invoiced_amount
+       FROM settlements s
+       WHERE s.payer_id IS NOT NULL
+         AND s.settlement_type = 'invoice'
+         AND EXISTS (
+           SELECT 1
+           FROM test_items ti
+           WHERE JSON_CONTAINS(s.test_item_ids, CAST(ti.test_item_id AS JSON), '$')
+             AND (ti.business_confirmed = 1 OR ti.business_confirmed = '1')
+             AND ti.final_unit_price IS NOT NULL
+             AND ti.final_unit_price <> ''
+             AND ti.status != 'cancelled'
+         )
+       GROUP BY s.payer_id
+     ) ss ON ss.payer_id = p.payer_id
      ${where}
      ORDER BY p.payer_id DESC
      LIMIT ? OFFSET ?`, [...params, Number(pageSize), offset]
@@ -123,25 +149,46 @@ router.get('/:id/ledger', async (req, res) => {
      WHERE payer_id = ?`,
     [req.params.id]
   );
-  const [pendingRows] = await pool.query(
-    `SELECT COALESCE(SUM(GREATEST(COALESCE(invoice_amount, 0) - COALESCE(received_amount, 0), 0)), 0) AS pending_settlement_amount
-     FROM settlements
-     WHERE payer_id = ?
-       AND settlement_type = 'invoice'
-       AND invoice_number IS NOT NULL
-       AND invoice_number <> ''
-       AND payment_status IN ('未到款', '部分到款')`,
-    [req.params.id]
-  );
-  const [unsettledRows] = await pool.query(
-    `SELECT COALESCE(SUM(COALESCE(ti.final_unit_price, 0)), 0) AS unsettled_amount
+  const [statusAmountRows] = await pool.query(
+    `SELECT
+       COALESCE(SUM(CASE WHEN COALESCE(NULLIF(ti.invoice_status, ''), '未结算') = '未结算' THEN COALESCE(ti.final_unit_price, 0) ELSE 0 END), 0) AS unsettled_amount,
+       COALESCE(SUM(CASE WHEN COALESCE(NULLIF(ti.invoice_status, ''), '未结算') = '已到账' THEN COALESCE(ti.final_unit_price, 0) ELSE 0 END), 0) AS received_amount
      FROM test_items ti
      JOIN orders o ON o.order_id = ti.order_id
      WHERE o.payer_id = ?
        AND (ti.business_confirmed = 1 OR ti.business_confirmed = '1')
        AND ti.final_unit_price IS NOT NULL
-       AND COALESCE(ti.invoice_status, '未结算') = '未结算'
+       AND ti.final_unit_price <> ''
        AND ti.status != 'cancelled'`,
+    [req.params.id]
+  );
+  const [settlementStatusRows] = await pool.query(
+    `SELECT
+       COALESCE(SUM(CASE
+         WHEN (s.invoice_number IS NULL OR s.invoice_number = '')
+           AND COALESCE(s.payment_status, '') NOT IN ('已到款', '部分到款')
+         THEN COALESCE(s.invoice_amount, 0)
+         ELSE 0
+       END), 0) AS applied_amount,
+       COALESCE(SUM(CASE
+         WHEN s.invoice_number IS NOT NULL
+           AND s.invoice_number <> ''
+           AND COALESCE(s.payment_status, '') NOT IN ('已到款', '部分到款')
+         THEN COALESCE(s.invoice_amount, 0)
+         ELSE 0
+       END), 0) AS invoiced_amount
+     FROM settlements s
+     WHERE s.payer_id = ?
+       AND s.settlement_type = 'invoice'
+       AND EXISTS (
+         SELECT 1
+         FROM test_items ti
+         WHERE JSON_CONTAINS(s.test_item_ids, CAST(ti.test_item_id AS JSON), '$')
+           AND (ti.business_confirmed = 1 OR ti.business_confirmed = '1')
+           AND ti.final_unit_price IS NOT NULL
+           AND ti.final_unit_price <> ''
+           AND ti.status != 'cancelled'
+       )`,
     [req.params.id]
   );
   const [transactions] = await pool.query(
@@ -166,8 +213,10 @@ router.get('/:id/ledger', async (req, res) => {
     payer: payerRows[0],
     summary: {
       ...summaryRows[0],
-      unsettled_amount: unsettledRows[0]?.unsettled_amount || 0,
-      pending_settlement_amount: pendingRows[0]?.pending_settlement_amount || 0
+      unsettled_amount: statusAmountRows[0]?.unsettled_amount || 0,
+      applied_amount: settlementStatusRows[0]?.applied_amount || 0,
+      invoiced_amount: settlementStatusRows[0]?.invoiced_amount || 0,
+      received_amount: statusAmountRows[0]?.received_amount || 0
     },
     transactions
   });

@@ -38,6 +38,56 @@ const normalizeAuditValue = (value) => {
   return String(value);
 };
 
+const SERVICE_URGENCY_MULTIPLIERS = {
+  normal: 1,
+  urgent_1_5x: 1.5,
+  urgent_2x: 2
+};
+const MACHINING_GROUP_ID = 8;
+
+const roundMoney = (value) => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return null;
+  return Math.round(num * 100) / 100;
+};
+
+const getServiceUrgencyMultiplier = (value) =>
+  SERVICE_URGENCY_MULTIPLIERS[normalizeServiceUrgencyForDb(value)] ?? 1;
+
+const calculateStandardLineTotal = (unitPrice, actualSampleQuantity, serviceUrgency) => {
+  const price = parseNumber(unitPrice);
+  const quantity = parseNumber(actualSampleQuantity);
+  if (price === null || quantity === null || price < 0 || quantity < 0) return null;
+  return roundMoney(price * quantity * getServiceUrgencyMultiplier(serviceUrgency));
+};
+
+const calculateFinalUnitPrice = (priceNote, discountRate, actualSampleQuantity, serviceUrgency) => {
+  const price = parseNumber(priceNote);
+  const discount = parseNumber(discountRate);
+  const quantity = parseNumber(actualSampleQuantity);
+  if (
+    price === null || discount === null || quantity === null ||
+    price < 0 || discount < 0 || discount > 100 || quantity < 0
+  ) {
+    return null;
+  }
+  return roundMoney(price * (discount / 100) * quantity * getServiceUrgencyMultiplier(serviceUrgency));
+};
+
+const calculateLabPrice = (finalUnitPrice, lineTotal, groupId) => {
+  const line = parseNumber(lineTotal);
+  if (line === null || line < 0) return null;
+
+  const group = parseNumber(groupId);
+  if (group === MACHINING_GROUP_ID) return roundMoney(line);
+
+  const finalPrice = parseNumber(finalUnitPrice);
+  if (finalPrice === null || finalPrice < 0) return null;
+  if (line === 0) return 0;
+
+  return finalPrice / line > 0.7 ? roundMoney(finalPrice) : roundMoney(line * 0.7);
+};
+
 const canLeaderAccessDepartment = (user, departmentId) => {
   if (!user || user.role !== 'leader') return false;
   const leaderDept = parseNumber(user.department_id);
@@ -501,8 +551,9 @@ router.put('/:id', requireRole(EDIT_ROLES), async (req, res) => {
       // 获取更新前的数据
       const [oldRows] = await pool.query(
         `SELECT order_id, price_id, supervisor_id, technician_id, current_assignee, department_id,
+                group_id, service_urgency,
                 unit_price, final_unit_price, price_note, discount_rate, machine_hours, work_hours,
-                actual_sample_quantity, line_total, business_confirmed, status, unit_mismatch_reviewed,
+                actual_sample_quantity, line_total, lab_price, business_confirmed, status, unit_mismatch_reviewed,
                 estimated_delivery_date, delivery_date_confirmed
          FROM test_items
          WHERE test_item_id = ?`,
@@ -519,15 +570,10 @@ router.put('/:id', requireRole(EDIT_ROLES), async (req, res) => {
       const hasField = (fieldName) => fieldName in req.body;
 
       const isBusinessConfirmed = oldData.business_confirmed === 1 || oldData.business_confirmed === true || oldData.business_confirmed === '1';
-      if (isBusinessConfirmed) {
+      const userRoles = new Set([req.user.role, ...(Array.isArray(req.user.roles) ? req.user.roles : [])]);
+      if (isBusinessConfirmed && !userRoles.has('admin')) {
         // 价格确认后仅放开状态流转和备注字段，其他字段保持锁定（管理员可改开票相关字段）
         const allowedAfterConfirm = new Set(['status', 'assignment_note', 'test_notes', 'business_note']);
-        const userRoles = new Set([req.user.role, ...(Array.isArray(req.user.roles) ? req.user.roles : [])]);
-        if (userRoles.has('admin')) {
-          ['invoice_prefill_price', 'invoice_note', 'invoice_prefill_confirmed', 'invoice_status'].forEach((k) =>
-            allowedAfterConfirm.add(k)
-          );
-        }
         if (userRoles.has('sales')) {
           ['invoice_prefill_price', 'invoice_prefill_confirmed'].forEach((k) =>
             allowedAfterConfirm.add(k)
@@ -569,7 +615,7 @@ router.put('/:id', requireRole(EDIT_ROLES), async (req, res) => {
       const mergedFinalUnitPrice = hasField('final_unit_price') ? final_unit_price : oldData.final_unit_price;
       const hasConfirmedFinalPrice = mergedBusinessConfirmed && hasNonNegativeNumber(mergedFinalUnitPrice);
       const invoicePrefillTouched = hasField('invoice_prefill_price') || hasField('invoice_prefill_confirmed');
-      if (invoicePrefillTouched && !hasConfirmedFinalPrice) {
+      if (invoicePrefillTouched && !hasConfirmedFinalPrice && !userRoles.has('admin')) {
         await pool.query('ROLLBACK');
         return res.status(400).json({ error: '请先确认测试总价后，再修改或确认开票预填价' });
       }
@@ -643,6 +689,16 @@ router.put('/:id', requireRole(EDIT_ROLES), async (req, res) => {
           updateValues.push(finalValue);
         }
       };
+
+      const setUpdate = (field, value) => {
+        const index = updateFields.findIndex((entry) => entry === `${field} = ?`);
+        if (index >= 0) {
+          updateValues[index] = value;
+        } else {
+          updateFields.push(`${field} = ?`);
+          updateValues.push(value);
+        }
+      };
       
       addUpdate('order_id', order_id);
       addUpdate('price_id', price_id);
@@ -702,6 +758,7 @@ router.put('/:id', requireRole(EDIT_ROLES), async (req, res) => {
       // 添加开票相关字段
       const shouldSyncInvoicePrefillFromFinal =
         hasConfirmedFinalPrice &&
+        !userRoles.has('admin') &&
         (hasField('business_confirmed') || hasField('final_unit_price')) &&
         !hasField('invoice_prefill_price');
       if (shouldSyncInvoicePrefillFromFinal) {
@@ -712,6 +769,54 @@ router.put('/:id', requireRole(EDIT_ROLES), async (req, res) => {
       }
       addUpdate('invoice_prefill_confirmed', invoice_prefill_confirmed);
       addUpdate('invoice_status', invoice_status);
+
+      const standardSourceChanged = ['unit_price', 'actual_sample_quantity', 'service_urgency']
+        .some((field) => hasField(field));
+      const finalSourceChanged = ['price_note', 'discount_rate', 'actual_sample_quantity', 'service_urgency']
+        .some((field) => hasField(field));
+      const labSourceChanged = standardSourceChanged || finalSourceChanged ||
+        ['line_total', 'final_unit_price', 'lab_price', 'business_confirmed']
+          .some((field) => hasField(field));
+
+      const mergedServiceUrgency = hasField('service_urgency')
+        ? normalizeServiceUrgencyForDb(service_urgency)
+        : oldData.service_urgency;
+      const mergedUnitPrice = hasField('unit_price') ? unit_price : oldData.unit_price;
+      const mergedActualSampleQuantity = hasField('actual_sample_quantity')
+        ? processValue(actual_sample_quantity)
+        : oldData.actual_sample_quantity;
+      const mergedPriceNote = hasField('price_note') ? price_note : oldData.price_note;
+      const mergedDiscountRate = hasField('discount_rate') ? discount_rate : oldData.discount_rate;
+
+      let nextLineTotal = hasField('line_total') ? line_total : oldData.line_total;
+      if (standardSourceChanged) {
+        nextLineTotal = calculateStandardLineTotal(
+          mergedUnitPrice,
+          mergedActualSampleQuantity,
+          mergedServiceUrgency
+        );
+        setUpdate('line_total', nextLineTotal);
+      }
+
+      let nextFinalUnitPrice = hasField('final_unit_price') ? final_unit_price : oldData.final_unit_price;
+      if (finalSourceChanged && !mergedBusinessConfirmed) {
+        nextFinalUnitPrice = calculateFinalUnitPrice(
+          mergedPriceNote,
+          mergedDiscountRate,
+          mergedActualSampleQuantity,
+          mergedServiceUrgency
+        );
+        setUpdate('final_unit_price', nextFinalUnitPrice);
+      }
+
+      if (labSourceChanged) {
+        const nextLabPrice = calculateLabPrice(
+          nextFinalUnitPrice,
+          nextLineTotal,
+          hasField('group_id') ? group_id : oldData.group_id
+        );
+        setUpdate('lab_price', nextLabPrice);
+      }
       
       // 如果没有要更新的字段，直接返回
       if (updateFields.length === 0) {

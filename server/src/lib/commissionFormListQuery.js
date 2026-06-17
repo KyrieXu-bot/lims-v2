@@ -31,6 +31,7 @@ export const COMMISSION_FORM_LIST_SELECT_JOINS = `
         u.account as assignee_account,
         ti.current_assignee,
         ti.unpaid_amount,
+        ti.settlement_serial_number,
         ti.invoice_prefill_price,
         ti.invoice_prefill_confirmed,
         ti.invoice_status,
@@ -187,7 +188,7 @@ export const COMMISSION_FORM_PAGE_IDS_JOIN_BLOCK = `
  * @returns {{ where: string, params: any[] }}
  */
 export function buildCommissionListFilters(req) {
-  const { status, department_id, month_filter, my_items } = req.query;
+  const { status, department_id, month_filter, my_items, invoice_status } = req.query;
   // 与 commissionListWhereNeedsOrderJoins 一致：仅空格的关键字视为无搜索，避免 WHERE 引用 o/c/comm 但分页子查询未 JOIN
   const q = String(req.query?.q ?? '').trim();
   const like = `%${q}%`;
@@ -237,9 +238,9 @@ export function buildCommissionListFilters(req) {
       params.push(q);
     } else {
       filters.push(
-        '(ti.category_name LIKE ? OR ti.detail_name LIKE ? OR ti.test_code LIKE ? OR ti.order_id LIKE ? OR o.original_order_id LIKE ? OR o.root_order_id LIKE ? OR c.customer_name LIKE ? OR comm.contact_name LIKE ? OR EXISTS (SELECT 1 FROM payers WHERE payers.payer_id = o.payer_id AND payers.contact_name LIKE ?) OR EXISTS (SELECT 1 FROM users WHERE users.user_id = ti.current_assignee AND users.name LIKE ?) OR EXISTS (SELECT 1 FROM users WHERE users.user_id = ti.supervisor_id AND users.name LIKE ?) OR EXISTS (SELECT 1 FROM users WHERE users.user_id = ti.technician_id AND users.name LIKE ?))'
+        '(ti.category_name LIKE ? OR ti.detail_name LIKE ? OR ti.test_code LIKE ? OR ti.order_id LIKE ? OR ti.settlement_serial_number LIKE ? OR o.original_order_id LIKE ? OR o.root_order_id LIKE ? OR c.customer_name LIKE ? OR comm.contact_name LIKE ? OR EXISTS (SELECT 1 FROM payers WHERE payers.payer_id = o.payer_id AND payers.contact_name LIKE ?) OR EXISTS (SELECT 1 FROM users WHERE users.user_id = ti.current_assignee AND users.name LIKE ?) OR EXISTS (SELECT 1 FROM users WHERE users.user_id = ti.supervisor_id AND users.name LIKE ?) OR EXISTS (SELECT 1 FROM users WHERE users.user_id = ti.technician_id AND users.name LIKE ?))'
       );
-      params.push(like, like, like, like, like, like, like, like, like, like, like, like);
+      params.push(like, like, like, like, like, like, like, like, like, like, like, like, like);
     }
   }
 
@@ -251,6 +252,10 @@ export function buildCommissionListFilters(req) {
   if (department_id) {
     filters.push('ti.department_id = ?');
     params.push(department_id);
+  }
+  if (invoice_status) {
+    filters.push("COALESCE(NULLIF(ti.invoice_status, ''), '未结算') = ?");
+    params.push(invoice_status);
   }
   if (month_filter && month_filter.trim() !== '') {
     const [year, month] = month_filter.split('-');

@@ -48,7 +48,7 @@ export default function TestItemEdit() {
   const [it, setIt] = useState({ 
     quantity: 1, 
     status: 'new', 
-    is_add_on: 1, 
+    is_add_on: isAddonRequest ? 1 : 0, 
     is_outsourced: 0, 
     machine_hours: 0, 
     work_hours: 0, 
@@ -703,7 +703,7 @@ export default function TestItemEdit() {
     if (!it.unit || String(it.unit).trim() === '') return alert('下单单位必填');
     
     // 验证加测原因：如果是加测项目，必须填写加测原因
-    if ((isAddonRequest || isAddOnTestItemFlag(it.is_add_on)) && (!it.addon_reason || it.addon_reason.trim() === '')) {
+    if ((isAddonRequest || (isNew && isAddOnTestItemFlag(it.is_add_on))) && (!it.addon_reason || it.addon_reason.trim() === '')) {
       return alert('加测原因必填，请选择加测原因');
     }
     

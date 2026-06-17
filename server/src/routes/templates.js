@@ -1294,7 +1294,12 @@ router.post('/generate-bills-template-excel', requireAnyRole(['admin', 'sales'])
   };
 
   try {
-    const { test_item_ids = [] } = req.body || {};
+    const {
+      test_item_ids = [],
+      discount_total_amount = null,
+      billing_customer_name = '',
+      settlement_serial_number = ''
+    } = req.body || {};
     if (!Array.isArray(test_item_ids) || test_item_ids.length === 0) {
       return res.status(400).json({ error: 'test_item_ids 必填' });
     }
@@ -1367,7 +1372,7 @@ router.post('/generate-bills-template-excel', requireAnyRole(['admin', 'sales'])
       copyRowStyle(worksheet, templateRowNumber, rowNumber);
     }
 
-    const customerName = testItemRows[0]?.customer_name || '客户';
+    const customerName = String(billing_customer_name || '').trim() || testItemRows[0]?.customer_name || '客户';
     worksheet.getCell('B2').value = customerName;
     worksheet.getCell('A5').value = `    在甲乙双方平等自愿、协商一致的原则下，根据甲方要求已完成分析测试服务，截至${formatDateChinese()}，甲方测试清单及收费情况总如下。`;
     worksheet.getCell(`A${totalStartRow + 8}`).value = formatToday();
@@ -1425,8 +1430,18 @@ router.post('/generate-bills-template-excel', requireAnyRole(['admin', 'sales'])
       formula: `D${totalStartRow}+D${totalStartRow + 1}`,
       result: Number(taxedResult.toFixed(2))
     };
-    discountTotalCell.value = null;
-    upperCell.value = numberToRmbUpper(taxedResult);
+    const discountTotalAmountNum =
+      discount_total_amount === null || discount_total_amount === undefined || discount_total_amount === ''
+        ? null
+        : toNumber(discount_total_amount, null);
+    discountTotalCell.value = discountTotalAmountNum === null
+      ? null
+      : Number(discountTotalAmountNum.toFixed(2));
+    if (discountTotalAmountNum !== null) {
+      discountTotalCell.numFmt = '0.00';
+    }
+    const upperAmount = discountTotalAmountNum !== null ? discountTotalAmountNum : taxedResult;
+    upperCell.value = numberToRmbUpper(upperAmount);
 
     [untaxedCell, taxCell, taxedCell].forEach((cell) => {
       cell.numFmt = '0.00';
@@ -1463,8 +1478,13 @@ router.post('/generate-bills-template-excel', requireAnyRole(['admin', 'sales'])
     const buffer = await workbook.xlsx.writeBuffer();
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    const safeCustomerName = String(customerName).replace(/[<>:"/\\|?*]/g, '').trim() || '客户';
-    const fileName = `${safeCustomerName}-测试服务清单.xlsx`;
+    const safeFilePart = (value, fallback) => {
+      const text = String(value || '').replace(/[<>:"/\\|?*]/g, '').trim();
+      return text || fallback;
+    };
+    const safeSettlementSerial = safeFilePart(settlement_serial_number, '结算流水号');
+    const safeCustomerName = safeFilePart(customerName, '客户');
+    const fileName = `${safeSettlementSerial}-${safeCustomerName}-测试服务清单.xlsx`;
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`);
     res.send(Buffer.from(buffer));
   } catch (error) {

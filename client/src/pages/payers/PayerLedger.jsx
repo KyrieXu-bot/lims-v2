@@ -56,10 +56,13 @@ export default function PayerLedger() {
 
       <div className="card" style={{ marginBottom: 16 }}>
         <h3 style={{ marginTop: 0 }}>{payer.contact_name}（{payer.customer_name}）</h3>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(140px, 1fr))', gap: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(8, minmax(120px, 1fr))', gap: 12 }}>
           <div><strong>当前余额</strong><br />{formatCurrency(summary.current_balance)}</div>
           <div><strong>预存入账</strong><br />{formatCurrency(summary.prepaid_balance)}</div>
-          <div><strong>待结算金额</strong><br />{formatCurrency(summary.pending_settlement_amount)}</div>
+          <div><strong>未结算汇总</strong><br />{formatCurrency(summary.unsettled_amount)}</div>
+          <div><strong>已申请汇总</strong><br />{formatCurrency(summary.applied_amount)}</div>
+          <div><strong>已开票汇总</strong><br />{formatCurrency(summary.invoiced_amount)}</div>
+          <div><strong>已到账汇总</strong><br />{formatCurrency(summary.received_amount)}</div>
           <div><strong>已扣款金额</strong><br />{formatCurrency(summary.settlement_debit_amount)}</div>
           <div><strong>到账冲抵</strong><br />{formatCurrency(summary.receipt_credit_amount)}</div>
         </div>

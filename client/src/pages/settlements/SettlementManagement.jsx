@@ -4,6 +4,15 @@ import React from 'react';
 import DetailViewLink from '../../components/DetailViewLink.jsx';
 import './SettlementManagement.css';
 
+const DEPARTMENT_ALLOCATION_COLUMNS = [
+  { key: 'dept_1_amount', label: '显微结构表征' },
+  { key: 'dept_2_amount', label: '物化性能分析' },
+  { key: 'dept_3_amount', label: '力学性能测试' },
+  { key: 'dept_5_amount', label: '委外' },
+  { key: 'dept_6_amount', label: '化学分析' },
+  { key: 'dept_7_amount', label: '技术支持' }
+];
+
 export default function SettlementManagement() {
   const [settlements, setSettlements] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -37,6 +46,9 @@ export default function SettlementManagement() {
     remarks: ''
   });
   const [payerOptions, setPayerOptions] = useState([]);
+  const [prepaymentPayerQuery, setPrepaymentPayerQuery] = useState('');
+  const [prepaymentPayerResults, setPrepaymentPayerResults] = useState([]);
+  const [showPrepaymentPayerDropdown, setShowPrepaymentPayerDropdown] = useState(false);
   const [assigneeOptions, setAssigneeOptions] = useState([]);
   const [customerSearchResults, setCustomerSearchResults] = useState([]);
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
@@ -45,14 +57,12 @@ export default function SettlementManagement() {
     keyword: '',
     settlement_type: '',
     payment_status: '',
-    approval_status: ''
+    approval_status: '',
+    created_start: '',
+    created_end: ''
   });
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
   const customerInputRef = useRef(null);
-  const settlementsTableHeadRef = useRef(null);
-  const settlementsTableBodyRef = useRef(null);
-  const [settlementHeaderHeight, setSettlementHeaderHeight] = useState(48);
-  const [settlementRowHeights, setSettlementRowHeights] = useState([]);
 
   useEffect(() => {
     loadSettlements();
@@ -67,6 +77,48 @@ export default function SettlementManagement() {
     } catch (e) {
       console.error('加载付款方列表失败:', e);
     }
+  }
+
+  function formatPayerLabel(payer) {
+    if (!payer) return '';
+    return payer.label || `${payer.contact_name || ''}${payer.customer_name ? ` (${payer.customer_name})` : ''}`;
+  }
+
+  async function searchPrepaymentPayers(query) {
+    const keyword = String(query || '').trim();
+    if (!keyword) {
+      setPrepaymentPayerResults([]);
+      setShowPrepaymentPayerDropdown(false);
+      return;
+    }
+
+    try {
+      const data = await api.listPayers({ q: keyword, page: 1, pageSize: 20, is_active: 1 });
+      const rows = Array.isArray(data?.data) ? data.data : Array.isArray(data) ? data : [];
+      const normalized = rows.map((payer) => ({
+        ...payer,
+        label: formatPayerLabel(payer)
+      }));
+      setPrepaymentPayerResults(normalized);
+      setShowPrepaymentPayerDropdown(normalized.length > 0);
+    } catch (e) {
+      console.error('搜索付款方失败:', e);
+      setPrepaymentPayerResults([]);
+      setShowPrepaymentPayerDropdown(false);
+    }
+  }
+
+  function handlePrepaymentPayerInput(value) {
+    setPrepaymentPayerQuery(value);
+    setPrepaymentForm({ ...prepaymentForm, payer_id: '' });
+    searchPrepaymentPayers(value);
+  }
+
+  function handleSelectPrepaymentPayer(payer) {
+    setPrepaymentPayerQuery(formatPayerLabel(payer));
+    setPrepaymentForm({ ...prepaymentForm, payer_id: payer.payer_id });
+    setPrepaymentPayerResults([]);
+    setShowPrepaymentPayerDropdown(false);
   }
 
   async function loadAssigneeOptions() {
@@ -383,11 +435,8 @@ export default function SettlementManagement() {
     return `¥${Number(amount).toFixed(2)}`;
   }
 
-  async function handleDelete(settlementId) {
-    // 检查删除权限
-    const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
-    const canEdit = user?.role === 'admin' || (user?.role === 'leader' && Number(user?.department_id) === 5);
-    if (!canEdit) {
+  async function handleDelete(settlement) {
+    if (!canDeleteSettlement(settlement)) {
       alert('您没有权限删除结算记录');
       return;
     }
@@ -403,7 +452,7 @@ export default function SettlementManagement() {
         'Content-Type': 'application/json'
       };
 
-      const response = await fetch(`/api/settlements/${settlementId}`, {
+      const response = await fetch(`/api/settlements/${settlement.settlement_id}`, {
         method: 'DELETE',
         headers
       });
@@ -477,6 +526,9 @@ export default function SettlementManagement() {
         payment_status: '已到款',
         remarks: ''
       });
+      setPrepaymentPayerQuery('');
+      setPrepaymentPayerResults([]);
+      setShowPrepaymentPayerDropdown(false);
       loadSettlements();
     } catch (e) {
       alert('创建预存充值流水失败: ' + e.message);
@@ -512,6 +564,14 @@ export default function SettlementManagement() {
     return false;
   };
 
+  const canDeleteSettlement = (settlement) => {
+    if (canEditSettlement()) return true;
+    return user?.role === 'sales' &&
+      settlement?.settlement_type === 'invoice' &&
+      !settlement?.invoice_number &&
+      settlement?.approval_status !== 'approved';
+  };
+
   const canApproveSettlement = () => {
     return user?.role === 'admin' && String(user?.user_id) === 'JC0061';
   };
@@ -536,24 +596,28 @@ export default function SettlementManagement() {
       );
     }
 
-    if (!canEditSettlement()) {
+    if (!canEditSettlement() && !canDeleteSettlement(settlement)) {
       return <span style={{ color: '#999' }}>仅查看</span>;
     }
 
     return (
       <div className="settlement-action-buttons">
-        <button
-          className="btn btn-primary btn-sm"
-          onClick={() => handleEdit(settlement)}
-        >
-          编辑
-        </button>
-        <button
-          className="btn btn-danger btn-sm"
-          onClick={() => handleDelete(settlement.settlement_id)}
-        >
-          删除
-        </button>
+        {canEditSettlement() && (
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={() => handleEdit(settlement)}
+          >
+            编辑
+          </button>
+        )}
+        {canDeleteSettlement(settlement) && (
+          <button
+            className="btn btn-danger btn-sm"
+            onClick={() => handleDelete(settlement)}
+          >
+            删除
+          </button>
+        )}
         {canApproveSettlement() && settlement.approval_status === 'pending' && (
           <button
             className="btn btn-success btn-sm"
@@ -615,49 +679,21 @@ export default function SettlementManagement() {
     if (settlementFilters.approval_status && settlement.approval_status !== settlementFilters.approval_status) {
       return false;
     }
+    if (settlementFilters.created_start || settlementFilters.created_end) {
+      if (!settlement.created_at) return false;
+      const createdTime = new Date(settlement.created_at).getTime();
+      if (Number.isNaN(createdTime)) return false;
+      if (settlementFilters.created_start) {
+        const startTime = new Date(`${settlementFilters.created_start}T00:00:00`).getTime();
+        if (!Number.isNaN(startTime) && createdTime < startTime) return false;
+      }
+      if (settlementFilters.created_end) {
+        const endTime = new Date(`${settlementFilters.created_end}T23:59:59`).getTime();
+        if (!Number.isNaN(endTime) && createdTime > endTime) return false;
+      }
+    }
     return true;
   });
-
-  useEffect(() => {
-    const thead = settlementsTableHeadRef.current;
-    const tbody = settlementsTableBodyRef.current;
-    if (!thead || !tbody) return undefined;
-
-    const measureTable = () => {
-      const nextHeaderHeight = thead.getBoundingClientRect().height || 48;
-      setSettlementHeaderHeight(prev => (
-        Math.abs(prev - nextHeaderHeight) < 0.5 ? prev : nextHeaderHeight
-      ));
-
-      const rows = Array.from(tbody.querySelectorAll('tr'));
-      const nextHeights = rows.map(row => row.getBoundingClientRect().height || 58);
-      setSettlementRowHeights(prev => (
-        prev.length === nextHeights.length && prev.every((height, index) => Math.abs(height - nextHeights[index]) < 0.5)
-          ? prev
-          : nextHeights
-      ));
-    };
-
-    const frameId = requestAnimationFrame(measureTable);
-    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measureTable) : null;
-    if (observer) {
-      observer.observe(thead);
-      Array.from(tbody.querySelectorAll('tr')).forEach(row => observer.observe(row));
-    }
-    window.addEventListener('resize', measureTable);
-
-    return () => {
-      cancelAnimationFrame(frameId);
-      if (observer) observer.disconnect();
-      window.removeEventListener('resize', measureTable);
-    };
-  }, [
-    filteredSettlements.length,
-    editingSettlement?.settlement_id,
-    editForm.invoice_number,
-    editForm.remarks,
-    customerSearchQuery
-  ]);
 
   if (!canAccessSettlement()) {
     return (
@@ -726,14 +762,32 @@ export default function SettlementManagement() {
               <option value="rejected">已退回</option>
             </select>
           </div>
-          {(settlementFilters.keyword || settlementFilters.settlement_type || settlementFilters.payment_status || settlementFilters.approval_status) && (
+          <div className="settlements-filter-item">
+            <label>创建时间:</label>
+            <input
+              type="date"
+              className="input settlements-filter-date"
+              value={settlementFilters.created_start}
+              onChange={(e) => setSettlementFilters({ ...settlementFilters, created_start: e.target.value })}
+            />
+            <span className="settlements-filter-date-separator">至</span>
+            <input
+              type="date"
+              className="input settlements-filter-date"
+              value={settlementFilters.created_end}
+              onChange={(e) => setSettlementFilters({ ...settlementFilters, created_end: e.target.value })}
+            />
+          </div>
+          {(settlementFilters.keyword || settlementFilters.settlement_type || settlementFilters.payment_status || settlementFilters.approval_status || settlementFilters.created_start || settlementFilters.created_end) && (
             <button
               className="btn btn-secondary settlements-filter-reset"
               onClick={() => setSettlementFilters({
                 keyword: '',
                 settlement_type: '',
                 payment_status: '',
-                approval_status: ''
+                approval_status: '',
+                created_start: '',
+                created_end: ''
               })}
             >
               重置
@@ -793,18 +847,38 @@ export default function SettlementManagement() {
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: 12, alignItems: 'center' }}>
               <label>付款方</label>
-              <select
-                className="input"
-                value={prepaymentForm.payer_id}
-                onChange={(e) => setPrepaymentForm({ ...prepaymentForm, payer_id: e.target.value })}
-              >
-                <option value="">请选择付款方</option>
-                {payerOptions.map(payer => (
-                  <option key={payer.payer_id} value={payer.payer_id}>
-                    {payer.label}
-                  </option>
-                ))}
-              </select>
+              <div className="settlements-payer-search">
+                <input
+                  className="input"
+                  value={prepaymentPayerQuery}
+                  onChange={(e) => handlePrepaymentPayerInput(e.target.value)}
+                  onFocus={() => {
+                    if (prepaymentPayerResults.length > 0) {
+                      setShowPrepaymentPayerDropdown(true);
+                    }
+                  }}
+                  onBlur={() => {
+                    setTimeout(() => setShowPrepaymentPayerDropdown(false), 160);
+                  }}
+                  placeholder="输入付款方名称或客户名称搜索"
+                />
+                {showPrepaymentPayerDropdown && prepaymentPayerResults.length > 0 && (
+                  <div className="settlements-payer-dropdown">
+                    {prepaymentPayerResults.map((payer) => (
+                      <button
+                        type="button"
+                        key={payer.payer_id}
+                        className="settlements-payer-option"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => handleSelectPrepaymentPayer(payer)}
+                      >
+                        <span className="settlements-payer-option-main">{payer.contact_name || '-'}</span>
+                        <span className="settlements-payer-option-sub">{payer.customer_name || '-'}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
 
               <label>预存类型</label>
               <select
@@ -918,7 +992,7 @@ export default function SettlementManagement() {
       <div className="table-container settlements-table-container" style={{ marginTop: '20px' }}>
         <div className="settlements-table-scroll">
         <table className={`table settlements-table ${editingSettlement ? 'settlements-table-editing' : ''}`}>
-          <thead ref={settlementsTableHeadRef}>
+          <thead>
             <tr>
               <th>流水号</th>
               <th>票号</th>
@@ -929,18 +1003,22 @@ export default function SettlementManagement() {
               <th>客户名称</th>
               <th>开票金额</th>
               <th>到账金额</th>
+              {DEPARTMENT_ALLOCATION_COLUMNS.map((col) => (
+                <th key={col.key} className="settlements-dept-col">{col.label}</th>
+              ))}
               <th>到账日期</th>
               <th>备注</th>
               <th>业务人员</th>
               <th>企业性质</th>
               <th>到款情况</th>
               <th>审批状态</th>
+              <th className="settlements-action-col">操作</th>
             </tr>
           </thead>
-          <tbody ref={settlementsTableBodyRef}>
+          <tbody>
             {filteredSettlements.length === 0 ? (
               <tr>
-                <td colSpan="15" style={{ textAlign: 'center', padding: '20px' }}>
+                <td colSpan="22" style={{ textAlign: 'center', padding: '20px' }}>
                   暂无匹配的结算记录
                 </td>
               </tr>
@@ -1028,6 +1106,11 @@ export default function SettlementManagement() {
                           style={{ width: '120px', padding: '4px' }}
                         />
                       </td>
+                      {DEPARTMENT_ALLOCATION_COLUMNS.map((col) => (
+                        <td key={col.key} className="settlement-money-cell settlements-dept-col">
+                          {formatCurrency(settlement[col.key] || 0)}
+                        </td>
+                      ))}
                       <td>
                         <input
                           type="number"
@@ -1107,6 +1190,7 @@ export default function SettlementManagement() {
                           {getApprovalStatusText(settlement.approval_status)}
                         </span>
                       </td>
+                      <td className="settlements-action-col">{renderSettlementActions(settlement)}</td>
                     </>
                   ) : (
                     <>
@@ -1140,6 +1224,11 @@ export default function SettlementManagement() {
                       </td>
                       <td className="settlement-money-cell">{formatCurrency(settlement.invoice_amount)}</td>
                       <td className="settlement-money-cell">{formatCurrency(settlement.received_amount)}</td>
+                      {DEPARTMENT_ALLOCATION_COLUMNS.map((col) => (
+                        <td key={col.key} className="settlement-money-cell settlements-dept-col">
+                          {formatCurrency(settlement[col.key] || 0)}
+                        </td>
+                      ))}
                       <td>{formatDate(settlement.received_date)}</td>
                       <td className="settlement-detail-cell settlement-remarks-cell">
                         <DetailViewLink
@@ -1178,6 +1267,7 @@ export default function SettlementManagement() {
                           {getApprovalStatusText(settlement.approval_status)}
                         </span>
                       </td>
+                      <td className="settlements-action-col">{renderSettlementActions(settlement)}</td>
                     </>
                   )}
                 </tr>
@@ -1185,34 +1275,6 @@ export default function SettlementManagement() {
             )}
           </tbody>
         </table>
-        </div>
-        <div className="settlements-action-panel">
-          <div
-            className="settlements-action-header"
-            style={{ height: settlementHeaderHeight }}
-          >
-            操作
-          </div>
-          <div className="settlements-action-body">
-            {filteredSettlements.length === 0 ? (
-              <div
-                className="settlements-action-row settlements-action-row-empty"
-                style={{ height: settlementRowHeights[0] || 58 }}
-              >
-                -
-              </div>
-            ) : (
-              filteredSettlements.map((settlement, index) => (
-                <div
-                  className="settlements-action-row"
-                  key={`actions-${settlement.settlement_id}`}
-                  style={{ height: settlementRowHeights[index] || 58 }}
-                >
-                  {renderSettlementActions(settlement)}
-                </div>
-              ))
-            )}
-          </div>
         </div>
       </div>
     </div>

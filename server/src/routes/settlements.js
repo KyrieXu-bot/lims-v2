@@ -11,6 +11,15 @@ const TX_INVOICE_RECEIPT_CREDIT = 'invoice_receipt_credit';
 const SETTLEMENT_METHODS = new Set(['invoice', 'prepaid', 'mixed']);
 const SETTLEMENT_APPROVER_USER_ID = 'JC0061';
 const PREPAYMENT_TYPES = new Set(['normal', 'paper_award']);
+const SETTLEMENT_DEPARTMENTS = [
+  { id: 1, key: 'dept_1_amount' },
+  { id: 2, key: 'dept_2_amount' },
+  { id: 3, key: 'dept_3_amount' },
+  { id: 5, key: 'dept_5_amount' },
+  { id: 6, key: 'dept_6_amount' },
+  { id: 7, key: 'dept_7_amount' }
+];
+const SETTLEMENT_DEPARTMENT_IDS = new Set(SETTLEMENT_DEPARTMENTS.map((dept) => dept.id));
 
 function canManageSettlement(user) {
   return user?.role === 'admin' || (Number(user?.department_id) === 5 && user?.role === 'leader');
@@ -45,6 +54,88 @@ function getPrepaymentUsableAmount(row) {
     normalizeAmount(row?.received_amount) ||
     normalizeAmount(row?.invoice_amount) ||
     0;
+}
+
+function parseSettlementTestItemIds(raw) {
+  if (!raw || String(raw).trim() === '') return [];
+  try {
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    return Array.isArray(parsed)
+      ? parsed.map((id) => Number(id)).filter(Number.isFinite)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+async function attachDepartmentAllocationAmounts(executor, settlementRows) {
+  for (const row of settlementRows) {
+    for (const dept of SETTLEMENT_DEPARTMENTS) {
+      row[dept.key] = 0;
+    }
+  }
+
+  const allIds = new Set();
+  const idsBySettlement = new Map();
+  for (const row of settlementRows) {
+    if (row.settlement_type !== 'invoice') continue;
+    const ids = parseSettlementTestItemIds(row.test_item_ids);
+    if (ids.length === 0) continue;
+    idsBySettlement.set(String(row.settlement_id), ids);
+    ids.forEach((id) => allIds.add(id));
+  }
+
+  if (allIds.size === 0) return settlementRows;
+
+  const idList = [...allIds];
+  const ph = idList.map(() => '?').join(',');
+  const [itemRows] = await executor.query(
+    `SELECT test_item_id, department_id, invoice_prefill_price, final_unit_price
+     FROM test_items
+     WHERE test_item_id IN (${ph})
+       AND status != 'cancelled'`,
+    idList
+  );
+  const itemMap = new Map(itemRows.map((item) => [Number(item.test_item_id), item]));
+
+  for (const row of settlementRows) {
+    const ids = idsBySettlement.get(String(row.settlement_id));
+    if (!ids || ids.length === 0) continue;
+    const receivedAmount = normalizeAmount(row.received_amount) || 0;
+    if (receivedAmount <= 0) continue;
+
+    const deptBasis = new Map();
+    let totalBasis = 0;
+    for (const id of ids) {
+      const item = itemMap.get(Number(id));
+      if (!item) continue;
+      const deptId = Number(item.department_id);
+      if (!SETTLEMENT_DEPARTMENT_IDS.has(deptId)) continue;
+      const basis = normalizeAmount(item.invoice_prefill_price) || normalizeAmount(item.final_unit_price) || 0;
+      if (basis <= 0) continue;
+      totalBasis += basis;
+      deptBasis.set(deptId, (deptBasis.get(deptId) || 0) + basis);
+    }
+
+    if (totalBasis <= 0) continue;
+    let allocatedTotal = 0;
+    const allocatedKeys = [];
+    for (const dept of SETTLEMENT_DEPARTMENTS) {
+      const basis = deptBasis.get(dept.id) || 0;
+      const amount = basis > 0 ? Math.round((receivedAmount * basis / totalBasis) * 100) / 100 : 0;
+      row[dept.key] = amount;
+      allocatedTotal += amount;
+      if (amount > 0) allocatedKeys.push(dept.key);
+    }
+
+    const diff = Math.round((receivedAmount - allocatedTotal) * 100) / 100;
+    if (Math.abs(diff) >= 0.01 && allocatedKeys.length > 0) {
+      const lastKey = allocatedKeys[allocatedKeys.length - 1];
+      row[lastKey] = Math.round((row[lastKey] + diff) * 100) / 100;
+    }
+  }
+
+  return settlementRows;
 }
 
 function formatDateKey(date = new Date()) {
@@ -668,6 +759,7 @@ router.get('/', requireAuth, async (req, res) => {
       ORDER BY s.invoice_date DESC, s.created_at DESC
     `);
     
+    await attachDepartmentAllocationAmounts(pool, rows);
     res.json(rows);
   } catch (e) {
     return res.status(500).json({ error: e.message });
@@ -941,9 +1033,9 @@ router.post('/', requireAuth, async (req, res) => {
         for (const allocation of allocations) {
           await connection.query(
             `UPDATE test_items 
-             SET unpaid_amount = ?, invoice_status = '已申请'
+             SET unpaid_amount = ?, invoice_status = '已申请', settlement_serial_number = ?
              WHERE test_item_id = ?`,
-            [allocation.unpaid_amount, allocation.test_item_id]
+            [allocation.unpaid_amount, settlementSerialNumber, allocation.test_item_id]
           );
         }
       } else if (invoiceAmountNum === 0) {
@@ -951,9 +1043,9 @@ router.post('/', requireAuth, async (req, res) => {
         for (const item of testItems) {
           await connection.query(
             `UPDATE test_items 
-             SET unpaid_amount = 0, invoice_status = '已申请'
+             SET unpaid_amount = 0, invoice_status = '已申请', settlement_serial_number = ?
              WHERE test_item_id = ?`,
-            [item.test_item_id]
+            [settlementSerialNumber, item.test_item_id]
           );
         }
       }
@@ -1554,11 +1646,6 @@ router.get('/customers/search', requireAuth, async (req, res) => {
 router.delete('/:id', requireAuth, async (req, res) => {
   const user = req.user;
   
-  // 只有管理员和特定部门领导可以删除结算记录
-  if (user.role !== 'admin' && !(user.department_id === 5 && user.role === 'leader')) {
-    return res.status(403).json({ error: '只有管理员和特定部门领导可以删除结算记录' });
-  }
-  
   const pool = await getPool();
   const connection = await pool.getConnection();
   
@@ -1567,7 +1654,7 @@ router.delete('/:id', requireAuth, async (req, res) => {
     
     // 先获取要删除的结算记录（与创建/更新一致：优先按 test_item_ids 恢复，否则按委托单号组内未取消项目）
     const [settlementRows] = await connection.query(
-      'SELECT order_ids, test_item_ids FROM settlements WHERE settlement_id = ?',
+      'SELECT settlement_type, invoice_number, approval_status, order_ids, test_item_ids FROM settlements WHERE settlement_id = ?',
       [req.params.id]
     );
     
@@ -1576,7 +1663,19 @@ router.delete('/:id', requireAuth, async (req, res) => {
       return res.status(404).json({ error: '结算记录不存在' });
     }
     
-    const { order_ids: orderIdsStr, test_item_ids: testItemIdsStr } = settlementRows[0];
+    const settlement = settlementRows[0];
+    const canDeleteByManager = canManageSettlement(user);
+    const canDeleteBySales =
+      user.role === 'sales' &&
+      settlement.settlement_type === 'invoice' &&
+      !settlement.invoice_number &&
+      settlement.approval_status !== 'approved';
+    if (!canDeleteByManager && !canDeleteBySales) {
+      await connection.rollback();
+      return res.status(403).json({ error: '当前结算记录已有票号或已审批通过，仅管理员可删除' });
+    }
+
+    const { order_ids: orderIdsStr, test_item_ids: testItemIdsStr } = settlement;
 
     let testItemIds = [];
     if (testItemIdsStr && String(testItemIdsStr).trim() !== '') {
@@ -1610,6 +1709,7 @@ router.delete('/:id', requireAuth, async (req, res) => {
       await connection.query(
         `UPDATE test_items 
          SET unpaid_amount = 0,
+             settlement_serial_number = NULL,
              invoice_status = '未结算',
              invoice_prefill_confirmed = 0
          WHERE test_item_id IN (${ph})`,
