@@ -1106,11 +1106,6 @@ export default function SettlementManagement() {
                           style={{ width: '120px', padding: '4px' }}
                         />
                       </td>
-                      {DEPARTMENT_ALLOCATION_COLUMNS.map((col) => (
-                        <td key={col.key} className="settlement-money-cell settlements-dept-col">
-                          {formatCurrency(settlement[col.key] || 0)}
-                        </td>
-                      ))}
                       <td>
                         <input
                           type="number"
@@ -1123,13 +1118,18 @@ export default function SettlementManagement() {
                           style={{ width: '120px', padding: '4px' }}
                         />
                       </td>
+                      {DEPARTMENT_ALLOCATION_COLUMNS.map((col) => (
+                        <td key={col.key} className="settlement-money-cell settlements-dept-col">
+                          {formatCurrency(settlement[col.key] || 0)}
+                        </td>
+                      ))}
                       <td>
                         <input
                           type="date"
                           className="input"
                           value={editForm.received_date}
                           onChange={(e) => setEditForm({ ...editForm, received_date: e.target.value })}
-                          style={{ width: '150px', padding: '4px' }}
+                          style={{ width: '170px', padding: '4px' }}
                         />
                       </td>
                       <td>
@@ -1139,7 +1139,7 @@ export default function SettlementManagement() {
                           value={editForm.remarks}
                           onChange={(e) => setEditForm({ ...editForm, remarks: e.target.value })}
                           placeholder="备注"
-                          style={{ width: '150px', padding: '4px' }}
+                          style={{ width: '180px', padding: '4px' }}
                         />
                       </td>
                       <td>

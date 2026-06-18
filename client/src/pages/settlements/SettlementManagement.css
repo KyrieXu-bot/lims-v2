@@ -158,8 +158,8 @@
 }
 
 .settlements-table-editing {
-  width: 3430px;
-  min-width: 3430px;
+  width: 3520px;
+  min-width: 3520px;
 }
 
 .table.settlements-table {
@@ -315,6 +315,18 @@
 .settlements-table-editing th:nth-child(14),
 .settlements-table-editing td:nth-child(14) {
   width: 155px;
+}
+
+.settlements-table-editing th:nth-child(16),
+.settlements-table-editing td:nth-child(16) {
+  width: 180px;
+  min-width: 180px;
+}
+
+.settlements-table-editing th:nth-child(17),
+.settlements-table-editing td:nth-child(17) {
+  width: 190px;
+  min-width: 190px;
 }
 
 .settlements-table th {

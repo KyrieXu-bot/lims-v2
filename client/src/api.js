@@ -293,8 +293,12 @@ export const api = {
     const r = await fetch(`${API_BASE}/api/customers/sales-options`, { headers: this.authHeaders() });
     return readApiJson(r, 'Fetch failed');
   },
-  async customersOptions() {
-    const r = await fetch(`${API_BASE}/api/customers/options`, { headers: this.authHeaders() });
+  async customersOptions({ q = '', limit } = {}) {
+    const params = new URLSearchParams();
+    if (q) params.set('q', q);
+    if (limit) params.set('limit', String(limit));
+    const query = params.toString();
+    const r = await fetch(`${API_BASE}/api/customers/options${query ? `?${query}` : ''}`, { headers: this.authHeaders() });
     return readApiJson(r, 'Fetch failed');
   },
   async getCustomer(id) {

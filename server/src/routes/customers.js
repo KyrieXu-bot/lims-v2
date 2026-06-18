@@ -8,8 +8,17 @@ router.use(requireAuth);
 // options for selects
 router.get('/options', async (req, res) => {
   const pool = await getPool();
+  const { q = '', limit = 100 } = req.query;
+  const safeLimit = Math.min(200, Math.max(1, Number(limit) || 100));
+  const like = `%${q}%`;
   const [rows] = await pool.query(
-    'SELECT customer_id, customer_name, tax_id FROM customers WHERE is_active = 1 ORDER BY customer_name ASC'
+    `SELECT customer_id, customer_name, tax_id
+     FROM customers
+     WHERE is_active = 1
+       AND (customer_name LIKE ? OR tax_id LIKE ?)
+     ORDER BY customer_name ASC
+     LIMIT ?`,
+    [like, like, safeLimit]
   );
   res.json(rows);
 });

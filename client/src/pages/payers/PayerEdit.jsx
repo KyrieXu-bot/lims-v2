@@ -16,14 +16,46 @@ export default function PayerEdit() {
   const isNew = id === 'new';
   const [it, setIt] = useState({ is_active: 1 });
   const [customerOptions, setCustomerOptions] = useState([]);
+  const [customerQuery, setCustomerQuery] = useState('');
   const [sales, setSales] = useState([]);
   const navigate = useNavigate();
 
   useEffect(()=>{
-    api.customersOptions().then(setCustomerOptions);
     api.salesOptions().then(setSales).catch(e=>alert(e.message));
-    if (!isNew) api.getPayer(id).then(setIt).catch(e=>alert(e.message));
+    if (!isNew) {
+      api.getPayer(id).then(payer => {
+        setIt(payer);
+        if (payer.customer_id && payer.customer_name) {
+          setCustomerOptions(prev => (
+            prev.some(c => String(c.customer_id) === String(payer.customer_id))
+              ? prev
+              : [{ customer_id: payer.customer_id, customer_name: payer.customer_name, tax_id: payer.tax_id || '' }, ...prev]
+          ));
+        }
+      }).catch(e=>alert(e.message));
+    }
   }, [id]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      api.customersOptions({ q: customerQuery, limit: 50 }).then(rows => {
+        setCustomerOptions(prev => {
+          const selected = it.customer_id && it.customer_name
+            ? [{ customer_id: it.customer_id, customer_name: it.customer_name, tax_id: it.tax_id || '' }]
+            : [];
+          const merged = [...selected, ...rows];
+          const seen = new Set();
+          return merged.filter(customer => {
+            const key = String(customer.customer_id);
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          });
+        });
+      }).catch(e => alert(e.message));
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [customerQuery, it.customer_id, it.customer_name, it.tax_id]);
 
   async function onSubmit(e) {
     e.preventDefault();
@@ -53,7 +85,26 @@ export default function PayerEdit() {
         <div className="grid-3">
           <div>
               <label>客户 *</label>
-            <select className="input" value={it.customer_id||''} onChange={e=>setIt({...it, customer_id:Number(e.target.value)})}>
+            <input
+              className="input"
+              placeholder="输入客户名称/税号搜索"
+              value={customerQuery}
+              onChange={e => setCustomerQuery(e.target.value)}
+              style={{ marginBottom: 6 }}
+            />
+            <select
+              className="input"
+              value={it.customer_id||''}
+              onChange={e => {
+                const selected = customerOptions.find(o => String(o.customer_id) === String(e.target.value));
+                setIt({
+                  ...it,
+                  customer_id: e.target.value ? Number(e.target.value) : '',
+                  customer_name: selected?.customer_name || '',
+                  tax_id: selected?.tax_id || ''
+                });
+              }}
+            >
               <option value="">选择一个客户</option>
               {customerOptions.map(o => (
                 <option key={o.customer_id} value={o.customer_id}>{o.customer_name} ({o.tax_id})</option>
