@@ -514,6 +514,22 @@ export const api = {
     const r = await fetch(`${API_BASE}/api/equipment-bookings?${params.toString()}`, { headers: this.authHeaders() });
     return readApiJson(r, 'Fetch failed');
   },
+  async listEquipmentBookingApprovals({ from = '', to = '', equipment_id = '', department_id = '' } = {}) {
+    const params = new URLSearchParams({ approvals: 'true' });
+    if (from) params.set('from', from);
+    if (to) params.set('to', to);
+    if (equipment_id) params.set('equipment_id', equipment_id);
+    if (department_id) params.set('department_id', department_id);
+    const r = await fetch(`${API_BASE}/api/equipment-bookings?${params.toString()}`, { headers: this.authHeaders() });
+    return readApiJson(r, 'Fetch failed');
+  },
+  async searchBookingAssignees({ q = '', equipment_id = '' } = {}) {
+    const params = new URLSearchParams();
+    if (q) params.set('q', q);
+    if (equipment_id) params.set('equipment_id', equipment_id);
+    const r = await fetch(`${API_BASE}/api/equipment-bookings/assignees?${params.toString()}`, { headers: this.authHeaders() });
+    return readApiJson(r, 'Fetch failed');
+  },
   async createEquipmentBooking(payload) {
     const r = await fetch(`${API_BASE}/api/equipment-bookings`, {
       method: 'POST',
@@ -536,6 +552,22 @@ export const api = {
       headers: this.authHeaders()
     });
     return readApiJson(r, 'Cancel failed');
+  },
+  async approveEquipmentBooking(id, payload = {}) {
+    const r = await fetch(`${API_BASE}/api/equipment-bookings/${id}/approve`, {
+      method: 'POST',
+      headers: this.authHeaders(),
+      body: JSON.stringify(payload)
+    });
+    return readApiJson(r, 'Approve failed');
+  },
+  async rejectEquipmentBooking(id, payload = {}) {
+    const r = await fetch(`${API_BASE}/api/equipment-bookings/${id}/reject`, {
+      method: 'POST',
+      headers: this.authHeaders(),
+      body: JSON.stringify(payload)
+    });
+    return readApiJson(r, 'Reject failed');
   },
   async getBookingOrderTestItems(orderId) {
     const r = await fetch(`${API_BASE}/api/equipment-bookings/order/${encodeURIComponent(orderId)}/test-items`, { headers: this.authHeaders() });

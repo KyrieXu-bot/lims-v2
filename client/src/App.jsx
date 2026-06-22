@@ -39,6 +39,14 @@ import './app.css';
 function Layout({ children }) {
   const navigate = useNavigate();
   const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
+  const userRoles = Array.isArray(user?.roles) ? user.roles : [user?.role].filter(Boolean);
+  const hasRole = (role) => userRoles.includes(role);
+  const canUseEquipmentBooking = Boolean(user?.token) && (
+    hasRole('admin') ||
+    (hasRole('sales') && Number(user.department_id) === 4) ||
+    ((hasRole('employee') || hasRole('supervisor')) && Number(user.department_id) === 1) ||
+    ['JC0023', 'JC0101', 'JC0011', 'JC0019', 'JC005'].includes(String(user.user_id || ''))
+  );
   function logout() {
     localStorage.removeItem('lims_user');
     navigate('/login');
@@ -80,7 +88,9 @@ function Layout({ children }) {
               )}
               {/* 平台设备清单 - 所有角色都可以看到 */}
               <NavLink to="/equipment-list" className={({isActive})=>isActive?'active':''}>平台设备清单</NavLink>
-              <NavLink to="/equipment-booking" className={({isActive})=>isActive?'active':''}>设备预约</NavLink>
+              {canUseEquipmentBooking && (
+                <NavLink to="/equipment-booking" className={({isActive})=>isActive?'active':''}>设备预约</NavLink>
+              )}
               {/* 管理员可以看到价目表 */}
               {user.role === 'admin' && (
                 <NavLink to="/price" className={({isActive})=>isActive?'active':''}>价目表</NavLink>

@@ -220,6 +220,18 @@
   box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.22), 0 2px 5px rgba(30, 64, 175, 0.12);
 }
 
+.booking-event.pending {
+  background: #fef3c7;
+  border-color: #f59e0b;
+  color: #92400e;
+}
+
+.booking-event.approved {
+  background: #dcfce7;
+  border-color: #86efac;
+  color: #14532d;
+}
+
 .booking-event.archived {
   background: #f1f5f9;
   border-color: #cbd5e1;
@@ -255,6 +267,7 @@
   gap: 14px;
 }
 
+.approval-panel,
 .my-booking-panel,
 .booking-table-panel {
   background: #ffffff;
@@ -264,12 +277,14 @@
   box-shadow: 0 2px 8px rgba(15, 23, 42, 0.05);
 }
 
+.approval-panel-head,
 .my-booking-head,
 .booking-table-panel h3 {
   margin: 0;
   padding: 14px 16px;
 }
 
+.approval-panel-head,
 .my-booking-head {
   display: flex;
   align-items: center;
@@ -278,15 +293,68 @@
   background: #f8fafc;
 }
 
+.approval-panel-head h3,
 .my-booking-head h3,
 .booking-table-panel h3 {
   margin: 0;
   font-size: 16px;
 }
 
+.approval-panel-head span,
 .my-booking-head span {
   color: #64748b;
   font-size: 13px;
+}
+
+.approval-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 12px;
+  padding: 14px 16px;
+}
+
+.approval-item {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 13px;
+  border: 1px solid #fde68a;
+  border-left: 4px solid #f59e0b;
+  border-radius: 8px;
+  background: #fffbeb;
+}
+
+.approval-main,
+.approval-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.approval-main {
+  justify-content: space-between;
+}
+
+.approval-main strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.approval-meta {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 4px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.approval-meta span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .my-booking-head-actions {
@@ -417,6 +485,16 @@
 .booking-status.ongoing {
   background: #ecfdf5;
   color: #047857;
+}
+
+.booking-status.pending {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.booking-status.approved {
+  background: #dcfce7;
+  color: #166534;
 }
 
 .booking-status.archived {
@@ -561,6 +639,55 @@
   border-radius: 50%;
   background: #eef2ff;
   color: #3730a3;
+  font-size: 12px;
+}
+
+.booking-user-picker {
+  position: relative;
+}
+
+.booking-user-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.booking-user-input-row input {
+  flex: 1;
+}
+
+.booking-user-options {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  max-height: 180px;
+  overflow: auto;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #ffffff;
+  box-shadow: 0 10px 25px rgba(15, 23, 42, 0.14);
+}
+
+.booking-user-options button {
+  border: 0;
+  border-bottom: 1px solid #e5e7eb;
+  background: #ffffff;
+  color: #0f172a;
+  padding: 9px 10px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.booking-user-options button:hover {
+  background: #eff6ff;
+}
+
+.booking-picker-hint {
+  color: #64748b;
   font-size: 12px;
 }
 
