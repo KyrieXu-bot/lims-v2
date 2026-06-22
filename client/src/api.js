@@ -293,8 +293,12 @@ export const api = {
     const r = await fetch(`${API_BASE}/api/customers/sales-options`, { headers: this.authHeaders() });
     return readApiJson(r, 'Fetch failed');
   },
-  async customersOptions() {
-    const r = await fetch(`${API_BASE}/api/customers/options`, { headers: this.authHeaders() });
+  async customersOptions({ q = '', limit } = {}) {
+    const params = new URLSearchParams();
+    if (q) params.set('q', q);
+    if (limit) params.set('limit', String(limit));
+    const query = params.toString();
+    const r = await fetch(`${API_BASE}/api/customers/options${query ? `?${query}` : ''}`, { headers: this.authHeaders() });
     return readApiJson(r, 'Fetch failed');
   },
   async getCustomer(id) {
@@ -315,9 +319,10 @@ export const api = {
   },
 
   // payers
-  async listPayers({ q = '', page = 1, pageSize = 20, is_active } = {}) {
+  async listPayers({ q = '', page = 1, pageSize = 20, is_active, customer_id } = {}) {
     const params = new URLSearchParams({ q, page, pageSize });
     if (is_active === 0 || is_active === 1 || is_active === '0' || is_active === '1') params.set('is_active', is_active);
+    if (customer_id !== undefined && customer_id !== null && String(customer_id).trim() !== '') params.set('customer_id', customer_id);
     const r = await fetch(`${API_BASE}/api/payers?${params.toString()}`, { headers: this.authHeaders() });
     return readApiJson(r, 'Fetch failed');
   },
@@ -684,8 +689,10 @@ export const api = {
   },
 
   // 付款方API
-  async listPayers({ q = '', page = 1, pageSize = 100 } = {}) {
+  async listPayers({ q = '', page = 1, pageSize = 100, is_active, customer_id } = {}) {
     const params = new URLSearchParams({ q, page, pageSize });
+    if (is_active === 0 || is_active === 1 || is_active === '0' || is_active === '1') params.set('is_active', is_active);
+    if (customer_id !== undefined && customer_id !== null && String(customer_id).trim() !== '') params.set('customer_id', customer_id);
     const r = await fetch(`${API_BASE}/api/payers?${params.toString()}`, { headers: this.authHeaders() });
     return readApiJson(r, 'Fetch failed');
   },
@@ -752,6 +759,38 @@ export const api = {
   async getSettlementAssignees() {
     const r = await fetch(`${API_BASE}/api/settlements/assignees`, { headers: this.authHeaders() });
     return readApiJson(r, '获取业务人员列表失败');
+  },
+  async updateSettlement(data, settlementId) {
+    const r = await fetch(`${API_BASE}/api/settlements/${settlementId}`, {
+      method: 'PUT',
+      headers: this.authHeaders(),
+      body: JSON.stringify(data)
+    });
+    return readApiJson(r, '更新结算记录失败');
+  },
+  async approveSettlement(settlementId, data) {
+    const r = await fetch(`${API_BASE}/api/settlements/${settlementId}/approval`, {
+      method: 'POST',
+      headers: this.authHeaders(),
+      body: JSON.stringify(data)
+    });
+    return readApiJson(r, '审批结算记录失败');
+  },
+  async getPayerPrepaymentLots(payerId) {
+    const r = await fetch(`${API_BASE}/api/settlements/payers/${payerId}/prepayment-lots`, { headers: this.authHeaders() });
+    return readApiJson(r, '获取付款方预存余额失败');
+  },
+  async getSettlementItemPaymentAllocations(testItemId) {
+    const r = await fetch(`${API_BASE}/api/settlements/test-items/${testItemId}/payment-allocations`, { headers: this.authHeaders() });
+    return readApiJson(r, '获取结算分摊明细失败');
+  },
+  async getPayerOptions() {
+    const r = await fetch(`${API_BASE}/api/payers/options`, { headers: this.authHeaders() });
+    return readApiJson(r, '获取付款方列表失败');
+  },
+  async getPayerLedger(payerId) {
+    const r = await fetch(`${API_BASE}/api/payers/${payerId}/ledger`, { headers: this.authHeaders() });
+    return readApiJson(r, '获取付款方流水失败');
   },
 
   // 转单管理API

@@ -289,6 +289,7 @@ const TOGGLEABLE_COLUMNS = [
   { key: 'business_note', label: '业务备注' },
   { key: 'status', label: '项目状态' },
   { key: 'abnormal_condition', label: '异常情况' },
+  { key: 'settlement_serial_number', label: '结算流水号' },
   { key: 'invoice_number', label: '票号' },
   { key: 'settlement_invoice_date', label: '开票日期' },
   { key: 'settlement_customer_name', label: '开票客户名称' },
@@ -390,6 +391,7 @@ const CommissionForm = () => {
   const [searchQuery, setSearchQuery] = useState(() => savedViewState?.searchQuery || '');
   const [multiOrderSearchInfo, setMultiOrderSearchInfo] = useState(null);
   const [statusFilter, setStatusFilter] = useState(() => savedViewState?.statusFilter || []); // 改为数组，支持多选
+  const [invoiceStatusFilter, setInvoiceStatusFilter] = useState(() => savedViewState?.invoiceStatusFilter || '');
   const [departmentFilter, setDepartmentFilter] = useState(() => savedViewState?.departmentFilter || '');
   const [monthFilter, setMonthFilter] = useState(() => savedViewState?.monthFilter || '');
   const [myItemsFilter, setMyItemsFilter] = useState(() => savedViewState?.myItemsFilter || false);
@@ -441,20 +443,26 @@ const CommissionForm = () => {
   // 结算相关状态
   const [showSettlementModal, setShowSettlementModal] = useState(false);
   const [settlementForm, setSettlementForm] = useState({
+    settlement_method: 'invoice',
     invoice_date: '',
     invoice_amount: '',
     remarks: '',
     customer_id: '',
     customer_name: '',
     customer_nature: '',
+    payer_id: '',
     assignee_id: '',
-    invoice_number: ''
+    invoice_number: '',
+    prepayment_lots: [],
+    prepayment_total_balance: 0
   });
   const [settlementOrderIds, setSettlementOrderIds] = useState('');
+  const [settlementPreviewItems, setSettlementPreviewItems] = useState([]);
   const [customerSearchQuery, setCustomerSearchQuery] = useState('');
-  const [customerSearchResults, setCustomerSearchResults] = useState([]);
-  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const [settlementAssigneeOptions, setSettlementAssigneeOptions] = useState([]);
+  const [showAllocationModal, setShowAllocationModal] = useState(false);
+  const [allocationDetail, setAllocationDetail] = useState(null);
+  const [allocationLoading, setAllocationLoading] = useState(false);
   // 取消/删除申请相关状态
   const [showCancellationModal, setShowCancellationModal] = useState(false);
   const [cancellationItem, setCancellationItem] = useState(null);
@@ -498,6 +506,7 @@ const CommissionForm = () => {
         page,
         searchQuery,
         statusFilter,
+        invoiceStatusFilter,
         departmentFilter,
         monthFilter,
         myItemsFilter,
@@ -520,7 +529,7 @@ const CommissionForm = () => {
 
   useEffect(() => {
     fullSelectionCacheRef.current = null;
-  }, [page, pageSize, searchQuery, statusFilter, departmentFilter, monthFilter, myItemsFilter]);
+  }, [page, pageSize, searchQuery, statusFilter, invoiceStatusFilter, departmentFilter, monthFilter, myItemsFilter]);
 
   const isColumnVisible = (key) => columnVisibility[key] !== false;
 
@@ -747,6 +756,7 @@ const CommissionForm = () => {
     if (statusFilter && statusFilter.length > 0) {
       statusFilter.forEach(status => params.append('status', status));
     }
+    if (invoiceStatusFilter) params.append('invoice_status', invoiceStatusFilter);
     if (departmentFilter) params.append('department_id', departmentFilter);
     if (monthFilter) params.append('month_filter', monthFilter);
     if (myItemsFilter) params.append('my_items', 'true');
@@ -986,6 +996,31 @@ const CommissionForm = () => {
       item.business_confirmed === true ||
       item.business_confirmed === '1');
 
+  const hasValidFinalUnitPrice = (item) => {
+    if (!item || item.final_unit_price === null || item.final_unit_price === undefined || item.final_unit_price === '') {
+      return false;
+    }
+    const value = Number(item.final_unit_price);
+    return Number.isFinite(value) && value >= 0;
+  };
+
+  const canUseFinalPriceForInvoice = (item) => isItemBusinessConfirmed(item) && hasValidFinalUnitPrice(item);
+
+  const getInvoicePrefillPriceValue = (item) => {
+    if (item?.invoice_prefill_price !== null && item?.invoice_prefill_price !== undefined && item?.invoice_prefill_price !== '') {
+      return Number(item.invoice_prefill_price);
+    }
+    if (canUseFinalPriceForInvoice(item)) {
+      return Number(item.final_unit_price);
+    }
+    return null;
+  };
+
+  const isItemUnsettledForSettlement = (item) => {
+    const status = String(item?.invoice_status || '未结算').trim();
+    return status === '' || status === '未结算';
+  };
+
   const canEditField = (field, item = null) => {
     const role = user?.role;
     if (!role) return false;
@@ -1011,8 +1046,13 @@ const CommissionForm = () => {
       } else if (['assignment_note', 'test_notes', 'business_note'].includes(field)) {
         // 放开三类备注，继续走角色权限判断
       } else if (
+        (role === 'admin' || role === 'sales') &&
+        ['invoice_prefill_price', 'invoice_prefill_confirmed'].includes(field)
+      ) {
+        return true;
+      } else if (
         role === 'admin' &&
-        ['invoice_prefill_price', 'invoice_note', 'invoice_prefill_confirmed'].includes(field)
+        field === 'invoice_note'
       ) {
         return true;
       } else {
@@ -1026,7 +1066,7 @@ const CommissionForm = () => {
       return canLeaderEditItem(item);
     }
     if (role === 'sales') {
-      return ['final_unit_price', 'business_note'].includes(field);
+      return ['final_unit_price', 'business_note', 'invoice_prefill_price', 'invoice_prefill_confirmed'].includes(field);
     }
     if (role === 'employee') {
       return [
@@ -1096,6 +1136,7 @@ const CommissionForm = () => {
       if (statusFilter && statusFilter.length > 0) {
         statusFilter.forEach(status => params.append('status', status));
       }
+      if (invoiceStatusFilter) params.append('invoice_status', invoiceStatusFilter);
       if (departmentFilter) params.append('department_id', departmentFilter);
       if (monthFilter) params.append('month_filter', monthFilter);
       if (myItemsFilter) params.append('my_items', 'true');
@@ -1163,6 +1204,7 @@ const CommissionForm = () => {
       
       // 清除其他筛选条件，确保能显示该委托单
       setStatusFilter([]);
+      setInvoiceStatusFilter('');
       setDepartmentFilter('');
       setMonthFilter('');
       setMyItemsFilter(false);
@@ -1182,7 +1224,7 @@ const CommissionForm = () => {
     // 获取当前用户信息
     const currentUser = JSON.parse(localStorage.getItem('lims_user') || 'null');
     setUser(currentUser);
-  }, [page, searchQuery, statusFilter, departmentFilter, monthFilter, myItemsFilter]);
+  }, [page, searchQuery, statusFilter, invoiceStatusFilter, departmentFilter, monthFilter, myItemsFilter]);
 
   // （已移除移动端加载更多的滚动监听逻辑，恢复为纯分页）
 
@@ -1585,6 +1627,7 @@ const CommissionForm = () => {
     setSearchQuery('');
     setMultiOrderSearchInfo(null);
     setStatusFilter([]);
+    setInvoiceStatusFilter('');
     setDepartmentFilter('');
     setMonthFilter('');
     setMyItemsFilter(false);
@@ -2165,9 +2208,9 @@ const CommissionForm = () => {
         '票号': item.invoice_number || '',
         '开票日期': item.settlement_invoice_date ? formatDate(item.settlement_invoice_date) : '',
         '开票客户名称': item.settlement_customer_name || '',
-        '开票预填价': item.invoice_prefill_price !== null && item.invoice_prefill_price !== undefined 
-          ? formatCurrencyPlain(item.invoice_prefill_price)
-          : (calculateInvoicePrefillPrice(item) !== null ? formatCurrencyPlain(calculateInvoicePrefillPrice(item)) : ''),
+        '开票预填价': getInvoicePrefillPriceValue(item) !== null
+          ? formatCurrencyPlain(getInvoicePrefillPriceValue(item))
+          : '',
         '开票金额': formatCurrencyPlain(item.unpaid_amount),
         '开票备注': item.invoice_note || '',
         '开票状态': item.invoice_status || '未结算'
@@ -2975,6 +3018,119 @@ const CommissionForm = () => {
   };
 
   // 删除单个检测项目
+  const downloadBillsExcelTemplate = async (
+    testItemIds,
+    discountTotalAmount = null,
+    billingCustomerName = '',
+    settlementSerialNumber = ''
+  ) => {
+    const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
+    const headers = {
+      'Authorization': `Bearer ${user.token}`,
+      'Content-Type': 'application/json'
+    };
+
+    const response = await fetch('/api/templates/generate-bills-template-excel', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        test_item_ids: testItemIds,
+        discount_total_amount: discountTotalAmount,
+        billing_customer_name: billingCustomerName,
+        settlement_serial_number: settlementSerialNumber
+      })
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ error: '导出失败' }));
+      throw new Error(errorData.error || `导出失败: ${response.status}`);
+    }
+
+    const contentDisposition = response.headers.get('Content-Disposition');
+    let fileName = '测试服务清单.xlsx';
+    if (contentDisposition) {
+      const fileNameMatch = contentDisposition.match(/filename\*=UTF-8''(.+)/);
+      if (fileNameMatch) {
+        fileName = decodeURIComponent(fileNameMatch[1]);
+      } else {
+        const fileNameMatch2 = contentDisposition.match(/filename="?(.+)"?/);
+        if (fileNameMatch2) {
+          fileName = fileNameMatch2[1];
+        }
+      }
+    }
+
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  };
+
+  const handleExportBillsExcelTemplate = async () => {
+    try {
+      const selectedData = await getSelectedItemsData();
+      if (selectedData.length === 0) {
+        alert('没有选中的检测项目数据');
+        return;
+      }
+
+      const testItemIds = selectedData.map(item => item.test_item_id);
+      const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
+      const headers = {
+        'Authorization': `Bearer ${user.token}`,
+        'Content-Type': 'application/json'
+      };
+
+      const response = await fetch('/api/templates/generate-bills-template-excel', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          test_item_ids: testItemIds
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: '导出失败' }));
+        throw new Error(errorData.error || `导出失败: ${response.status}`);
+      }
+
+      const contentDisposition = response.headers.get('Content-Disposition');
+      let fileName = '测试服务清单.xlsx';
+      if (contentDisposition) {
+        const fileNameMatch = contentDisposition.match(/filename\*=UTF-8''(.+)/);
+        if (fileNameMatch) {
+          fileName = decodeURIComponent(fileNameMatch[1]);
+        } else {
+          const fileNameMatch2 = contentDisposition.match(/filename="?(.+)"?/);
+          if (fileNameMatch2) {
+            fileName = fileNameMatch2[1];
+          }
+        }
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+
+      setShowExportModal(false);
+      alert('测试清单模板导出成功');
+    } catch (error) {
+      console.error('导出测试清单模板失败:', error);
+      alert('导出失败：' + error.message);
+    }
+  };
+
   const handleDeleteItem = async (testItemId) => {
     const item = data.find(x => x.test_item_id === testItemId);
     if (!item) return;
@@ -3043,6 +3199,29 @@ const CommissionForm = () => {
   };
 
   // 结算相关函数
+  const handleShowAllocationDetail = async (item) => {
+    if (!item?.test_item_id) return;
+    setShowAllocationModal(true);
+    setAllocationLoading(true);
+    setAllocationDetail({
+      item,
+      total_amount: 0,
+      allocations: []
+    });
+    try {
+      const detail = await api.getSettlementItemPaymentAllocations(item.test_item_id);
+      setAllocationDetail({
+        item,
+        ...detail
+      });
+    } catch (error) {
+      alert('获取结算分摊明细失败：' + error.message);
+      setShowAllocationModal(false);
+    } finally {
+      setAllocationLoading(false);
+    }
+  };
+
   const handleSettlementClick = async () => {
     if (selectedItems.length === 0) {
       alert('请先选择要结算的检测项目');
@@ -3059,23 +3238,62 @@ const CommissionForm = () => {
       return;
     }
 
+    const alreadySettledItems = selectedData.filter(item => !isItemUnsettledForSettlement(item));
+    if (alreadySettledItems.length > 0) {
+      alert('所选检测项目中存在已申请、已开票或已到账的项目，不能重复发起结算。请先删除对应结算记录后再重新发起。');
+      return;
+    }
+
     // 获取所有委托单号（去重）
+    const invalidFinalPriceItems = selectedData.filter(item => !canUseFinalPriceForInvoice(item));
+    if (invalidFinalPriceItems.length > 0) {
+      alert('存在未确认测试总价的检测项目，不能发起结算。请先确认业务测试总价。');
+      return;
+    }
+
     const orderIds = [...new Set(selectedData.map(item => item.order_id))];
     setSettlementOrderIds(orderIds.join('-'));
+
+    const payerIds = [...new Set(selectedData.map(item => item.payer_id).filter(Boolean))];
+    if (payerIds.length > 1) {
+      alert('所选检测项目涉及多个付款方，请按付款方分别发起结算');
+      return;
+    }
 
     // 预填第一个委托单的客户信息
     const firstItem = selectedData[0];
     const customerName = firstItem.customer_commissioner_name || firstItem.customer_name || '';
+    const payerId = payerIds[0] || '';
+    const defaultSettlementAmount = selectedData.reduce((sum, item) => {
+      const value = getInvoicePrefillPriceValue(item);
+      return sum + (Number.isFinite(Number(value)) ? Number(value) : 0);
+    }, 0);
+    let prepaymentLots = [];
+    let prepaymentTotalBalance = 0;
+    if (payerId) {
+      try {
+        const prepaymentInfo = await api.getPayerPrepaymentLots(payerId);
+        prepaymentLots = prepaymentInfo.lots || [];
+        prepaymentTotalBalance = Number(prepaymentInfo.total_balance || 0);
+      } catch (e) {
+        console.error('加载付款方预存余额失败:', e);
+      }
+    }
+    setSettlementPreviewItems(selectedData);
     setCustomerSearchQuery(customerName);
     setSettlementForm({
+      settlement_method: 'invoice',
       invoice_date: '',
-      invoice_amount: '',
+      invoice_amount: defaultSettlementAmount.toFixed(2),
       remarks: '',
       customer_id: firstItem.customer_id || '',
       customer_name: customerName,
       customer_nature: firstItem.customer_nature || '',
+      payer_id: payerId,
       assignee_id: firstItem.current_assignee || '',
-      invoice_number: ''
+      invoice_number: '',
+      prepayment_lots: prepaymentLots,
+      prepayment_total_balance: prepaymentTotalBalance
     });
 
     // 加载业务人员选项
@@ -3091,53 +3309,72 @@ const CommissionForm = () => {
 
   const handleCustomerNameChange = async (value) => {
     setCustomerSearchQuery(value);
-    setSettlementForm({ ...settlementForm, customer_name: value, customer_id: '' });
-
-    if (value && value.length > 0) {
-      try {
-        const results = await api.searchCustomersForSettlement(value);
-        setCustomerSearchResults(results);
-        setShowCustomerDropdown(true);
-      } catch (e) {
-        console.error('搜索客户失败:', e);
-        setCustomerSearchResults([]);
-        setShowCustomerDropdown(false);
-      }
-    } else {
-      setCustomerSearchResults([]);
-      setShowCustomerDropdown(false);
-    }
+    setSettlementForm({ ...settlementForm, customer_name: value });
   };
 
-  const handleSelectCustomer = (customer) => {
-    setCustomerSearchQuery(customer.customer_name);
-    setSettlementForm({
-      ...settlementForm,
-      customer_id: customer.customer_id,
-      customer_name: customer.customer_name,
-      customer_nature: customer.nature || ''
+  const closeSettlementModal = () => {
+    setShowSettlementModal(false);
+    setSettlementPreviewItems([]);
+  };
+
+  const getSettlementPreviewUrgencyLabel = (value) => {
+    const displayValue = getServiceUrgencyDisplayValue(value);
+    if (displayValue === '加急1.5倍') return '1.5倍加急';
+    if (displayValue === '特急2倍') return '2倍加急';
+    return '';
+  };
+
+  const getSettlementPreviewNumber = (value) => {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  const getSettlementPreviewRows = () => {
+    return settlementPreviewItems.map((item) => {
+      const unitPrice = getSettlementPreviewNumber(item.price_note);
+      const discountRate = getSettlementPreviewNumber(item.discount_rate);
+      const quantity = getSettlementPreviewNumber(item.actual_sample_quantity);
+      const urgencyMultiplier = getServiceUrgencyMultiplier(item.service_urgency);
+      const totalAmount = unitPrice * quantity * (discountRate / 100) * urgencyMultiplier;
+      const finalAmount = getSettlementPreviewNumber(getInvoicePrefillPriceValue(item));
+      return {
+        id: item.test_item_id || `${item.order_id}-${item.project_id || item.detail_id || ''}`,
+        createDate: formatDate(item.order_created_at || item.create_time || item.created_at),
+        orderId: item.order_id || '-',
+        projectName: [item.category_name, item.detail_name].filter(Boolean).join(' - ') || item.test_item_name || '-',
+        unitPriceText: `${formatCurrencyPlain(item.price_note) || '0'} 元/${item.unit || ''}`.trim(),
+        discountText: `${discountRate || 0}%`,
+        quantityText: `${item.actual_sample_quantity ?? 0} ${item.unit || ''}`.trim(),
+        totalAmount,
+        finalAmount,
+        remarks: getSettlementPreviewUrgencyLabel(item.service_urgency)
+      };
     });
-    setShowCustomerDropdown(false);
   };
 
   const handleSettlementSubmit = async () => {
     const rawInv = settlementForm.invoice_amount;
     const invoiceAmountNum =
       rawInv === '' || rawInv === null || rawInv === undefined ? NaN : parseFloat(String(rawInv).trim());
+    const paymentMethod = settlementForm.settlement_method || 'invoice';
+    const prepaymentBalance = Number(settlementForm.prepayment_total_balance || 0);
+    const prepaidUsedAmount = Math.min(prepaymentBalance, Number.isFinite(invoiceAmountNum) ? invoiceAmountNum : 0);
+    const newInvoiceAmount = Math.max((Number.isFinite(invoiceAmountNum) ? invoiceAmountNum : 0) - prepaymentBalance, 0);
     if (
-      !settlementForm.invoice_number ||
-      !settlementForm.invoice_date ||
       !Number.isFinite(invoiceAmountNum) ||
       invoiceAmountNum < 0 ||
-      (!settlementForm.customer_id && !settlementForm.customer_name)
+      !String(settlementForm.customer_name || '').trim()
     ) {
-      alert('请填写必填项：票号、开票日期、开票金额（可为0）和开票单位');
+      alert('请填写必填项：结算金额（可为0）和开票单位');
       return;
     }
 
-    // 验证票号格式（20-30位数字）
-    if (!/^\d{20,30}$/.test(settlementForm.invoice_number)) {
-      alert('票号必须是20-30位数字');
+    if (paymentMethod === 'prepaid' && prepaymentBalance < invoiceAmountNum) {
+      alert('预存余额不足，请选择组合支付');
+      return;
+    }
+    if (paymentMethod === 'mixed' && newInvoiceAmount <= 0) {
+      alert('预存余额足够，无需组合支付。请选择余额支付，或选择纯开票支付。');
       return;
     }
 
@@ -3154,22 +3391,15 @@ const CommissionForm = () => {
     }
 
     // 验证：检查是否有开票预填价为空的项目
-    const emptyPrefillItems = selectedData.filter(item => {
-      const prefillPrice = item.invoice_prefill_price !== null && item.invoice_prefill_price !== undefined
-        ? item.invoice_prefill_price
-        : calculateInvoicePrefillPrice(item);
-      return prefillPrice === null;
-    });
+    const emptyPrefillItems = selectedData.filter(item => !canUseFinalPriceForInvoice(item));
     
     if (emptyPrefillItems.length > 0) {
-      alert('有检测项目的开票预填价为空，无法结算。请确保所有项目都已填写必需的字段（标准单价、计费数量、折扣）。');
+      alert('存在未确认测试总价的检测项目，不能发起结算。请先确认业务测试总价。');
       return;
     }
     
     // 验证：检查是否有已结算的项目
-    const settledItems = selectedData.filter(item => 
-      item.invoice_status === '已结算' || item.invoice_status === '已到账'
-    );
+    const settledItems = selectedData.filter(item => !isItemUnsettledForSettlement(item));
     
     if (settledItems.length > 0) {
       alert('有检测项目已经结算过，不能进行二次结算');
@@ -3177,45 +3407,66 @@ const CommissionForm = () => {
     }
     
     const test_item_ids = selectedData.map(item => item.test_item_id);
-    // 使用开票预填价作为分配依据
+    // 使用业务已确认的测试总价作为分配依据
     const test_item_amounts = selectedData.map(item => {
-      return item.invoice_prefill_price !== null && item.invoice_prefill_price !== undefined
-        ? item.invoice_prefill_price
-        : calculateInvoicePrefillPrice(item);
+      return getInvoicePrefillPriceValue(item);
     });
 
     try {
-      await api.createSettlement({
-        invoice_number: settlementForm.invoice_number || null,
-        invoice_date: settlementForm.invoice_date,
+      const createdSettlement = await api.createSettlement({
+        settlement_method: paymentMethod,
+        invoice_number: null,
+        invoice_date: null,
         order_ids: settlementOrderIds,
         invoice_amount: invoiceAmountNum,
         remarks: settlementForm.remarks || null,
         customer_id: settlementForm.customer_id || null,
         customer_name: settlementForm.customer_name || null,
-        customer_nature: settlementForm.customer_nature || null,
+        customer_nature: null,
+        payer_id: settlementForm.payer_id || null,
         assignee_id: settlementForm.assignee_id || null,
         test_item_ids: test_item_ids,
         test_item_amounts: test_item_amounts
       });
+      let excelExportError = null;
+      try {
+        await downloadBillsExcelTemplate(
+          test_item_ids,
+          invoiceAmountNum,
+          settlementForm.customer_name,
+          createdSettlement?.settlement_serial_number
+        );
+      } catch (exportError) {
+        excelExportError = exportError;
+        console.error('生成结算Excel失败:', exportError);
+      }
 
       // 先关闭模态框和重置表单
       setShowSettlementModal(false);
       setSettlementForm({
+        settlement_method: 'invoice',
         invoice_date: '',
         invoice_amount: '',
         remarks: '',
         customer_id: '',
         customer_name: '',
         customer_nature: '',
+        payer_id: '',
         assignee_id: '',
-        invoice_number: ''
+        invoice_number: '',
+        prepayment_lots: [],
+        prepayment_total_balance: 0
       });
       setCustomerSearchQuery('');
       setSettlementOrderIds('');
+      setSettlementPreviewItems([]);
       
       // 显示成功消息
-      alert('结算记录创建成功');
+      if (excelExportError) {
+        alert('\u7ed3\u7b97\u8bb0\u5f55\u521b\u5efa\u6210\u529f\uff0c\u4f46Excel\u8d26\u5355\u751f\u6210\u5931\u8d25\uff1a' + excelExportError.message);
+      } else {
+        alert('\u7ed3\u7b97\u8bb0\u5f55\u521b\u5efa\u6210\u529f\uff0cExcel\u8d26\u5355\u5df2\u751f\u6210');
+      }
       
       // 刷新数据（即使失败也不影响成功消息）
       try {
@@ -3354,6 +3605,10 @@ const CommissionForm = () => {
     if (window.confirm('是否确认？确认后不可更改')) {
       try {
         const userLocal = JSON.parse(localStorage.getItem('lims_user') || 'null');
+        if (!hasValidFinalUnitPrice(item)) {
+          alert('请先填写有效的测试总价');
+          return;
+        }
         
         // 确认价格时，同时计算并保存lab_price
         const calculatedLabPrice = calculateLabPrice(
@@ -3361,7 +3616,11 @@ const CommissionForm = () => {
           item.line_total,
           item.group_id
         );
-        const updatePayload = { business_confirmed: 1 };
+        const updatePayload = {
+          final_unit_price: Number(item.final_unit_price),
+          business_confirmed: 1,
+          invoice_prefill_price: Number(item.final_unit_price)
+        };
         if (calculatedLabPrice !== null) {
           updatePayload.lab_price = calculatedLabPrice;
         }
@@ -3376,7 +3635,11 @@ const CommissionForm = () => {
         // Update local state
         setData(prev => prev.map(x => {
           if (x.test_item_id === item.test_item_id) {
-            const updated = { ...x, business_confirmed: 1 };
+            const updated = {
+              ...x,
+              business_confirmed: 1,
+              invoice_prefill_price: Number(item.final_unit_price)
+            };
             if (calculatedLabPrice !== null) {
               updated.lab_price = calculatedLabPrice;
             }
@@ -3442,12 +3705,15 @@ const CommissionForm = () => {
         return;
       }
       const isLocked = isItemBusinessConfirmed(currentItem);
-      if (isLocked) {
+      if (isLocked && user?.role !== 'admin') {
         const allowedWhenLocked = ['invoice_prefill_price', 'invoice_note', 'invoice_prefill_confirmed'];
         const isStatusField = field === 'status';
         const isAllowedNoteField = ['assignment_note', 'test_notes', 'business_note'].includes(field);
         const isAdminInvoiceField = allowedWhenLocked.includes(field) && user?.role === 'admin';
-        if (!isStatusField && !isAllowedNoteField && !isAdminInvoiceField) {
+        const isSalesInvoicePriceField =
+          ['invoice_prefill_price', 'invoice_prefill_confirmed'].includes(field) &&
+          user?.role === 'sales';
+        if (!isStatusField && !isAllowedNoteField && !isAdminInvoiceField && !isSalesInvoicePriceField) {
           setSavingStatus(prev => ({ ...prev, [statusKey]: 'idle' }));
           alert('业务已确认价格，不能修改此字段');
           return;
@@ -3755,6 +4021,13 @@ const CommissionForm = () => {
       }
       
       // 计算实验室报价：业务已确认价格后不得再随单字段保存附带 lab_price，否则服务端会 403
+      finalPriceForLabCalc = updateData.final_unit_price !== undefined
+        ? updateData.final_unit_price
+        : finalPriceForLabCalc;
+      lineTotalForLabCalc = updateData.line_total !== undefined
+        ? updateData.line_total
+        : lineTotalForLabCalc;
+
       if (!isLocked) {
         const calculatedLabPrice = calculateLabPrice(
           finalPriceForLabCalc,
@@ -4223,11 +4496,21 @@ const CommissionForm = () => {
   const multiOrderFoundCount = multiOrderSearchInfo
     ? multiOrderSearchInfo.foundOrderIds.length
     : 0;
+  const isAnyOverlayModalOpen =
+    showFileModal ||
+    showBatchUploadModal ||
+    showExportModal ||
+    showSettlementModal ||
+    showAllocationModal ||
+    showMergePriceModal ||
+    showTransferChainModal ||
+    showTransferModal ||
+    showCancellationModal;
 
   return (
     <div className="commission-form">
       {/* 搜索和筛选区域 - 首行 */}
-      <div className="filters">
+      <div className={`filters ${isAnyOverlayModalOpen ? 'filters-behind-modal' : ''}`}>
         <div className="filter-row">
           <div className="filter-group search-group">
             <label>搜索:</label>
@@ -4255,8 +4538,8 @@ const CommissionForm = () => {
               </div>
             </div>
           </div>
-          <div className="filter-group">
-            <label>状态:</label>
+          <div className="filter-group filter-stack-group">
+            <label>项目状态:</label>
             <div className="status-multiselect-wrapper" ref={statusDropdownRef} style={{ position: 'relative' }}>
               <div
                 className="status-multiselect-input"
@@ -4419,6 +4702,25 @@ const CommissionForm = () => {
               )}
             </div>
           </div>
+          {(user?.role === 'admin' || user?.role === 'sales') && (
+            <div className="filter-group filter-stack-group invoice-status-filter-group">
+              <label>开票状态:</label>
+              <select
+                value={invoiceStatusFilter}
+                onChange={(e) => {
+                  setInvoiceStatusFilter(e.target.value);
+                  setPage(1);
+                }}
+                style={{ width: '120px' }}
+              >
+                <option value="">全部状态</option>
+                <option value="未结算">未结算</option>
+                <option value="已申请">已申请</option>
+                <option value="已开票">已开票</option>
+                <option value="已到账">已到账</option>
+              </select>
+            </div>
+          )}
           {(user?.role === 'admin' || user?.role === 'viewer' || isCrossDepartmentLeader(user)) && (
             <div className="filter-group department-filter-group">
               <label>部门:</label>
@@ -4486,17 +4788,15 @@ const CommissionForm = () => {
             </button>
             {canAccessSettlement() && (
               <>
-                {canEditSettlement() && (
-                  <button 
-                    onClick={handleSettlementClick} 
-                    className="btn btn-primary"
-                    disabled={selectedItems.length === 0}
-                    style={{backgroundColor: '#ffc107', color: '#000', border: 'none'}}
+                <button 
+                  onClick={handleSettlementClick} 
+                  className="btn btn-primary"
+                  disabled={selectedItems.length === 0}
+                  style={{backgroundColor: '#ffc107', color: '#000', border: 'none'}}
 
-                  >
-                    结算 ({selectedItems.length})
-                  </button>
-                )}
+                >
+                  结算 ({selectedItems.length})
+                </button>
                 {canEditSettlement() && (
                   <button 
                     onClick={handleBatchDelete} 
@@ -4707,6 +5007,7 @@ const CommissionForm = () => {
                     {renderColumnHeader('business_note', '业务备注', 'lab-field note-col')}
                     {renderColumnHeader('status', '项目状态', 'lab-field narrow-col')}
                     {renderColumnHeader('abnormal_condition', '异常情况', 'lab-field narrow-col')}
+                    {canAccessSettlement() && renderColumnHeader('settlement_serial_number', '结算流水号', 'invoice-field settlement-serial-col')}
                     {canAccessSettlement() && renderColumnHeader('invoice_number', '票号', 'invoice-field narrow-col')}
                     {canAccessSettlement() && renderColumnHeader('settlement_invoice_date', '开票日期', 'invoice-field narrow-col')}
                     {canAccessSettlement() && renderColumnHeader('settlement_customer_name', '开票客户名称', 'invoice-field')}
@@ -5873,6 +6174,11 @@ const CommissionForm = () => {
                       </td>
                       {canAccessSettlement() && (
                         <>
+                          <td className={getColumnCellClass('settlement_serial_number', 'invoice-field settlement-serial-col')} data-column-key="settlement_serial_number">
+                            <span className="settlement-serial-text">
+                              {item.settlement_serial_number || '-'}
+                            </span>
+                          </td>
                           <td className={getColumnCellClass('invoice_number', 'invoice-field narrow-col')} data-column-key="invoice_number">
                             {item.invoice_number ? (
                               <span {...mergeAdminLock(item, 'invoice_number', 'readonly-cell-wrap')}>
@@ -5900,101 +6206,107 @@ const CommissionForm = () => {
                           </td>
                           <td className={getColumnCellClass('invoice_prefill_price', 'invoice-field')} data-column-key="invoice_prefill_price">
                             <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                              {item.invoice_prefill_confirmed === 1 ? (
-                                // 已确认，显示为只读
-                                <span>{item.invoice_prefill_price !== null && item.invoice_prefill_price !== undefined 
-                                  ? formatCurrency(item.invoice_prefill_price) 
-                                  : '-'}</span>
-                              ) : (
+                              {canEditField('invoice_prefill_price', item) && item.invoice_prefill_confirmed !== 1 ? (
                                 <>
-                                  {canEditSettlement() && canEditField('invoice_prefill_price', item) ? (
-                                    <>
-                                      {/* 未确认，显示可编辑的input输入框 */}
-                                      <input
-                                        type="number"
-                                        step="0.01"
-                                        min="0"
-                                        value={item.invoice_prefill_price !== null && item.invoice_prefill_price !== undefined 
-                                          ? item.invoice_prefill_price
-                                          : (calculateInvoicePrefillPrice(item) || '')}
-                                        onChange={(e) => {
-                                          const newValue = e.target.value === '' ? null : parseFloat(e.target.value);
-                                          // 实时更新本地数据
-                                          setData(prev => prev.map(x => 
-                                            x.test_item_id === item.test_item_id 
-                                              ? { ...x, invoice_prefill_price: newValue } 
-                                              : x
-                                          ));
-                                        }}
-                                        onBlur={async (e) => {
-                                          // 失焦时保存到数据库
-                                          const newValue = e.target.value === '' ? null : parseFloat(e.target.value);
-                                          if (newValue !== null && !isNaN(newValue) && newValue >= 0) {
-                                            try {
-                                              await handleSaveEdit('invoice_prefill_price', newValue, item.test_item_id);
-                                            } catch (error) {
-                                              alert('保存失败：' + error.message);
-                                            }
-                                          }
-                                        }}
-                                        onClick={(e) => e.stopPropagation()}
-                                        style={{
-                                          width: '100px',
-                                          padding: '4px 8px',
-                                          fontSize: '13px',
-                                          border: '1px solid #ddd',
-                                          borderRadius: '3px'
-                                        }}
-                                        placeholder="输入价格"
-                                      />
-                                      {/* 确认按钮 */}
-                                      <button
-                                        className="btn btn-sm"
-                                        style={{
-                                          padding: '2px 8px',
-                                          fontSize: '11px',
-                                          backgroundColor: '#28a745',
-                                          color: 'white',
-                                          border: 'none',
-                                          borderRadius: '3px',
-                                          cursor: 'pointer',
-                                          whiteSpace: 'nowrap'
-                                        }}
-                                        onClick={async (e) => {
-                                          e.stopPropagation();
-                                          const priceToSave = item.invoice_prefill_price !== null && item.invoice_prefill_price !== undefined
-                                            ? item.invoice_prefill_price
-                                            : calculateInvoicePrefillPrice(item);
-                                          if (priceToSave === null || priceToSave === '' || isNaN(priceToSave)) {
-                                            alert('请输入有效的开票预填价');
-                                            return;
-                                          }
-                                          try {
-                                            await handleSaveEdit('invoice_prefill_price', priceToSave, item.test_item_id);
-                                            await handleSaveEdit('invoice_prefill_confirmed', 1, item.test_item_id);
-                                          } catch (error) {
-                                            alert('保存失败：' + error.message);
-                                          }
-                                        }}
-                                      >
-                                        确认
-                                      </button>
-                                    </>
-                                  ) : (
-                                    // 业务员只能查看，不能编辑
-                                    <span>{item.invoice_prefill_price !== null && item.invoice_prefill_price !== undefined 
-                                      ? formatCurrency(item.invoice_prefill_price) 
-                                      : (calculateInvoicePrefillPrice(item) !== null ? formatCurrency(calculateInvoicePrefillPrice(item)) : '-')}</span>
-                                  )}
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    value={getInvoicePrefillPriceValue(item) ?? ''}
+                                    disabled={!canUseFinalPriceForInvoice(item)}
+                                    onChange={(e) => {
+                                      const newValue = e.target.value === '' ? null : parseFloat(e.target.value);
+                                      setData(prev => prev.map(x =>
+                                        x.test_item_id === item.test_item_id
+                                          ? { ...x, invoice_prefill_price: newValue }
+                                          : x
+                                      ));
+                                    }}
+                                    onBlur={async (e) => {
+                                      if (!canUseFinalPriceForInvoice(item)) return;
+                                      const newValue = e.target.value === '' ? null : parseFloat(e.target.value);
+                                      if (newValue !== null && !isNaN(newValue) && newValue >= 0) {
+                                        try {
+                                          await handleSaveEdit('invoice_prefill_price', newValue, item.test_item_id);
+                                        } catch (error) {
+                                          alert('保存失败：' + error.message);
+                                        }
+                                      }
+                                    }}
+                                    onClick={(e) => e.stopPropagation()}
+                                    style={{
+                                      width: '100px',
+                                      padding: '4px 8px',
+                                      fontSize: '13px',
+                                      border: '1px solid #ddd',
+                                      borderRadius: '3px',
+                                      backgroundColor: canUseFinalPriceForInvoice(item) ? '#fff' : '#f5f5f5'
+                                    }}
+                                    placeholder="输入价格"
+                                  />
+                                  <button
+                                    className="btn btn-sm"
+                                    style={{
+                                      padding: '2px 8px',
+                                      fontSize: '11px',
+                                      backgroundColor: '#28a745',
+                                      color: 'white',
+                                      border: 'none',
+                                      borderRadius: '3px',
+                                      cursor: canUseFinalPriceForInvoice(item) ? 'pointer' : 'not-allowed',
+                                      whiteSpace: 'nowrap',
+                                      opacity: canUseFinalPriceForInvoice(item) ? 1 : 0.55
+                                    }}
+                                    onClick={async (e) => {
+                                      e.stopPropagation();
+                                      if (!canUseFinalPriceForInvoice(item)) {
+                                        alert('请先确认测试总价后，再确认开票预填价');
+                                        return;
+                                      }
+                                      const priceToSave = getInvoicePrefillPriceValue(item);
+                                      if (priceToSave === null || Number.isNaN(Number(priceToSave))) {
+                                        alert('请输入有效的开票预填价');
+                                        return;
+                                      }
+                                      try {
+                                        await handleSaveEdit('invoice_prefill_price', priceToSave, item.test_item_id);
+                                        await handleSaveEdit('invoice_prefill_confirmed', 1, item.test_item_id);
+                                      } catch (error) {
+                                        alert('保存失败：' + error.message);
+                                      }
+                                    }}
+                                  >
+                                    确认
+                                  </button>
                                 </>
+                              ) : (
+                                <span>
+                                  {getInvoicePrefillPriceValue(item) !== null
+                                    ? formatCurrency(getInvoicePrefillPriceValue(item))
+                                    : '-'}
+                                </span>
                               )}
                             </div>
                           </td>
                           <td className={getColumnCellClass('unpaid_amount', 'invoice-field')} data-column-key="unpaid_amount">
-                            <span {...mergeAdminLock(item, 'unpaid_amount')}>
-                              {item.unpaid_amount !== null && item.unpaid_amount !== undefined && item.unpaid_amount !== '' 
-                                ? formatCurrency(item.unpaid_amount) 
-                                : '-'}
+                            <span {...mergeAdminLock(item, 'unpaid_amount')} className="settlement-amount-cell">
+                              <span>
+                                {item.unpaid_amount !== null && item.unpaid_amount !== undefined && item.unpaid_amount !== '' 
+                                  ? formatCurrency(item.unpaid_amount) 
+                                  : '-'}
+                              </span>
+                              {item.invoice_number && (
+                                <button
+                                  type="button"
+                                  className="allocation-detail-btn"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleShowAllocationDetail(item);
+                                  }}
+                                >
+                                  明细
+                                </button>
+                              )}
                             </span>
                           </td>
                           <td className={getColumnCellClass('invoice_note', 'invoice-field note-col')} data-column-key="invoice_note">
@@ -6538,6 +6850,16 @@ const CommissionForm = () => {
                       导出测试服务清单模板
                     </button>
                   )}
+                  {false && (user?.role === 'admin' || user?.role === 'sales') && (
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      style={{ ...EXPORT_MODAL_GRID_BTN, backgroundColor: '#2f80ed', color: 'white' }}
+                      onClick={handleExportBillsExcelTemplate}
+                    >
+                      导出测试清单模板（新）
+                    </button>
+                  )}
                   {WH_REPORT_TEMPLATE_EXPORT_ENABLED && Number(user?.department_id) === 2 && (
                     <button
                       type="button"
@@ -6677,33 +6999,143 @@ const CommissionForm = () => {
         </div>
       )}
 
+      {showAllocationModal && (
+        <div className="file-modal-overlay" onClick={() => setShowAllocationModal(false)}>
+          <div className="file-modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '720px' }}>
+            <div className="modal-header">
+              <h3>结算分摊明细</h3>
+              <button className="close-button" onClick={() => setShowAllocationModal(false)}>×</button>
+            </div>
+            {allocationLoading ? (
+              <div style={{ padding: '20px' }}>加载中...</div>
+            ) : (
+              <>
+                <div style={{ padding: '10px', backgroundColor: '#f7fbff', border: '1px solid #d7e8ff', borderRadius: '4px', marginBottom: '12px' }}>
+                  <div><strong>检测项目：</strong>{allocationDetail?.item?.test_item_name || allocationDetail?.item?.detail_name || '-'}</div>
+                  <div><strong>项目编号：</strong>{allocationDetail?.item?.test_code || '-'}</div>
+                  <div><strong>分摊合计：</strong>{formatCurrency(allocationDetail?.total_amount || 0)}</div>
+                </div>
+                {(allocationDetail?.allocations || []).length === 0 ? (
+                  <div style={{ padding: '16px', color: '#666' }}>暂无分摊明细</div>
+                ) : (
+                  <table className="allocation-detail-table">
+                    <thead>
+                      <tr>
+                        <th>结算流水</th>
+                        <th>来源</th>
+                        <th>票号</th>
+                        <th>开票日期</th>
+                        <th>分摊金额</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(allocationDetail?.allocations || []).map(row => (
+                        <tr key={row.item_allocation_id}>
+                          <td>{row.settlement_serial_number || '-'}</td>
+                          <td>{row.payment_source_type === 'prepayment' ? '预存抵扣' : '新开票'}</td>
+                          <td>{row.invoice_number || '-'}</td>
+                          <td>{row.invoice_date ? formatDate(row.invoice_date) : '-'}</td>
+                          <td>{formatCurrency(row.amount)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* 费用结算模态框 */}
       {showSettlementModal && (
-        <div className="file-modal-overlay" onClick={() => setShowSettlementModal(false)}>
-          <div className="file-modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '600px' }}>
+        <div
+          className="file-modal-overlay"
+          style={{ zIndex: 50000 }}
+        >
+          <div
+            className="file-modal-content settlement-modal-content"
+            onClick={(e) => e.stopPropagation()}
+            style={{ zIndex: 50001 }}
+          >
             <div className="file-modal-header">
               <h3>费用结算</h3>
-              <button className="close-button" onClick={() => setShowSettlementModal(false)}>×</button>
+              <button className="close-button" onClick={closeSettlementModal}>×</button>
             </div>
             <div className="file-modal-body">
               <div style={{ padding: '10px', backgroundColor: '#f0f0f0', borderRadius: '4px', marginBottom: '10px' }}>
                 <strong>委托单号组：</strong>{settlementOrderIds || '无'}
               </div>
-              <div style={{ position: 'relative', marginBottom: '15px' }}>
+              <div className="settlement-modal-layout">
+                <div className="settlement-modal-form">
+              <div style={{ marginBottom: '15px' }}>
                 <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
-                  票号 <span style={{ color: 'red' }}>*</span>
+                  结算方式 <span style={{ color: 'red' }}>*</span>
                 </label>
-                <input
-                  type="text"
-                  className="input"
-                  value={settlementForm.invoice_number}
-                  onChange={(e) => setSettlementForm({ ...settlementForm, invoice_number: e.target.value })}
-                  placeholder="输入票号（20-30位数字）"
-                  style={{ width: '100%', padding: '8px' }}
-                  maxLength={30}
-                />
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  {[
+                    { value: 'invoice', label: '纯开票支付' },
+                    { value: 'prepaid', label: '余额支付' },
+                    { value: 'mixed', label: '组合支付' }
+                  ].map(option => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      className={settlementForm.settlement_method === option.value ? 'btn btn-primary' : 'btn btn-secondary'}
+                      onClick={() => setSettlementForm({ ...settlementForm, settlement_method: option.value })}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
               </div>
-              <div style={{ position: 'relative', marginBottom: '15px' }}>
+              {settlementForm.settlement_method !== 'invoice' && (
+                <div style={{ padding: '10px', backgroundColor: '#f7fbff', border: '1px solid #d7e8ff', borderRadius: '4px', marginBottom: '15px' }}>
+                  <div style={{ marginBottom: '6px' }}>
+                    <strong>付款方预存总余额：</strong>{formatCurrency(settlementForm.prepayment_total_balance || 0)}
+                  </div>
+                  {(settlementForm.prepayment_lots || []).length === 0 ? (
+                    <div style={{ color: '#dc3545' }}>当前付款方暂无可用预存票余额。</div>
+                  ) : (
+                    <div style={{ display: 'grid', gap: '4px' }}>
+                      {(settlementForm.prepayment_lots || []).map(lot => (
+                        <div key={lot.settlement_id} style={{ fontSize: '13px', color: '#555' }}>
+                          票号 {lot.invoice_number}：剩余 {formatCurrency(lot.remaining_amount)}，开票日期 {lot.invoice_date ? formatDate(lot.invoice_date) : '-'}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {(() => {
+                    const total = Number(settlementForm.invoice_amount || 0);
+                    const balance = Number(settlementForm.prepayment_total_balance || 0);
+                    const prepaid = Math.min(total, balance);
+                    const deficit = Math.max(total - balance, 0);
+                    return total > 0 ? (
+                      <div style={{ marginTop: '8px', fontSize: '13px' }}>
+                        本次预计余额抵扣 {formatCurrency(prepaid)}
+                        {deficit > 0 && <span style={{ color: '#dc3545' }}>，余额不足，还需新开票 {formatCurrency(deficit)}</span>}
+                      </div>
+                    ) : null;
+                  })()}
+                </div>
+              )}
+              {false && (
+                <div style={{ position: 'relative', marginBottom: '15px' }}>
+                  <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
+                    {settlementForm.settlement_method === 'mixed' ? '不足部分新开票号' : '票号'} <span style={{ color: 'red' }}>*</span>
+                  </label>
+                  <input
+                    type="text"
+                    className="input"
+                    value={settlementForm.invoice_number}
+                    onChange={(e) => setSettlementForm({ ...settlementForm, invoice_number: e.target.value })}
+                    placeholder="输入票号（20-30位数字）"
+                    style={{ width: '100%', padding: '8px' }}
+                    maxLength={30}
+                  />
+                </div>
+              )}
+              <div style={{ marginBottom: '15px' }}>
                 <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
                   开票单位 <span style={{ color: 'red' }}>*</span>
                 </label>
@@ -6712,52 +7144,11 @@ const CommissionForm = () => {
                   className="input"
                   value={customerSearchQuery}
                   onChange={(e) => handleCustomerNameChange(e.target.value)}
-                  onFocus={() => {
-                    if (customerSearchQuery && customerSearchResults.length > 0) {
-                      setShowCustomerDropdown(true);
-                    }
-                  }}
-                  onBlur={() => {
-                    setTimeout(() => setShowCustomerDropdown(false), 200);
-                  }}
-                  placeholder="输入客户名称搜索或直接输入"
+                  placeholder="输入开票单位名称"
                   style={{ width: '100%', padding: '8px' }}
                 />
-                {showCustomerDropdown && customerSearchResults.length > 0 && (
-                  <div style={{
-                    position: 'absolute',
-                    top: '100%',
-                    left: 0,
-                    right: 0,
-                    backgroundColor: 'white',
-                    border: '1px solid #ccc',
-                    borderRadius: '4px',
-                    maxHeight: '200px',
-                    overflowY: 'auto',
-                    zIndex: 2000,
-                    boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
-                  }}>
-                    {customerSearchResults.map(customer => (
-                      <div
-                        key={customer.customer_id}
-                        onClick={() => handleSelectCustomer(customer)}
-                        style={{
-                          padding: '8px 12px',
-                          cursor: 'pointer',
-                          borderBottom: '1px solid #eee'
-                        }}
-                        onMouseEnter={(e) => e.target.style.backgroundColor = '#f0f0f0'}
-                        onMouseLeave={(e) => e.target.style.backgroundColor = 'white'}
-                      >
-                        <div style={{ fontWeight: 'bold' }}>{customer.customer_name}</div>
-                        {customer.nature && (
-                          <div style={{ fontSize: '12px', color: '#666' }}>性质: {customer.nature}</div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
               </div>
+              {false && (
               <div style={{ marginBottom: '15px' }}>
                 <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
                   企业性质
@@ -6777,9 +7168,11 @@ const CommissionForm = () => {
                   <option value="研究所">研究所</option>
                 </select>
               </div>
+              )}
+              {false && (
               <div style={{ marginBottom: '15px' }}>
                 <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
-                  开票日期 <span style={{ color: 'red' }}>*</span>
+                  {settlementForm.settlement_method === 'mixed' ? '不足部分开票日期' : '开票日期'} <span style={{ color: 'red' }}>*</span>
                 </label>
                 <input
                   type="date"
@@ -6789,9 +7182,10 @@ const CommissionForm = () => {
                   style={{ width: '100%', padding: '8px' }}
                 />
               </div>
+              )}
               <div style={{ marginBottom: '15px' }}>
                 <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
-                  开票金额 <span style={{ color: 'red' }}>*</span>
+                  结算金额 <span style={{ color: 'red' }}>*</span>
                 </label>
                 <input
                   type="number"
@@ -6838,7 +7232,7 @@ const CommissionForm = () => {
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px' }}>
                 <button
                   className="btn btn-secondary"
-                  onClick={() => setShowSettlementModal(false)}
+                  onClick={closeSettlementModal}
                 >
                   取消
                 </button>
@@ -6846,8 +7240,76 @@ const CommissionForm = () => {
                   className="btn btn-primary"
                   onClick={handleSettlementSubmit}
                 >
-                  确认结算
+                  确认结算+生成Excel
                 </button>
+              </div>
+                </div>
+                <div className="settlement-preview-panel">
+                  <div className="settlement-preview-title">测试清单及收费详表</div>
+                  {(() => {
+                    const previewRows = getSettlementPreviewRows();
+                    const subtotal = previewRows.reduce((sum, row) => sum + row.finalAmount, 0);
+                    const taxAmount = subtotal * 0.06;
+                    const taxIncludedTotal = subtotal + taxAmount;
+                    const editedDiscountTotal = getSettlementPreviewNumber(settlementForm.invoice_amount);
+                    return (
+                      <div className="settlement-preview-table-wrap">
+                        <table className="settlement-preview-table">
+                          <thead>
+                            <tr>
+                              <th>收样日期</th>
+                              <th>任务编号</th>
+                              <th>测试项目</th>
+                              <th>单价</th>
+                              <th>折扣</th>
+                              <th>数量</th>
+                              <th>总价（元）</th>
+                              <th>优惠后价格（元）</th>
+                              <th>备注</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {previewRows.length === 0 ? (
+                              <tr>
+                                <td colSpan={9} className="settlement-preview-empty">暂无预览数据</td>
+                              </tr>
+                            ) : (
+                              previewRows.map((row) => (
+                                <tr key={row.id}>
+                                  <td>{row.createDate || '-'}</td>
+                                  <td>{row.orderId}</td>
+                                  <td className="settlement-preview-project">{row.projectName}</td>
+                                  <td>{row.unitPriceText}</td>
+                                  <td>{row.discountText}</td>
+                                  <td>{row.quantityText}</td>
+                                  <td>{formatCurrencyPlain(row.totalAmount)}</td>
+                                  <td>{formatCurrencyPlain(row.finalAmount)}</td>
+                                  <td>{row.remarks || '-'}</td>
+                                </tr>
+                              ))
+                            )}
+                            <tr>
+                              <td colSpan={6} className="settlement-preview-summary-label">未税合计（元）</td>
+                              <td colSpan={3} className="settlement-preview-summary-value">{formatCurrencyPlain(subtotal)}</td>
+                            </tr>
+                            <tr>
+                              <td colSpan={6} className="settlement-preview-summary-label">6%税费（元）</td>
+                              <td colSpan={3} className="settlement-preview-summary-value">{formatCurrencyPlain(taxAmount)}</td>
+                            </tr>
+                            <tr>
+                              <td colSpan={6} className="settlement-preview-summary-label">含税合计（元）</td>
+                              <td colSpan={3} className="settlement-preview-summary-value">{formatCurrencyPlain(taxIncludedTotal)}</td>
+                            </tr>
+                            <tr>
+                              <td colSpan={6} className="settlement-preview-summary-label">优惠后合计（元）</td>
+                              <td colSpan={3} className="settlement-preview-summary-value">{formatCurrencyPlain(editedDiscountTotal)}</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    );
+                  })()}
+                </div>
               </div>
             </div>
           </div>

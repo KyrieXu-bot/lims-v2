@@ -6,6 +6,7 @@ import CustomerEdit from './pages/customers/CustomerEdit.jsx';
 import CustomerIntegratedAdd from './pages/customers/CustomerIntegratedAdd.jsx';
 import Payers from './pages/payers/Payers.jsx';
 import PayerEdit from './pages/payers/PayerEdit.jsx';
+import PayerLedger from './pages/payers/PayerLedger.jsx';
 import Commissioners from './pages/commissioners/Commissioners.jsx';
 import CommissionerEdit from './pages/commissioners/CommissionerEdit.jsx';
 import PriceList from './pages/price/PriceList.jsx';
@@ -197,6 +198,7 @@ export default function App() {
       <Route path="/customers/new" element={<PCRouteWrapper><Layout><CustomerIntegratedAdd/></Layout></PCRouteWrapper>} />
       <Route path="/customers/:id" element={<PCRouteWrapper><Layout><CustomerEdit/></Layout></PCRouteWrapper>} />
       <Route path="/payers" element={<PCRouteWrapper><Layout><Payers/></Layout></PCRouteWrapper>} />
+      <Route path="/payers/:id/ledger" element={<PCRouteWrapper><Layout><PayerLedger/></Layout></PCRouteWrapper>} />
       <Route path="/payers/:id" element={<PCRouteWrapper><Layout><PayerEdit/></Layout></PCRouteWrapper>} />
       <Route path="/commissioners" element={<PCRouteWrapper><Layout><Commissioners/></Layout></PCRouteWrapper>} />
       <Route path="/commissioners/:id" element={<PCRouteWrapper><Layout><CommissionerEdit/></Layout></PCRouteWrapper>} />

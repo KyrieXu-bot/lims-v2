@@ -1,77 +1,332 @@
+.settlements-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 12px;
+  margin-bottom: 12px;
+  padding: 12px 15px;
+  border-radius: 8px;
+  background: var(--white);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.settlements-filter-group {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  row-gap: 10px;
+  min-width: 0;
+}
+
+.settlements-filter-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.settlements-filter-item label {
+  flex: 0 0 auto;
+  color: var(--gray-700);
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.settlements-search-item {
+  flex: 0 1 330px;
+}
+
+.settlements-search-input {
+  width: 220px;
+  height: 34px;
+}
+
+.settlements-filter-select {
+  width: 130px;
+  height: 34px;
+}
+
+.settlements-filter-date {
+  width: 132px;
+  height: 34px;
+}
+
+.settlements-filter-date-separator {
+  color: var(--gray-600);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.settlements-filter-reset {
+  height: 34px;
+  white-space: nowrap;
+}
+
+.settlements-prepayment-btn {
+  flex: 0 0 auto;
+  height: 38px;
+  white-space: nowrap;
+}
+
 .settlements-table-container {
-  overflow-x: auto;
+  --settlement-header-height: 48px;
+  --settlement-row-height: 58px;
+  position: relative;
+  overflow: hidden;
+  height: calc(100vh - 250px);
+  min-height: 420px;
   border-radius: 8px;
   box-shadow: var(--shadow);
   background: var(--white);
+  border: 1px solid #e5e7eb;
+  isolation: isolate;
+}
+
+.settlements-table-scroll {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  border-radius: 8px;
+  scrollbar-gutter: stable;
 }
 
 .settlements-table {
-  min-width: 1480px;
+  width: 3040px;
+  min-width: 3040px;
+  max-width: none;
   table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
   margin-bottom: 0;
   box-shadow: none;
+}
+
+.settlements-payer-search {
+  position: relative;
+  min-width: 0;
+}
+
+.settlements-payer-search .input {
+  width: 100%;
+}
+
+.settlements-payer-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 1200;
+  max-height: 240px;
+  overflow-y: auto;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.16);
+}
+
+.settlements-payer-option {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 9px 12px;
+  border: 0;
+  border-bottom: 1px solid #eef2f7;
+  background: #fff;
+  color: #111827;
+  cursor: pointer;
+  text-align: left;
+}
+
+.settlements-payer-option:hover {
+  background: #f3f6fb;
+}
+
+.settlements-payer-option-main {
+  font-weight: 600;
+}
+
+.settlements-payer-option-sub {
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.settlements-table-editing {
+  width: 3520px;
+  min-width: 3520px;
+}
+
+.table.settlements-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  overflow: visible;
 }
 
 .settlements-table th,
 .settlements-table td {
   overflow: hidden;
+  height: var(--settlement-row-height);
+  vertical-align: middle;
+}
+
+.settlements-table th {
+  height: var(--settlement-header-height);
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: #f8fafc;
+  box-shadow: inset 0 -1px 0 #e5e7eb;
 }
 
 .settlements-table th:nth-child(1),
 .settlements-table td:nth-child(1) {
-  width: 190px;
+  width: 150px;
 }
 
 .settlements-table th:nth-child(2),
 .settlements-table td:nth-child(2) {
-  width: 105px;
+  width: 235px;
+  min-width: 235px;
 }
 
 .settlements-table th:nth-child(3),
 .settlements-table td:nth-child(3) {
-  width: 170px;
+  width: 105px;
 }
 
 .settlements-table th:nth-child(4),
 .settlements-table td:nth-child(4) {
-  width: 160px;
+  width: 125px;
 }
 
 .settlements-table th:nth-child(5),
-.settlements-table td:nth-child(5),
+.settlements-table td:nth-child(5) {
+  width: 170px;
+}
+
 .settlements-table th:nth-child(6),
 .settlements-table td:nth-child(6) {
-  width: 110px;
+  width: 170px;
 }
 
 .settlements-table th:nth-child(7),
 .settlements-table td:nth-child(7) {
-  width: 105px;
+  width: 150px;
 }
 
 .settlements-table th:nth-child(8),
 .settlements-table td:nth-child(8) {
-  width: 260px;
+  width: 115px;
 }
 
 .settlements-table th:nth-child(9),
 .settlements-table td:nth-child(9) {
-  width: 95px;
+  width: 115px;
 }
 
 .settlements-table th:nth-child(10),
 .settlements-table td:nth-child(10) {
-  width: 115px;
+  width: 125px;
 }
 
 .settlements-table th:nth-child(11),
 .settlements-table td:nth-child(11) {
-  width: 95px;
+  width: 230px;
 }
 
 .settlements-table th:nth-child(12),
 .settlements-table td:nth-child(12) {
+  width: 110px;
+}
+
+.settlements-table th:nth-child(13),
+.settlements-table td:nth-child(13) {
+  width: 115px;
+}
+
+.settlements-table th:nth-child(14),
+.settlements-table td:nth-child(14) {
   width: 105px;
+}
+
+.settlements-table th:nth-child(15),
+.settlements-table td:nth-child(15) {
+  width: 110px;
+}
+
+.settlements-table th:nth-child(16),
+.settlements-table td:nth-child(16) {
+  width: 125px;
+}
+
+.settlements-dept-col {
+  width: 120px;
+  min-width: 120px;
+  text-align: right;
+}
+
+.settlements-table-editing th:nth-child(2),
+.settlements-table-editing td:nth-child(2) {
+  width: 260px;
+}
+
+.settlements-table-editing th:nth-child(4),
+.settlements-table-editing td:nth-child(4) {
+  width: 175px;
+}
+
+.settlements-table-editing th:nth-child(6),
+.settlements-table-editing td:nth-child(6) {
+  width: 225px;
+}
+
+.settlements-table-editing th:nth-child(7),
+.settlements-table-editing td:nth-child(7) {
+  width: 225px;
+}
+
+.settlements-table-editing th:nth-child(8),
+.settlements-table-editing td:nth-child(8),
+.settlements-table-editing th:nth-child(9),
+.settlements-table-editing td:nth-child(9) {
+  width: 155px;
+}
+
+.settlements-table-editing th:nth-child(10),
+.settlements-table-editing td:nth-child(10) {
+  width: 175px;
+}
+
+.settlements-table-editing th:nth-child(11),
+.settlements-table-editing td:nth-child(11) {
+  width: 220px;
+}
+
+.settlements-table-editing th:nth-child(12),
+.settlements-table-editing td:nth-child(12),
+.settlements-table-editing th:nth-child(13),
+.settlements-table-editing td:nth-child(13),
+.settlements-table-editing th:nth-child(14),
+.settlements-table-editing td:nth-child(14) {
+  width: 155px;
+}
+
+.settlements-table-editing th:nth-child(16),
+.settlements-table-editing td:nth-child(16) {
+  width: 180px;
+  min-width: 180px;
+}
+
+.settlements-table-editing th:nth-child(17),
+.settlements-table-editing td:nth-child(17) {
+  width: 190px;
+  min-width: 190px;
 }
 
 .settlements-table th {
@@ -80,6 +335,7 @@
 
 .settlements-table td {
   word-break: normal;
+  white-space: nowrap;
 }
 
 .settlement-detail-cell {
@@ -99,12 +355,149 @@
   white-space: nowrap;
 }
 
-.settlements-table .btn {
-  margin-bottom: 2px;
+.settlement-invoice-cell {
+  white-space: normal;
+  line-height: 1.45;
+}
+
+.settlement-invoice-line {
+  display: block;
+  word-break: break-all;
+}
+
+.settlement-row-editing td {
+  overflow: visible;
+}
+
+.settlement-row-editing .input,
+.settlement-row-editing input,
+.settlement-row-editing select {
+  width: 100% !important;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.settlement-row-editing input[type="date"] {
+  min-width: 155px;
+}
+
+.settlements-table th.settlements-action-col,
+.settlements-table td.settlements-action-col {
+  position: sticky !important;
+  right: 0 !important;
+  min-width: 135px;
+  width: 135px;
+  z-index: 25 !important;
+  overflow: visible;
+  background: rgba(255, 255, 255, 0.88) !important;
+  backdrop-filter: blur(14px) saturate(145%);
+  -webkit-backdrop-filter: blur(14px) saturate(145%);
+  box-shadow: -8px 0 14px rgba(15, 23, 42, 0.10);
+  border-left: 1px solid rgba(148, 163, 184, 0.28) !important;
+}
+
+.settlements-table-scroll .settlements-table > thead > tr > th.settlements-action-col,
+.settlements-table-scroll .settlements-table > tbody > tr > td.settlements-action-col {
+  position: sticky !important;
+  right: 0 !important;
+}
+
+.settlements-table thead th.settlements-action-col {
+  top: 0 !important;
+  z-index: 45 !important;
+  background: rgba(248, 250, 252, 0.96) !important;
+  border-bottom: 2px solid #e5e7eb !important;
+}
+
+.settlements-table tbody tr:hover td.settlements-action-col {
+  background: rgba(248, 250, 252, 0.94) !important;
+}
+
+.settlement-action-buttons {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  width: 100%;
+  overflow: hidden;
+}
+
+.settlement-action-buttons .btn {
+  min-width: 0;
+  height: 28px;
+  padding: 4px 8px;
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.file-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(17, 24, 39, 0.42);
+}
+
+.file-modal-content {
+  width: min(100%, 680px);
+  max-height: 90vh;
+  overflow: auto;
+  border-radius: 8px;
+  background: var(--white);
+  box-shadow: var(--shadow-lg, 0 20px 45px rgba(15, 23, 42, 0.24));
+  padding: 20px;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.modal-header h3 {
+  margin: 0;
+}
+
+.close-button {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font-size: 24px;
+  line-height: 1;
 }
 
 @media (max-width: 767px) {
+  .settlements-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .settlements-filter-group {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .settlements-filter-item {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .settlements-search-input,
+  .settlements-filter-select,
+  .settlements-filter-reset,
+  .settlements-prepayment-btn {
+    width: 100%;
+  }
+
   .settlements-table {
-    min-width: 1320px;
+    min-width: 2180px;
   }
 }

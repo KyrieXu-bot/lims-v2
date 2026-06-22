@@ -52,6 +52,26 @@
   z-index: 12000; /* 整体置于表格/固定列之上 */
 }
 
+.filters.filters-behind-modal {
+  z-index: 1 !important;
+  opacity: 0.38;
+  filter: grayscale(0.15);
+  pointer-events: none;
+}
+
+.filters.filters-behind-modal .status-multiselect-wrapper,
+.filters.filters-behind-modal .status-dropdown,
+.filters.filters-behind-modal .filter-group:has(.status-multiselect-wrapper),
+.filters.filters-behind-modal .filter-row,
+.filters.filters-behind-modal .filter-group,
+.filters.filters-behind-modal .search-input-container,
+.filters.filters-behind-modal .search-buttons,
+.filters.filters-behind-modal input,
+.filters.filters-behind-modal select,
+.filters.filters-behind-modal button {
+  z-index: 1 !important;
+}
+
 .filter-row {
   display: flex;
   gap: 12px;
@@ -74,6 +94,22 @@
   position: relative;
   z-index: 1;
   flex-shrink: 0;
+}
+
+.filter-group.filter-stack-group {
+  display: grid !important;
+  grid-template-rows: auto 32px;
+  align-items: start !important;
+  justify-items: start;
+  gap: 6px;
+}
+
+.filter-group.filter-stack-group label {
+  line-height: 1.2;
+}
+
+.invoice-status-filter-group select {
+  width: 120px;
 }
 
 /* 部门筛选组：适度宽度，可收缩 */
@@ -277,7 +313,7 @@
 
 .filter-actions {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   margin-left: auto;
   flex-shrink: 0;
   flex-wrap: wrap;
@@ -287,7 +323,7 @@
 }
 
 .filter-actions .btn {
-  padding: 6px 12px;
+  padding: 6px 10px;
   font-size: 13px;
   white-space: nowrap;
   flex-shrink: 0;
@@ -305,12 +341,12 @@
   }
 
   .filter-actions {
-    width: 100%;
-    margin-left: 0;
+    width: auto;
+    margin-left: auto;
     justify-content: flex-end;
     flex-wrap: wrap;
     gap: 8px;
-    margin-top: 4px;
+    margin-top: 0;
   }
 }
 
@@ -798,10 +834,12 @@
   display: flex;
   justify-content: center;
   align-items: center;
-  z-index: 20000; /* 覆盖筛选栏与表格，确保搜索栏被遮挡变灰 */
+  z-index: 50000; /* 覆盖筛选栏、状态下拉、顶部导航与表格固定列 */
 }
 
 .file-modal-content {
+  position: relative;
+  z-index: 50001;
   background: white;
   border-radius: 8px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
@@ -835,6 +873,191 @@
 }
 
 /* 导出弹窗：按钮随 modal 宽度自适应换行，不产生横向滚动条 */
+.settlement-amount-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.allocation-detail-btn {
+  border: 1px solid #bfdbfe;
+  border-radius: 4px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  padding: 4px 7px;
+  white-space: nowrap;
+}
+
+.allocation-detail-btn:hover {
+  background: #dbeafe;
+}
+
+.file-modal-content.settlement-modal-content {
+  width: 1700px !important;
+  min-width: 1700px;
+  max-width: none !important;
+  flex-shrink: 0;
+  max-height: 88vh;
+}
+
+.file-modal-content.settlement-modal-content .file-modal-body {
+  max-height: calc(88vh - 72px);
+  overflow: hidden;
+}
+
+.settlement-modal-layout {
+  display: grid;
+  grid-template-columns: 470px 1140px;
+  gap: 24px;
+  align-items: start;
+  min-width: 0;
+}
+
+.settlement-modal-form {
+  min-width: 0;
+}
+
+.settlement-preview-panel {
+  width: 1140px;
+  min-width: 1140px;
+  height: 470px;
+  max-height: calc(88vh - 150px);
+  overflow: hidden;
+  padding: 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+}
+
+.settlement-preview-title {
+  margin-bottom: 10px;
+  text-align: center;
+  font-size: 15px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.settlement-preview-table-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.settlement-preview-table {
+  width: 100%;
+  min-width: 1040px;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 12px;
+  color: #111827;
+}
+
+.settlement-preview-table th,
+.settlement-preview-table td {
+  border: 1px solid #111;
+  padding: 6px 5px;
+  text-align: center;
+  vertical-align: middle;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.settlement-preview-table th {
+  background: #f8fafc;
+  font-weight: 700;
+}
+
+.settlement-preview-table th:nth-child(1),
+.settlement-preview-table td:nth-child(1) {
+  width: 78px;
+}
+
+.settlement-preview-table th:nth-child(2),
+.settlement-preview-table td:nth-child(2) {
+  width: 92px;
+}
+
+.settlement-preview-table th:nth-child(3),
+.settlement-preview-table td:nth-child(3) {
+  width: 120px;
+}
+
+.settlement-preview-table th:nth-child(4),
+.settlement-preview-table td:nth-child(4) {
+  width: 88px;
+}
+
+.settlement-preview-table th:nth-child(5),
+.settlement-preview-table td:nth-child(5),
+.settlement-preview-table th:nth-child(6),
+.settlement-preview-table td:nth-child(6) {
+  width: 62px;
+}
+
+.settlement-preview-table th:nth-child(7),
+.settlement-preview-table td:nth-child(7),
+.settlement-preview-table th:nth-child(8),
+.settlement-preview-table td:nth-child(8) {
+  width: 96px;
+}
+
+.settlement-preview-table th:nth-child(9),
+.settlement-preview-table td:nth-child(9) {
+  width: 80px;
+}
+
+.settlement-preview-project {
+  white-space: normal;
+}
+
+.settlement-preview-empty {
+  color: #6b7280;
+  padding: 24px 8px !important;
+}
+
+.settlement-preview-summary-label {
+  text-align: center !important;
+  font-weight: 500;
+}
+
+.settlement-preview-summary-value {
+  text-align: center !important;
+}
+
+@media (max-width: 1100px) {
+  .settlement-modal-layout {
+    grid-template-columns: 470px 1140px;
+  }
+
+  .settlement-preview-panel {
+    height: calc(88vh - 150px);
+    max-height: calc(88vh - 150px);
+  }
+}
+
+.allocation-detail-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.allocation-detail-table th,
+.allocation-detail-table td {
+  border: 1px solid #e5e7eb;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.allocation-detail-table th {
+  background: #f8fafc;
+  font-weight: 600;
+}
+
 .export-modal-actions-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 148px), 1fr));
@@ -1737,6 +1960,27 @@
     background: inherit !important;
   }
   
+}
+
+.commission-form .data-table th[data-column-key="settlement_serial_number"],
+.commission-form .data-table td[data-column-key="settlement_serial_number"],
+.commission-form .data-table th.invoice-field.settlement-serial-col,
+.commission-form .data-table td.invoice-field.settlement-serial-col {
+  min-width: 140px !important;
+  width: 140px !important;
+  max-width: 140px !important;
+  white-space: nowrap !important;
+}
+
+.commission-form .data-table td[data-column-key="settlement_serial_number"] .settlement-serial-text {
+  display: inline-block;
+  max-width: 100%;
+  color: #1d4ed8;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* 操作列 - 最后一个子元素 - 自适应宽度 */

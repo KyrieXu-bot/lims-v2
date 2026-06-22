@@ -49,6 +49,7 @@ async function applySettlementDerivedUnpaidAmount(rows, pool) {
       delete row.__settlement_alloc_id;
       delete row.__settlement_invoice_amount;
       delete row.__settlement_test_item_ids;
+      delete row.__settlement_item_allocated_amount;
     }
     return;
   }
@@ -75,11 +76,16 @@ async function applySettlementDerivedUnpaidAmount(rows, pool) {
 
   for (const row of rows) {
     const sid = row.__settlement_alloc_id;
+    const hasItemAllocation = row.__settlement_item_allocated_amount !== null && row.__settlement_item_allocated_amount !== undefined;
+    if (hasItemAllocation) {
+      row.unpaid_amount = Math.round((Number(row.__settlement_item_allocated_amount) || 0) * 100) / 100;
+    }
     delete row.__settlement_alloc_id;
     delete row.__settlement_invoice_amount;
     delete row.__settlement_test_item_ids;
+    delete row.__settlement_item_allocated_amount;
 
-    if (sid == null) continue;
+    if (sid == null || hasItemAllocation) continue;
     const t = totals.get(String(sid));
     if (!t || t.totalPrefill <= 0 || !Number.isFinite(t.invoiceAmount)) continue;
     const prefill = parseFloat(row.invoice_prefill_price) || 0;

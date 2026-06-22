@@ -48,7 +48,7 @@ export default function TestItemEdit() {
   const [it, setIt] = useState({ 
     quantity: 1, 
     status: 'new', 
-    is_add_on: 1, 
+    is_add_on: isAddonRequest ? 1 : 0, 
     is_outsourced: 0, 
     machine_hours: 0, 
     work_hours: 0, 
@@ -124,6 +124,8 @@ export default function TestItemEdit() {
     }
   }, []);
   const roleCode = String(currentUser?.role || '').toLowerCase();
+  const isManualNewTestItem = isNew && !isAddonRequest && !hasCopyParam;
+  const shouldShowAddOnFields = isAddonRequest || isAddOnTestItemFlag(it.is_add_on);
   // 加测申请页（非复制预填）或管理员新建：业务报价、折扣率必填
   const addonBizPriceDiscountRequired = isAddonRequest && isNew && !isFromCopyAddonRequest;
   const adminCreateBizPriceDiscountRequired = isNew && roleCode === 'admin';
@@ -302,6 +304,12 @@ export default function TestItemEdit() {
         } catch (error) {
           console.error('解析复制数据失败:', error);
         }
+      } else if (!isAddonRequest) {
+        setIt(prev => ({
+          ...prev,
+          is_add_on: 1,
+          service_urgency: prev.service_urgency || 'normal'
+        }));
       }
     }
     // 加载价格表选项
@@ -703,7 +711,7 @@ export default function TestItemEdit() {
     if (!it.unit || String(it.unit).trim() === '') return alert('下单单位必填');
     
     // 验证加测原因：如果是加测项目，必须填写加测原因
-    if ((isAddonRequest || isAddOnTestItemFlag(it.is_add_on)) && (!it.addon_reason || it.addon_reason.trim() === '')) {
+    if ((isAddonRequest || (isNew && isAddOnTestItemFlag(it.is_add_on))) && (!it.addon_reason || it.addon_reason.trim() === '')) {
       return alert('加测原因必填，请选择加测原因');
     }
     
@@ -969,7 +977,7 @@ export default function TestItemEdit() {
           <Field label="材质" value={it.material} onChange={v=>setIt({...it, material:v})} disabled={isView} />
           <div>
             <label>
-              样品类型{(isAddonRequest || isAddOnTestItemFlag(it.is_add_on)) ? ' *' : ''}
+              样品类型{shouldShowAddOnFields ? ' *' : ''}
             </label>
             {(() => {
               const ui = getSampleTypeUiModel(it.sample_type);
@@ -1091,15 +1099,15 @@ export default function TestItemEdit() {
           </div>
           <div>
             <label>是否加测</label>
-            <input 
-              className="input" 
-              value={formatIsAddOnDisplay(it.is_add_on)} 
-              disabled 
-              style={{background: '#f5f5f5'}} 
+            <input
+              className="input"
+              value={isManualNewTestItem ? '普通加测' : formatIsAddOnDisplay(it.is_add_on)}
+              disabled
+              style={{background: '#f5f5f5'}}
             />
-            <input type="hidden" name="is_add_on" value={it.is_add_on !== undefined && it.is_add_on !== null ? it.is_add_on : 1} />
+            <input type="hidden" name="is_add_on" value={it.is_add_on !== undefined && it.is_add_on !== null ? it.is_add_on : 0} />
           </div>
-          {(isAddonRequest || isAddOnTestItemFlag(it.is_add_on)) && (
+          {shouldShowAddOnFields && (
             <div>
               <label>是否加急</label>
               <select
@@ -1114,7 +1122,7 @@ export default function TestItemEdit() {
               </select>
             </div>
           )}
-          {(isAddonRequest || isAddOnTestItemFlag(it.is_add_on)) && (
+          {shouldShowAddOnFields && (
             <div>
               <label>加测原因</label>
               <select 
@@ -1133,7 +1141,7 @@ export default function TestItemEdit() {
               </select>
             </div>
           )}
-          {(isAddonRequest || isAddOnTestItemFlag(it.is_add_on)) && (
+          {shouldShowAddOnFields && (
             <div>
               <label>加测对象</label>
               <select 

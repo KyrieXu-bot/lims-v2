@@ -26,10 +26,12 @@ export const COMMISSION_FORM_LIST_SELECT_JOINS = `
         COALESCE(comm.commissioner_name, c.customer_name) as customer_commissioner_name,
         comm.address as customer_commissioner_address,
         o.commissioner_id,
+        o.payer_id,
         u.name as assignee_name,
         u.account as assignee_account,
         ti.current_assignee,
         ti.unpaid_amount,
+        ti.settlement_serial_number,
         ti.invoice_prefill_price,
         ti.invoice_prefill_confirmed,
         ti.invoice_status,
@@ -115,6 +117,7 @@ export const COMMISSION_FORM_LIST_SELECT_JOINS = `
         s.settlement_id AS __settlement_alloc_id,
         s.invoice_amount AS __settlement_invoice_amount,
         s.test_item_ids AS __settlement_test_item_ids,
+        sia_sum.allocated_amount AS __settlement_item_allocated_amount,
         s.invoice_number,
         s.invoice_date as settlement_invoice_date,
         COALESCE(s.customer_name, c_settlement.customer_name) as settlement_customer_name
@@ -141,7 +144,12 @@ export const COMMISSION_FORM_LIST_SELECT_JOINS = `
         FROM project_files
         GROUP BY test_item_id
       ) pf ON pf.test_item_id = ti.test_item_id
-      LEFT JOIN settlements s ON JSON_CONTAINS(s.test_item_ids, CAST(ti.test_item_id AS JSON), '$')
+      LEFT JOIN settlements s ON s.settlement_type = 'invoice' AND JSON_CONTAINS(s.test_item_ids, CAST(ti.test_item_id AS JSON), '$')
+      LEFT JOIN (
+        SELECT settlement_id, test_item_id, SUM(amount) AS allocated_amount
+        FROM settlement_item_payment_allocations
+        GROUP BY settlement_id, test_item_id
+      ) sia_sum ON sia_sum.settlement_id = s.settlement_id AND sia_sum.test_item_id = ti.test_item_id
       LEFT JOIN customers c_settlement ON c_settlement.customer_id = s.customer_id`;
 
 /**
@@ -180,7 +188,7 @@ export const COMMISSION_FORM_PAGE_IDS_JOIN_BLOCK = `
  * @returns {{ where: string, params: any[] }}
  */
 export function buildCommissionListFilters(req) {
-  const { status, department_id, month_filter, my_items } = req.query;
+  const { status, department_id, month_filter, my_items, invoice_status } = req.query;
   // 与 commissionListWhereNeedsOrderJoins 一致：仅空格的关键字视为无搜索，避免 WHERE 引用 o/c/comm 但分页子查询未 JOIN
   const q = String(req.query?.q ?? '').trim();
   const like = `%${q}%`;
@@ -230,9 +238,9 @@ export function buildCommissionListFilters(req) {
       params.push(q);
     } else {
       filters.push(
-        '(ti.category_name LIKE ? OR ti.detail_name LIKE ? OR ti.test_code LIKE ? OR ti.order_id LIKE ? OR o.original_order_id LIKE ? OR o.root_order_id LIKE ? OR c.customer_name LIKE ? OR comm.contact_name LIKE ? OR EXISTS (SELECT 1 FROM payers WHERE payers.payer_id = o.payer_id AND payers.contact_name LIKE ?) OR EXISTS (SELECT 1 FROM users WHERE users.user_id = ti.current_assignee AND users.name LIKE ?) OR EXISTS (SELECT 1 FROM users WHERE users.user_id = ti.supervisor_id AND users.name LIKE ?) OR EXISTS (SELECT 1 FROM users WHERE users.user_id = ti.technician_id AND users.name LIKE ?))'
+        '(ti.category_name LIKE ? OR ti.detail_name LIKE ? OR ti.test_code LIKE ? OR ti.order_id LIKE ? OR ti.settlement_serial_number LIKE ? OR o.original_order_id LIKE ? OR o.root_order_id LIKE ? OR c.customer_name LIKE ? OR comm.contact_name LIKE ? OR EXISTS (SELECT 1 FROM payers WHERE payers.payer_id = o.payer_id AND payers.contact_name LIKE ?) OR EXISTS (SELECT 1 FROM users WHERE users.user_id = ti.current_assignee AND users.name LIKE ?) OR EXISTS (SELECT 1 FROM users WHERE users.user_id = ti.supervisor_id AND users.name LIKE ?) OR EXISTS (SELECT 1 FROM users WHERE users.user_id = ti.technician_id AND users.name LIKE ?))'
       );
-      params.push(like, like, like, like, like, like, like, like, like, like, like, like);
+      params.push(like, like, like, like, like, like, like, like, like, like, like, like, like);
     }
   }
 
@@ -244,6 +252,10 @@ export function buildCommissionListFilters(req) {
   if (department_id) {
     filters.push('ti.department_id = ?');
     params.push(department_id);
+  }
+  if (invoice_status) {
+    filters.push("COALESCE(NULLIF(ti.invoice_status, ''), '未结算') = ?");
+    params.push(invoice_status);
   }
   if (month_filter && month_filter.trim() !== '') {
     const [year, month] = month_filter.split('-');
