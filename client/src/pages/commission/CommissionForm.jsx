@@ -478,6 +478,8 @@ const CommissionForm = () => {
   const [transferReason, setTransferReason] = useState('');
   const [transferMode, setTransferMode] = useState('direct_sales');
   const [submittingTransfer, setSubmittingTransfer] = useState(false);
+  const [checkingTransferOrderId, setCheckingTransferOrderId] = useState(null);
+  const [duplicateTransferInfo, setDuplicateTransferInfo] = useState(null);
   const [columnVisibility, setColumnVisibility] = useState(() => {
     if (typeof window !== 'undefined') {
       try {
@@ -1955,6 +1957,23 @@ const CommissionForm = () => {
     item?.technician_id &&
     String(item.supervisor_id) === String(item.technician_id);
 
+  const getTransferStatusLabel = (status, currentStep) => {
+    if (status === 'approved') return '已同意';
+    if (status === 'rejected') return '已拒绝';
+    if (status !== 'pending') return status || '未知';
+    if (currentStep === 'supervisor_review') return '待组长审批';
+    if (currentStep === 'leader_review') return '待室主任审批';
+    if (currentStep === 'sales_review') return '待业务审批';
+    if (currentStep === 'xwf_review') return '待许文凤审批';
+    return '待处理';
+  };
+
+  const getTransferFlowLabel = (flow) => {
+    if (flow === 'leader_then_sales') return '特殊转单';
+    if (flow === 'direct_sales') return '普通转单';
+    return '转单申请';
+  };
+
   const canCurrentUserInitiateTransfer = (item) => {
     if (!item || item.status === 'cancelled') return false;
     if (!['supervisor', 'employee'].includes(user?.role)) return false;
@@ -1970,6 +1989,57 @@ const CommissionForm = () => {
       );
     }
     return false;
+  };
+
+  const closeTransferModal = () => {
+    setShowTransferModal(false);
+    setTransferItem(null);
+    setTransferReason('');
+    setTransferMode('direct_sales');
+  };
+
+  const showDuplicateTransferReminder = (duplicateRequest) => {
+    setDuplicateTransferInfo(duplicateRequest);
+    closeTransferModal();
+  };
+
+  const checkExistingTransferByOrder = async (orderId, token) => {
+    const trimmedOrderId = String(orderId || '').trim();
+    if (!trimmedOrderId) return null;
+    const response = await fetch(`/api/order-transfer-requests/by-order/${encodeURIComponent(trimmedOrderId)}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(result.error || '检查重复转单失败');
+    }
+    return result.has_existing ? result.duplicate_request : null;
+  };
+
+  const openTransferRequestModal = async (item) => {
+    if (!item) return;
+    const orderId = String(item.order_id || '').trim();
+    try {
+      setCheckingTransferOrderId(orderId || item.test_item_id);
+      const userLocal = JSON.parse(localStorage.getItem('lims_user') || 'null');
+      if (!userLocal?.token) {
+        alert('请先登录');
+        return;
+      }
+      const duplicateRequest = await checkExistingTransferByOrder(orderId, userLocal.token);
+      if (duplicateRequest) {
+        showDuplicateTransferReminder(duplicateRequest);
+        return;
+      }
+      setTransferItem(item);
+      setTransferReason('');
+      setTransferMode(getTransferRequestModeForItem(item));
+      setShowTransferModal(true);
+    } catch (e) {
+      alert(e.message || '检查重复转单失败');
+    } finally {
+      setCheckingTransferOrderId(null);
+    }
   };
 
   const handleSubmitTransferRequest = async () => {
@@ -1999,6 +2069,10 @@ const CommissionForm = () => {
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) {
+        if (response.status === 409 && result.duplicate_request) {
+          showDuplicateTransferReminder(result.duplicate_request);
+          return;
+        }
         throw new Error(result.error || '提交失败');
       }
       alert(result.message || '申请已提交');
@@ -6388,13 +6462,8 @@ const CommissionForm = () => {
                               <button
                                 type="button"
                                 className="btn btn-primary"
-                                onClick={() => {
-                                  setTransferItem(item);
-                                  setTransferReason('');
-                                  setTransferMode(getTransferRequestModeForItem(item));
-                                  setShowTransferModal(true);
-                                }}
-                                disabled={!item.current_assignee}
+                                onClick={() => openTransferRequestModal(item)}
+                                disabled={!item.current_assignee || checkingTransferOrderId === String(item.order_id || '').trim()}
                                 title={
                                   item.current_assignee
                                     ? getTransferRequestModeForItem(item) === 'leader_then_sales'
@@ -6415,7 +6484,7 @@ const CommissionForm = () => {
                                   lineHeight: '1.2'
                                 }}
                               >
-                                转单
+                                {checkingTransferOrderId === String(item.order_id || '').trim() ? '检查中…' : '转单'}
                               </button>
                             )}
                           {/* 只有admin、supervisor、leader角色显示其他操作（复制按钮单独对实验员开放） */}
@@ -7359,10 +7428,7 @@ const CommissionForm = () => {
           }}
           onClick={(e) => {
             if (e.target === e.currentTarget) {
-              setShowTransferModal(false);
-              setTransferItem(null);
-              setTransferReason('');
-              setTransferMode('direct_sales');
+              closeTransferModal();
             }
           }}
         >
@@ -7443,12 +7509,7 @@ const CommissionForm = () => {
               <button
                 type="button"
                 className="btn btn-secondary"
-                onClick={() => {
-                  setShowTransferModal(false);
-                  setTransferItem(null);
-                  setTransferReason('');
-                  setTransferMode('direct_sales');
-                }}
+                onClick={closeTransferModal}
                 disabled={submittingTransfer}
               >
                 取消
@@ -7460,6 +7521,100 @@ const CommissionForm = () => {
                 disabled={submittingTransfer}
               >
                 {submittingTransfer ? '提交中…' : '确认申请'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {duplicateTransferInfo && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            zIndex: 20000,
+            padding: '16px'
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setDuplicateTransferInfo(null);
+            }
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: 'white',
+              padding: '20px',
+              borderRadius: '8px',
+              width: '520px',
+              maxWidth: '100%',
+              position: 'relative',
+              zIndex: 20001
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 style={{ marginTop: 0, marginBottom: '12px' }}>该委托单已发起转单</h2>
+            <p style={{ margin: '0 0 14px', color: '#b54708', fontSize: '13px', lineHeight: 1.6 }}>
+              转单按委托单号控制，同一委托单只能发起一次转单。该单如后续还有新增检测项目，请走加测流程。
+            </p>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '120px 1fr',
+                gap: '8px 12px',
+                padding: '12px 14px',
+                backgroundColor: '#f5f5f5',
+                borderRadius: '6px',
+                fontSize: '14px',
+                lineHeight: 1.5
+              }}
+            >
+              <strong>委托单号</strong>
+              <span>{duplicateTransferInfo.order_id || '-'}</span>
+              <strong>申请状态</strong>
+              <span>{getTransferStatusLabel(duplicateTransferInfo.status, duplicateTransferInfo.current_step)}</span>
+              <strong>申请类型</strong>
+              <span>{getTransferFlowLabel(duplicateTransferInfo.approval_flow)}</span>
+              <strong>申请人</strong>
+              <span>{duplicateTransferInfo.applicant_name || duplicateTransferInfo.applicant_id || '-'}</span>
+              <strong>申请时间</strong>
+              <span>{duplicateTransferInfo.created_at ? formatDateTime(duplicateTransferInfo.created_at) : '-'}</span>
+              {duplicateTransferInfo.approved_at && (
+                <>
+                  <strong>同意时间</strong>
+                  <span>{formatDateTime(duplicateTransferInfo.approved_at)}</span>
+                </>
+              )}
+              <strong>发起项目</strong>
+              <span>
+                {duplicateTransferInfo.test_item_name ||
+                  [duplicateTransferInfo.category_name, duplicateTransferInfo.detail_name].filter(Boolean).join(' - ') ||
+                  '-'}
+              </span>
+              <strong>项目编号</strong>
+              <span>{duplicateTransferInfo.test_code || '-'}</span>
+              <strong>部门 / 组别</strong>
+              <span>
+                {duplicateTransferInfo.department_name || '-'}
+                {duplicateTransferInfo.group_name ? `｜${duplicateTransferInfo.group_name}` : ''}
+              </span>
+              <strong>转单原因</strong>
+              <span>{duplicateTransferInfo.transfer_reason || '-'}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '18px' }}>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => setDuplicateTransferInfo(null)}
+              >
+                知道了
               </button>
             </div>
           </div>
