@@ -380,6 +380,10 @@ const CommissionForm = () => {
   };
 
   const [savedViewState] = useState(() => getSavedViewState());
+  const initialSettlementSerialSearch = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    return (params.get('settlement_serial') || '').trim();
+  }, [location.search]);
 
   const [data, setData] = useState([]);
   const [showTransferChainModal, setShowTransferChainModal] = useState(false);
@@ -388,7 +392,7 @@ const CommissionForm = () => {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(() => (savedViewState?.page ? Number(savedViewState.page) : 1));
   const [pageSize] = useState(100);
-  const [searchQuery, setSearchQuery] = useState(() => savedViewState?.searchQuery || '');
+  const [searchQuery, setSearchQuery] = useState(() => initialSettlementSerialSearch || savedViewState?.searchQuery || '');
   const [multiOrderSearchInfo, setMultiOrderSearchInfo] = useState(null);
   const [statusFilter, setStatusFilter] = useState(() => savedViewState?.statusFilter || []); // 改为数组，支持多选
   const [invoiceStatusFilter, setInvoiceStatusFilter] = useState(() => savedViewState?.invoiceStatusFilter || '');
@@ -498,6 +502,19 @@ const CommissionForm = () => {
       }
     }
   }, [savedViewState]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const settlementSerial = (params.get('settlement_serial') || '').trim();
+    if (!settlementSerial) return;
+    setSearchQuery(settlementSerial);
+    setPage(1);
+    setStatusFilter([]);
+    setInvoiceStatusFilter('');
+    setDepartmentFilter('');
+    setMonthFilter('');
+    setMyItemsFilter(false);
+  }, [location.search]);
 
   const saveCurrentViewState = () => {
     if (typeof window === 'undefined') return;

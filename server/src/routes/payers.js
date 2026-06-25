@@ -92,7 +92,7 @@ router.get('/', async (req, res) => {
     `SELECT
        o.payer_id,
        SUM(CASE WHEN COALESCE(NULLIF(ti.invoice_status, ''), '未结算') = '未结算' THEN COALESCE(ti.final_unit_price, 0) ELSE 0 END) AS unsettled_amount,
-       SUM(CASE WHEN COALESCE(NULLIF(ti.invoice_status, ''), '未结算') = '已到账' THEN COALESCE(ti.final_unit_price, 0) ELSE 0 END) AS received_amount
+       SUM(CASE WHEN COALESCE(NULLIF(ti.invoice_status, ''), '未结算') = '已申请' THEN COALESCE(ti.final_unit_price, 0) ELSE 0 END) AS applied_amount
      FROM test_items ti
      JOIN orders o ON o.order_id = ti.order_id
      WHERE o.payer_id IN (${placeholders})
@@ -108,18 +108,35 @@ router.get('/', async (req, res) => {
     `SELECT
        s.payer_id,
        SUM(CASE
-         WHEN (s.invoice_number IS NULL OR s.invoice_number = '')
-           AND COALESCE(s.payment_status, '') NOT IN ('已到款', '部分到款')
+         WHEN EXISTS (
+           SELECT 1
+           FROM test_items ti
+           WHERE ti.status != 'cancelled'
+             AND COALESCE(NULLIF(ti.invoice_status, ''), '未结算') = '已开票'
+             AND (
+               (s.test_item_ids IS NOT NULL AND s.test_item_ids <> '' AND JSON_VALID(s.test_item_ids) = 1 AND JSON_CONTAINS(s.test_item_ids, CAST(ti.test_item_id AS JSON), '$'))
+               OR
+               ((s.test_item_ids IS NULL OR s.test_item_ids = '' OR JSON_VALID(s.test_item_ids) = 0) AND s.order_ids IS NOT NULL AND s.order_ids <> '' AND FIND_IN_SET(ti.order_id, REPLACE(s.order_ids, '-', ',')) > 0)
+             )
+         )
          THEN COALESCE(s.invoice_amount, 0)
          ELSE 0
-       END) AS applied_amount,
+       END) AS invoiced_amount,
        SUM(CASE
-         WHEN s.invoice_number IS NOT NULL
-           AND s.invoice_number <> ''
-           AND COALESCE(s.payment_status, '') NOT IN ('已到款', '部分到款')
-         THEN COALESCE(s.invoice_amount, 0)
+         WHEN EXISTS (
+           SELECT 1
+           FROM test_items ti
+           WHERE ti.status != 'cancelled'
+             AND COALESCE(NULLIF(ti.invoice_status, ''), '未结算') = '已到账'
+             AND (
+               (s.test_item_ids IS NOT NULL AND s.test_item_ids <> '' AND JSON_VALID(s.test_item_ids) = 1 AND JSON_CONTAINS(s.test_item_ids, CAST(ti.test_item_id AS JSON), '$'))
+               OR
+               ((s.test_item_ids IS NULL OR s.test_item_ids = '' OR JSON_VALID(s.test_item_ids) = 0) AND s.order_ids IS NOT NULL AND s.order_ids <> '' AND FIND_IN_SET(ti.order_id, REPLACE(s.order_ids, '-', ',')) > 0)
+             )
+         )
+         THEN COALESCE(s.received_amount, 0)
          ELSE 0
-       END) AS invoiced_amount
+       END) AS received_amount
      FROM settlements s
      WHERE s.payer_id IN (${placeholders})
        AND s.settlement_type = 'invoice'
@@ -144,9 +161,9 @@ router.get('/', async (req, res) => {
       receipt_credit_amount: balance.receipt_credit_amount || 0,
       current_balance: balance.current_balance || 0,
       unsettled_amount: testStatus.unsettled_amount || 0,
-      applied_amount: settlementStatus.applied_amount || 0,
+      applied_amount: testStatus.applied_amount || 0,
       invoiced_amount: settlementStatus.invoiced_amount || 0,
-      received_amount: testStatus.received_amount || 0
+      received_amount: settlementStatus.received_amount || 0
     };
   });
 
@@ -177,7 +194,7 @@ router.get('/:id/ledger', async (req, res) => {
   const [statusAmountRows] = await pool.query(
     `SELECT
        COALESCE(SUM(CASE WHEN COALESCE(NULLIF(ti.invoice_status, ''), '未结算') = '未结算' THEN COALESCE(ti.final_unit_price, 0) ELSE 0 END), 0) AS unsettled_amount,
-       COALESCE(SUM(CASE WHEN COALESCE(NULLIF(ti.invoice_status, ''), '未结算') = '已到账' THEN COALESCE(ti.final_unit_price, 0) ELSE 0 END), 0) AS received_amount
+       COALESCE(SUM(CASE WHEN COALESCE(NULLIF(ti.invoice_status, ''), '未结算') = '已申请' THEN COALESCE(ti.final_unit_price, 0) ELSE 0 END), 0) AS applied_amount
      FROM test_items ti
      JOIN orders o ON o.order_id = ti.order_id
      WHERE o.payer_id = ?
@@ -190,30 +207,39 @@ router.get('/:id/ledger', async (req, res) => {
   const [settlementStatusRows] = await pool.query(
     `SELECT
        COALESCE(SUM(CASE
-         WHEN (s.invoice_number IS NULL OR s.invoice_number = '')
-           AND COALESCE(s.payment_status, '') NOT IN ('已到款', '部分到款')
+         WHEN EXISTS (
+           SELECT 1
+           FROM test_items ti
+           WHERE ti.status != 'cancelled'
+             AND COALESCE(NULLIF(ti.invoice_status, ''), '未结算') = '已开票'
+             AND (
+               (s.test_item_ids IS NOT NULL AND s.test_item_ids <> '' AND JSON_VALID(s.test_item_ids) = 1 AND JSON_CONTAINS(s.test_item_ids, CAST(ti.test_item_id AS JSON), '$'))
+               OR
+               ((s.test_item_ids IS NULL OR s.test_item_ids = '' OR JSON_VALID(s.test_item_ids) = 0) AND s.order_ids IS NOT NULL AND s.order_ids <> '' AND FIND_IN_SET(ti.order_id, REPLACE(s.order_ids, '-', ',')) > 0)
+             )
+         )
          THEN COALESCE(s.invoice_amount, 0)
          ELSE 0
-       END), 0) AS applied_amount,
+       END), 0) AS invoiced_amount,
        COALESCE(SUM(CASE
-         WHEN s.invoice_number IS NOT NULL
-           AND s.invoice_number <> ''
-           AND COALESCE(s.payment_status, '') NOT IN ('已到款', '部分到款')
-         THEN COALESCE(s.invoice_amount, 0)
+         WHEN EXISTS (
+           SELECT 1
+           FROM test_items ti
+           WHERE ti.status != 'cancelled'
+             AND COALESCE(NULLIF(ti.invoice_status, ''), '未结算') = '已到账'
+             AND (
+               (s.test_item_ids IS NOT NULL AND s.test_item_ids <> '' AND JSON_VALID(s.test_item_ids) = 1 AND JSON_CONTAINS(s.test_item_ids, CAST(ti.test_item_id AS JSON), '$'))
+               OR
+               ((s.test_item_ids IS NULL OR s.test_item_ids = '' OR JSON_VALID(s.test_item_ids) = 0) AND s.order_ids IS NOT NULL AND s.order_ids <> '' AND FIND_IN_SET(ti.order_id, REPLACE(s.order_ids, '-', ',')) > 0)
+             )
+         )
+         THEN COALESCE(s.received_amount, 0)
          ELSE 0
-       END), 0) AS invoiced_amount
+       END), 0) AS received_amount
      FROM settlements s
      WHERE s.payer_id = ?
        AND s.settlement_type = 'invoice'
-       AND EXISTS (
-         SELECT 1
-         FROM test_items ti
-         WHERE JSON_CONTAINS(s.test_item_ids, CAST(ti.test_item_id AS JSON), '$')
-           AND (ti.business_confirmed = 1 OR ti.business_confirmed = '1')
-           AND ti.final_unit_price IS NOT NULL
-           AND ti.final_unit_price <> ''
-           AND ti.status != 'cancelled'
-       )`,
+       `,
     [req.params.id]
   );
   const [transactions] = await pool.query(
@@ -239,9 +265,9 @@ router.get('/:id/ledger', async (req, res) => {
     summary: {
       ...summaryRows[0],
       unsettled_amount: statusAmountRows[0]?.unsettled_amount || 0,
-      applied_amount: settlementStatusRows[0]?.applied_amount || 0,
+      applied_amount: statusAmountRows[0]?.applied_amount || 0,
       invoiced_amount: settlementStatusRows[0]?.invoiced_amount || 0,
-      received_amount: statusAmountRows[0]?.received_amount || 0
+      received_amount: settlementStatusRows[0]?.received_amount || 0
     },
     transactions
   });
