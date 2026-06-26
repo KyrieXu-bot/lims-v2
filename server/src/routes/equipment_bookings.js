@@ -425,7 +425,8 @@ router.get('/', async (req, res) => {
     approvals
   } = req.query;
   const pool = await getPool();
-  const filters = ["b.status = 'active'"];
+  const isMineQuery = mine === 'true' || mine === '1';
+  const filters = [isMineQuery ? "b.status IN ('active', 'rejected')" : "b.status = 'active'"];
   const params = [];
   const scope = buildEquipmentScope(req.user, 'e');
   if (!scope) return res.json({ data: [] });
@@ -448,7 +449,7 @@ router.get('/', async (req, res) => {
     filters.push('e.department_id = ?');
     params.push(department_id);
   }
-  if (mine === 'true' || mine === '1') {
+  if (isMineQuery) {
     filters.push('(b.booker_id = ? OR b.reserved_user_id = ?)');
     params.push(req.user.user_id, req.user.user_id);
   }

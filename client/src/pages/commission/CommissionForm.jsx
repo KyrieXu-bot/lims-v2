@@ -91,6 +91,11 @@ function parseMultiOrderSearch(value) {
   };
 }
 
+function normalizeFilterArray(value) {
+  if (Array.isArray(value)) return value.filter(Boolean);
+  return value ? [value] : [];
+}
+
 function isSameTestItemId(a, b) {
   return normalizeTestItemId(a) === normalizeTestItemId(b);
 }
@@ -393,7 +398,8 @@ const CommissionForm = () => {
   const [statusFilter, setStatusFilter] = useState(() => savedViewState?.statusFilter || []); // 改为数组，支持多选
   const [invoiceStatusFilter, setInvoiceStatusFilter] = useState(() => savedViewState?.invoiceStatusFilter || '');
   const [departmentFilter, setDepartmentFilter] = useState(() => savedViewState?.departmentFilter || '');
-  const [monthFilter, setMonthFilter] = useState(() => savedViewState?.monthFilter || '');
+  const [monthFilter, setMonthFilter] = useState(() => normalizeFilterArray(savedViewState?.monthFilter));
+  const [billingDateFilter, setBillingDateFilter] = useState(() => savedViewState?.billingDateFilter || '');
   const [myItemsFilter, setMyItemsFilter] = useState(() => savedViewState?.myItemsFilter || false);
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -410,6 +416,8 @@ const CommissionForm = () => {
   const [user, setUser] = useState(null);
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
   const statusDropdownRef = useRef(null);
+  const [monthDropdownOpen, setMonthDropdownOpen] = useState(false);
+  const monthDropdownRef = useRef(null);
   const [savingStatus, setSavingStatus] = useState({}); // 保存状态：{testItemId-field: 'saving'|'success'|'error'}
   const [selectedItems, setSelectedItems] = useState([]);
   // 合并填价相关状态
@@ -509,6 +517,7 @@ const CommissionForm = () => {
         invoiceStatusFilter,
         departmentFilter,
         monthFilter,
+        billingDateFilter,
         myItemsFilter,
       };
       sessionStorage.setItem(RETURN_STATE_STORAGE_KEY, JSON.stringify(viewState));
@@ -529,7 +538,7 @@ const CommissionForm = () => {
 
   useEffect(() => {
     fullSelectionCacheRef.current = null;
-  }, [page, pageSize, searchQuery, statusFilter, invoiceStatusFilter, departmentFilter, monthFilter, myItemsFilter]);
+  }, [page, pageSize, searchQuery, statusFilter, invoiceStatusFilter, departmentFilter, monthFilter, billingDateFilter, myItemsFilter]);
 
   const isColumnVisible = (key) => columnVisibility[key] !== false;
 
@@ -758,7 +767,10 @@ const CommissionForm = () => {
     }
     if (invoiceStatusFilter) params.append('invoice_status', invoiceStatusFilter);
     if (departmentFilter) params.append('department_id', departmentFilter);
-    if (monthFilter) params.append('month_filter', monthFilter);
+    if (monthFilter && monthFilter.length > 0) {
+      monthFilter.forEach(month => params.append('month_filter', month));
+    }
+    if (billingDateFilter) params.append('billing_date', billingDateFilter);
     if (myItemsFilter) params.append('my_items', 'true');
 
     const storedUser = JSON.parse(localStorage.getItem('lims_user') || 'null');
@@ -1138,7 +1150,10 @@ const CommissionForm = () => {
       }
       if (invoiceStatusFilter) params.append('invoice_status', invoiceStatusFilter);
       if (departmentFilter) params.append('department_id', departmentFilter);
-      if (monthFilter) params.append('month_filter', monthFilter);
+      if (monthFilter && monthFilter.length > 0) {
+        monthFilter.forEach(month => params.append('month_filter', month));
+      }
+      if (billingDateFilter) params.append('billing_date', billingDateFilter);
       if (myItemsFilter) params.append('my_items', 'true');
 
       const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
@@ -1206,7 +1221,8 @@ const CommissionForm = () => {
       setStatusFilter([]);
       setInvoiceStatusFilter('');
       setDepartmentFilter('');
-      setMonthFilter('');
+      setMonthFilter([]);
+      setBillingDateFilter('');
       setMyItemsFilter(false);
       
       // 清除 location.state，避免重复触发
@@ -1224,7 +1240,7 @@ const CommissionForm = () => {
     // 获取当前用户信息
     const currentUser = JSON.parse(localStorage.getItem('lims_user') || 'null');
     setUser(currentUser);
-  }, [page, searchQuery, statusFilter, invoiceStatusFilter, departmentFilter, monthFilter, myItemsFilter]);
+  }, [page, searchQuery, statusFilter, invoiceStatusFilter, departmentFilter, monthFilter, billingDateFilter, myItemsFilter]);
 
   // （已移除移动端加载更多的滚动监听逻辑，恢复为纯分页）
 
@@ -1267,22 +1283,25 @@ const CommissionForm = () => {
     };
   }, []);
 
-  // 点击外部关闭状态下拉框
+  // 点击外部关闭状态/月分下拉框
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (statusDropdownRef.current && !statusDropdownRef.current.contains(event.target)) {
         setStatusDropdownOpen(false);
       }
+      if (monthDropdownRef.current && !monthDropdownRef.current.contains(event.target)) {
+        setMonthDropdownOpen(false);
+      }
     };
 
-    if (statusDropdownOpen) {
+    if (statusDropdownOpen || monthDropdownOpen) {
       document.addEventListener('mousedown', handleClickOutside);
     }
 
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [statusDropdownOpen]);
+  }, [statusDropdownOpen, monthDropdownOpen]);
 
   // 动态计算操作列宽度并更新文件管理列位置
   useEffect(() => {
@@ -1629,7 +1648,8 @@ const CommissionForm = () => {
     setStatusFilter([]);
     setInvoiceStatusFilter('');
     setDepartmentFilter('');
-    setMonthFilter('');
+    setMonthFilter([]);
+    setBillingDateFilter('');
     setMyItemsFilter(false);
     setPage(1);
   };
@@ -4475,7 +4495,8 @@ const CommissionForm = () => {
     // 清除其他筛选条件，确保能显示该委托单
     setStatusFilter([]);
     setDepartmentFilter('');
-    setMonthFilter('');
+    setMonthFilter([]);
+    setBillingDateFilter('');
     setMyItemsFilter(false);
     // 设置搜索框的值并重置到第一页
     setSearchQuery(orderId);
@@ -4738,17 +4759,155 @@ const CommissionForm = () => {
               </select>
             </div>
           )}
-          <div className="filter-group month-filter-group">
+          <div className="filter-group filter-stack-group month-filter-group">
             <label>月份:</label>
-            <select
-              value={monthFilter}
-              onChange={(e) => setMonthFilter(e.target.value)}
-            >
-              <option value="">全部月份</option>
-              {monthOptions.map(month => (
-                <option key={month} value={month}>{month}</option>
-              ))}
-            </select>
+            <div className="month-multiselect-wrapper" ref={monthDropdownRef} style={{ position: 'relative' }}>
+              <div
+                className="status-multiselect-input"
+                onClick={() => setMonthDropdownOpen(!monthDropdownOpen)}
+                style={{
+                  width: '160px',
+                  padding: '6px 10px',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px',
+                  fontSize: '13px',
+                  backgroundColor: '#fff',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  minHeight: '32px',
+                  boxSizing: 'border-box'
+                }}
+              >
+                <span style={{
+                  flex: 1,
+                  color: monthFilter.length === 0 ? '#999' : '#333',
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: '4px'
+                }}>
+                  {monthFilter.length === 0 ? (
+                    '请选择月份'
+                  ) : (
+                    monthFilter.map(month => (
+                      <span
+                        key={month}
+                        style={{
+                          padding: '2px 6px',
+                          backgroundColor: '#e7f3ff',
+                          border: '1px solid #b3d9ff',
+                          borderRadius: '3px',
+                          fontSize: '11px',
+                          display: 'inline-block'
+                        }}
+                      >
+                        {month}
+                      </span>
+                    ))
+                  )}
+                </span>
+                <span style={{ marginLeft: '8px', color: '#666' }}>
+                  {monthDropdownOpen ? '▲' : '▼'}
+                </span>
+              </div>
+              {monthDropdownOpen && (
+                <div
+                  className="status-dropdown"
+                  style={{
+                    position: 'absolute',
+                    top: '100%',
+                    left: 0,
+                    right: 0,
+                    backgroundColor: '#fff',
+                    border: '1px solid #ddd',
+                    borderRadius: '4px',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                    zIndex: 2000,
+                    marginTop: '4px',
+                    maxHeight: '240px',
+                    overflowY: 'auto',
+                    width: '160px'
+                  }}
+                >
+                  {monthOptions.map(month => {
+                    const isSelected = monthFilter.includes(month);
+                    return (
+                      <div
+                        key={month}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setMonthFilter(prev => (
+                            prev.includes(month)
+                              ? prev.filter(item => item !== month)
+                              : [...prev, month]
+                          ));
+                          setPage(1);
+                        }}
+                        style={{
+                          padding: '8px 12px',
+                          cursor: 'pointer',
+                          backgroundColor: isSelected ? '#e7f3ff' : '#fff',
+                          borderBottom: '1px solid #f0f0f0',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px'
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => {}}
+                          style={{ cursor: 'pointer' }}
+                        />
+                        <span>{month}</span>
+                      </div>
+                    );
+                  })}
+                  {monthFilter.length > 0 && (
+                    <div
+                      style={{
+                        padding: '8px 12px',
+                        borderTop: '1px solid #ddd',
+                        backgroundColor: '#f8f9fa'
+                      }}
+                    >
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setMonthFilter([]);
+                          setPage(1);
+                        }}
+                        style={{
+                          width: '100%',
+                          padding: '4px 8px',
+                          fontSize: '12px',
+                          border: '1px solid #ccc',
+                          borderRadius: '3px',
+                          backgroundColor: '#fff',
+                          cursor: 'pointer',
+                          color: '#666'
+                        }}
+                      >
+                        清除所有选择
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="filter-group billing-date-filter-group">
+            <label>开单日期:</label>
+            <input
+              type="date"
+              value={billingDateFilter}
+              onChange={(e) => {
+                setBillingDateFilter(e.target.value);
+                setPage(1);
+              }}
+            />
           </div>
           <div className="filter-actions">
             {canCreateTestItem && (

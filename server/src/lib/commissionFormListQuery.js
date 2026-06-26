@@ -188,7 +188,7 @@ export const COMMISSION_FORM_PAGE_IDS_JOIN_BLOCK = `
  * @returns {{ where: string, params: any[] }}
  */
 export function buildCommissionListFilters(req) {
-  const { status, department_id, month_filter, my_items, invoice_status } = req.query;
+  const { status, department_id, month_filter, my_items, invoice_status, billing_date } = req.query;
   // 与 commissionListWhereNeedsOrderJoins 一致：仅空格的关键字视为无搜索，避免 WHERE 引用 o/c/comm 但分页子查询未 JOIN
   const q = String(req.query?.q ?? '').trim();
   const like = `%${q}%`;
@@ -257,13 +257,22 @@ export function buildCommissionListFilters(req) {
     filters.push("COALESCE(NULLIF(ti.invoice_status, ''), '未结算') = ?");
     params.push(invoice_status);
   }
-  if (month_filter && month_filter.trim() !== '') {
-    const [year, month] = month_filter.split('-');
-    if (year && month && year.length === 4 && month.length === 2) {
-      const yearSuffix = year.slice(-2);
-      filters.push('ti.order_id LIKE ?');
-      params.push(`JC${yearSuffix}${month.padStart(2, '0')}%`);
-    }
+  const monthFilters = Array.isArray(month_filter) ? month_filter : (month_filter ? [month_filter] : []);
+  const monthPrefixes = monthFilters
+    .map((value) => String(value || '').trim())
+    .map((value) => {
+      const [year, month] = value.split('-');
+      if (!year || !month || year.length !== 4 || month.length !== 2) return null;
+      return `JC${year.slice(-2)}${month.padStart(2, '0')}%`;
+    })
+    .filter(Boolean);
+  if (monthPrefixes.length > 0) {
+    filters.push(`(${monthPrefixes.map(() => 'ti.order_id LIKE ?').join(' OR ')})`);
+    params.push(...monthPrefixes);
+  }
+  if (billing_date && /^\d{4}-\d{2}-\d{2}$/.test(String(billing_date))) {
+    filters.push('DATE(ti.created_at) = ?');
+    params.push(billing_date);
   }
   if (my_items === 'true') {
     filters.push('ti.current_assignee = ?');

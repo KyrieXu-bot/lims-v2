@@ -7,6 +7,24 @@ const DAY_START_HOUR = 8;
 const DAY_HOURS = 16;
 const SLOT_MINUTES = 30;
 const MS_PER_MINUTE = 60 * 1000;
+const VIEW_MODE_STORAGE_KEY = 'equipment_booking_view_mode';
+
+function getInitialViewMode() {
+  try {
+    const saved = localStorage.getItem(VIEW_MODE_STORAGE_KEY);
+    return saved === 'list' || saved === 'timeline' ? saved : 'timeline';
+  } catch {
+    return 'timeline';
+  }
+}
+
+function rememberViewMode(mode) {
+  try {
+    localStorage.setItem(VIEW_MODE_STORAGE_KEY, mode);
+  } catch {
+    // localStorage may be unavailable in some embedded contexts.
+  }
+}
 
 function pad(n) {
   return String(n).padStart(2, '0');
@@ -60,6 +78,7 @@ function isBookingOngoing(item, now = new Date()) {
 }
 
 function getBookingStatus(item, now = new Date()) {
+  if (item.status === 'rejected' || item.approval_status === 'rejected') return { text: '已驳回', className: 'rejected' };
   if (isBookingExpired(item, now)) return { text: '已归档', className: 'archived' };
   if (item.approval_status === 'pending') return { text: '待审批', className: 'pending' };
   if (item.approval_status === 'approved') return { text: '已通过', className: 'approved' };
@@ -148,7 +167,7 @@ function UserPicker({ label, value, displayName, equipmentId, onChange, onInputT
   );
 }
 
-function BookingModal({ initial, equipmentOptions, onClose, onSaved }) {
+function BookingModal({ initial, equipmentOptions, onClose, onSaved, onCancelBooking }) {
   const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
   const isEdit = Boolean(initial?.booking_id);
   const [form, setForm] = useState(() => ({
@@ -224,17 +243,27 @@ function BookingModal({ initial, equipmentOptions, onClose, onSaved }) {
     }
   }
 
+  async function handleCancelBooking() {
+    if (!onCancelBooking || !initial?.booking_id) return;
+    let shouldClose = false;
+    setSaving(true);
+    setError('');
+    try {
+      shouldClose = await onCancelBooking(initial);
+    } catch (err) {
+      setError(err.message || '取消预约失败');
+    } finally {
+      setSaving(false);
+    }
+    if (shouldClose) onClose();
+  }
+
   return (
     <div className="booking-modal-backdrop" onMouseDown={onClose}>
       <div className="booking-modal" onMouseDown={(e) => e.stopPropagation()}>
         <form onSubmit={handleSubmit}>
           <div className="booking-modal-head">
-            <input
-              className="booking-title-input"
-              value={selectedEquipment?.equipment_name || ''}
-              readOnly
-              placeholder="选择设备"
-            />
+            <h3 className="booking-modal-title">{selectedEquipment?.equipment_name || '选择设备'}</h3>
             <button type="button" className="booking-icon-button" onClick={onClose} title="关闭">×</button>
           </div>
 
@@ -242,7 +271,9 @@ function BookingModal({ initial, equipmentOptions, onClose, onSaved }) {
             <span className="booking-row-icon">人</span>
             <div>
               <div className="booking-muted">申请人</div>
-              <div>{initial?.applicant_name || initial?.booker_name || user?.name || user?.username || '-'}</div>
+              <div className="booking-applicant-name">
+                {initial?.applicant_name || initial?.booker_name || user?.name || user?.username || '-'}
+              </div>
             </div>
           </div>
 
@@ -301,7 +332,7 @@ function BookingModal({ initial, equipmentOptions, onClose, onSaved }) {
           />
 
           <label className="booking-field">
-            <span>委托单号</span>
+            <span>委托单号（选填）</span>
             <input
               value={form.order_id}
               onChange={(e) => setForm((prev) => ({ ...prev, order_id: e.target.value }))}
@@ -338,6 +369,11 @@ function BookingModal({ initial, equipmentOptions, onClose, onSaved }) {
           {error && <div className="booking-error">{error}</div>}
 
           <div className="booking-modal-actions">
+            {isEdit && initial?.can_cancel && (
+              <button type="button" className="btn btn-danger" onClick={handleCancelBooking} disabled={saving}>
+                取消预约
+              </button>
+            )}
             <button type="button" className="btn btn-secondary" onClick={onClose}>取消</button>
             <button type="submit" className="btn btn-primary" disabled={saving}>
               {saving ? '保存中...' : (isEdit ? '保存修改' : '保存')}
@@ -352,13 +388,14 @@ function BookingModal({ initial, equipmentOptions, onClose, onSaved }) {
 export default function EquipmentBooking() {
   const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
   const { socket, isConnected } = useSocket('equipment-booking');
-  const [viewMode, setViewMode] = useState('timeline');
+  const [viewMode, setViewMode] = useState(getInitialViewMode);
   const [dateFilter, setDateFilter] = useState(dateOnly(new Date()));
   const [equipmentFilter, setEquipmentFilter] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [departments, setDepartments] = useState([]);
   const [equipment, setEquipment] = useState([]);
   const [bookings, setBookings] = useState([]);
+  const [myBookingRows, setMyBookingRows] = useState([]);
   const [approvalBookings, setApprovalBookings] = useState([]);
   const [loading, setLoading] = useState(false);
   const [modalInitial, setModalInitial] = useState(null);
@@ -376,13 +413,20 @@ export default function EquipmentBooking() {
     });
   }, [equipment, equipmentFilter, departmentFilter]);
 
-  const myBookings = useMemo(() => {
-    return bookings.filter((item) => String(item.booker_id) === String(user?.user_id));
-  }, [bookings, user?.user_id]);
-
   const myOpenBookings = useMemo(() => {
-    return myBookings.filter((item) => !isBookingExpired(item, now));
-  }, [myBookings, now]);
+    return myBookingRows
+      .filter((item) => !isBookingExpired(item, now))
+      .sort((a, b) => {
+        const aRejected = a.status === 'rejected' || a.approval_status === 'rejected';
+        const bRejected = b.status === 'rejected' || b.approval_status === 'rejected';
+        if (aRejected !== bRejected) return aRejected ? -1 : 1;
+        return new Date(a.start_time).getTime() - new Date(b.start_time).getTime();
+      });
+  }, [myBookingRows, now]);
+
+  const myHistoryCount = useMemo(() => {
+    return myBookingRows.filter((item) => isBookingExpired(item, now)).length;
+  }, [myBookingRows, now]);
 
   const loadLookups = useCallback(async () => {
     const [deptData, equipmentData] = await Promise.all([
@@ -402,12 +446,19 @@ export default function EquipmentBooking() {
         equipment_id: equipmentFilter,
         department_id: departmentFilter
       };
-      const [data, approvals] = await Promise.all([
+      const myParams = {
+        mine: true,
+        equipment_id: equipmentFilter,
+        department_id: departmentFilter
+      };
+      const [data, approvals, mineData] = await Promise.all([
         api.listEquipmentBookings(params),
-        api.listEquipmentBookingApprovals(params).catch(() => ({ data: [] }))
+        api.listEquipmentBookingApprovals(params).catch(() => ({ data: [] })),
+        api.listEquipmentBookings(myParams).catch(() => ({ data: [] }))
       ]);
       setBookings(data.data || []);
       setApprovalBookings(approvals.data || []);
+      setMyBookingRows(mineData.data || []);
     } finally {
       setLoading(false);
     }
@@ -475,16 +526,27 @@ export default function EquipmentBooking() {
   }
 
   async function handleCancel(booking) {
-    if (isBookingExpired(booking, now)) return;
-    if (!window.confirm(`确定取消 ${booking.equipment_name} 的预约吗？`)) return;
+    if (isBookingExpired(booking, now)) return false;
+    if (!window.confirm(`确定取消 ${booking.equipment_name} 的预约吗？`)) return false;
     await api.cancelEquipmentBooking(booking.booking_id);
     await loadBookings();
+    return true;
   }
 
   function handleEdit(booking) {
     if (String(booking.booker_id) !== String(user?.user_id) && !booking.can_approve) return;
     if (isBookingExpired(booking, now)) return;
     setModalInitial(booking);
+  }
+
+  async function handleModalCancel(booking) {
+    const cancelled = await handleCancel(booking);
+    return cancelled;
+  }
+
+  function handleViewModeChange(mode) {
+    setViewMode(mode);
+    rememberViewMode(mode);
   }
 
   const hours = Array.from({ length: DAY_HOURS + 1 }, (_, i) => DAY_START_HOUR + i);
@@ -521,8 +583,8 @@ export default function EquipmentBooking() {
           </label>
         </div>
         <div className="booking-view-toggle">
-          <button className={viewMode === 'timeline' ? 'active' : ''} onClick={() => setViewMode('timeline')}>时间线</button>
-          <button className={viewMode === 'list' ? 'active' : ''} onClick={() => setViewMode('list')}>列表</button>
+          <button className={viewMode === 'timeline' ? 'active' : ''} onClick={() => handleViewModeChange('timeline')}>时间线</button>
+          <button className={viewMode === 'list' ? 'active' : ''} onClick={() => handleViewModeChange('list')}>列表</button>
         </div>
       </div>
 
@@ -564,6 +626,7 @@ export default function EquipmentBooking() {
                       const right = clamp((end - windowRange.start) / (DAY_HOURS * 60 * MS_PER_MINUTE) * 100, 0, 100);
                       const isMine = String(booking.booker_id) === String(user?.user_id);
                       const status = getBookingStatus(booking, now);
+                      const canEditOnTimeline = isMine && !isBookingExpired(booking, now);
                       return (
                         <div
                           key={booking.booking_id}
@@ -572,8 +635,9 @@ export default function EquipmentBooking() {
                           title={`${status.text} ${booking.booker_name || booking.booker_id} ${formatDateTime(booking.start_time)} - ${formatDateTime(booking.end_time)}${booking.note ? ` ${booking.note}` : ''}`}
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleEdit(booking);
+                            if (canEditOnTimeline) handleEdit(booking);
                           }}
+                          onDoubleClick={(e) => e.stopPropagation()}
                         >
                           <strong>{booking.reserved_user_name || booking.booker_name || booking.booker_id}</strong>
                           <span>{booking.detail_name || booking.order_id || '设备预约'}</span>
@@ -616,6 +680,7 @@ export default function EquipmentBooking() {
           )}
           <MyBookingCards
             openData={myOpenBookings}
+            historyCount={myHistoryCount}
             now={now}
             equipmentFilter={equipmentFilter}
             departmentFilter={departmentFilter}
@@ -643,36 +708,21 @@ export default function EquipmentBooking() {
             setModalInitial(null);
             loadBookings().catch(console.error);
           }}
+          onCancelBooking={handleModalCancel}
         />
       )}
     </div>
   );
 }
 
-function MyBookingCards({ openData, now, equipmentFilter, departmentFilter, onCancel, onEdit }) {
+function MyBookingCards({ openData, historyCount, now, equipmentFilter, departmentFilter, onCancel, onEdit }) {
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [historyCount, setHistoryCount] = useState(0);
+  const [expandedId, setExpandedId] = useState('');
 
-  useEffect(() => {
-    let ignore = false;
-    async function loadHistoryCount() {
-      try {
-        const data = await api.listEquipmentBookings({
-          mine: true,
-          equipment_id: equipmentFilter,
-          department_id: departmentFilter
-        });
-        const count = (data.data || []).filter((item) => isBookingExpired(item, now)).length;
-        if (!ignore) setHistoryCount(count);
-      } catch {
-        if (!ignore) setHistoryCount(0);
-      }
-    }
-    loadHistoryCount();
-    return () => {
-      ignore = true;
-    };
-  }, [equipmentFilter, departmentFilter, now]);
+  function toggleExpanded(bookingId) {
+    const key = String(bookingId);
+    setExpandedId((prev) => (prev === key ? '' : key));
+  }
 
   return (
     <section className="my-booking-panel">
@@ -687,30 +737,55 @@ function MyBookingCards({ openData, now, equipmentFilter, departmentFilter, onCa
         <div className="my-booking-card-row">
           {openData.map((item) => {
             const status = getBookingStatus(item, now);
+            const isRejected = status.className === 'rejected';
+            const isExpanded = expandedId === String(item.booking_id);
             return (
-            <article className="my-booking-card" key={item.booking_id}>
-              <div className="my-booking-card-main">
-                <strong>{item.equipment_name}</strong>
-                <span>{item.department_name || '未分部门'}</span>
-              </div>
-              <span className={`booking-status ${status.className}`}>{status.text}</span>
-              <div className="my-booking-card-meta">
-                申请人：{formatUserLabel(item.booker_id, item.booker_name)}
-              </div>
-              <div className="my-booking-card-meta">
-                预约人：{item.reserved_user_id ? formatUserLabel(item.reserved_user_id, item.reserved_user_name) : '待定'}
+            <article className={`my-booking-card ${isRejected ? 'rejected' : ''} ${isExpanded ? 'expanded' : ''}`} key={item.booking_id}>
+              <div className="my-booking-card-top">
+                <div className="my-booking-card-main">
+                  <strong>{item.equipment_name}</strong>
+                  <span>{item.department_name || '未分部门'}</span>
+                </div>
+                <span className={`booking-status ${status.className}`}>{status.text}</span>
               </div>
               <div className="my-booking-card-time">
                 {formatDateTime(item.start_time)} 至 {formatDateTime(item.end_time)}
               </div>
-              <div className="my-booking-card-meta">
-                {item.test_item_id ? getTestItemTitle(item) : (item.order_id || '未绑定检测项目')}
-              </div>
-              {item.note && <div className="my-booking-card-note">{item.note}</div>}
-              <div className="my-booking-card-actions">
-                <button className="btn btn-secondary btn-sm" onClick={() => onEdit(item)}>编辑</button>
-                <button className="btn btn-danger btn-sm" onClick={() => onCancel(item)}>取消预约</button>
-              </div>
+              {isExpanded && (
+                <div className="my-booking-card-detail">
+                  <div className="my-booking-card-meta">
+                    申请人：{formatUserLabel(item.booker_id, item.booker_name)}
+                  </div>
+                  <div className="my-booking-card-meta">
+                    预约人：{item.reserved_user_id ? formatUserLabel(item.reserved_user_id, item.reserved_user_name) : '待定'}
+                  </div>
+                  <div className="my-booking-card-meta">
+                    {item.test_item_id ? getTestItemTitle(item) : (item.order_id || '未绑定检测项目')}
+                  </div>
+                  {isRejected && (
+                    <div className="my-booking-card-reject">
+                      驳回原因：{item.rejection_reason || '审批人未填写原因'}
+                    </div>
+                  )}
+                  {item.note && <div className="my-booking-card-note">{item.note}</div>}
+                  {!isRejected && (
+                    <div className="my-booking-card-actions">
+                      <button className="btn btn-secondary btn-sm" onClick={() => onEdit(item)}>编辑</button>
+                      <button className="btn btn-danger btn-sm" onClick={() => onCancel(item)}>取消预约</button>
+                    </div>
+                  )}
+                </div>
+              )}
+              <button
+                type="button"
+                className="my-booking-card-toggle"
+                onClick={() => toggleExpanded(item.booking_id)}
+                aria-expanded={isExpanded}
+                title={isExpanded ? '收起详情' : '展开详情'}
+              >
+                <span>{isExpanded ? '收起' : '展开'}</span>
+                <span className={`my-booking-card-arrow ${isExpanded ? 'up' : ''}`} aria-hidden="true" />
+              </button>
             </article>
           );})}
         </div>
@@ -820,24 +895,31 @@ function HistoryBookingModal({ now, equipmentFilter, departmentFilter, onClose }
                   <th>预约人</th>
                   <th>预约时间</th>
                   <th>检测项目</th>
+                  <th>状态</th>
+                  <th>驳回原因</th>
                   <th>备注</th>
                 </tr>
               </thead>
               <tbody>
-                {items.map((item) => (
-                  <tr key={item.booking_id}>
-                    <td>{item.equipment_name}</td>
-                    <td>{item.department_name || '-'}</td>
-                    <td>{formatUserLabel(item.booker_id, item.booker_name)}</td>
-                    <td>{item.reserved_user_id ? formatUserLabel(item.reserved_user_id, item.reserved_user_name) : '待定'}</td>
-                    <td>{formatDateTime(item.start_time)} 至 {formatDateTime(item.end_time)}</td>
-                    <td>{item.test_item_id ? getTestItemTitle(item) : (item.order_id || '-')}</td>
-                    <td>{item.note || '-'}</td>
-                  </tr>
-                ))}
+                {items.map((item) => {
+                  const status = getBookingStatus(item, now);
+                  return (
+                    <tr key={item.booking_id}>
+                      <td>{item.equipment_name}</td>
+                      <td>{item.department_name || '-'}</td>
+                      <td>{formatUserLabel(item.booker_id, item.booker_name)}</td>
+                      <td>{item.reserved_user_id ? formatUserLabel(item.reserved_user_id, item.reserved_user_name) : '待定'}</td>
+                      <td>{formatDateTime(item.start_time)} 至 {formatDateTime(item.end_time)}</td>
+                      <td>{item.test_item_id ? getTestItemTitle(item) : (item.order_id || '-')}</td>
+                      <td><span className={`booking-status ${status.className}`}>{status.text}</span></td>
+                      <td>{status.className === 'rejected' ? (item.rejection_reason || '审批人未填写原因') : '-'}</td>
+                      <td>{item.note || '-'}</td>
+                    </tr>
+                  );
+                })}
                 {!items.length && (
                   <tr>
-                    <td colSpan={7} className="booking-empty-cell">暂无历史预约</td>
+                    <td colSpan={9} className="booking-empty-cell">暂无历史预约</td>
                   </tr>
                 )}
               </tbody>

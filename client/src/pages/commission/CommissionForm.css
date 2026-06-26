@@ -151,16 +151,36 @@
 
 /* 月份筛选组：适度宽度，可收缩 */
 .month-filter-group {
-  min-width: 120px;
-  max-width: 160px;
-  flex: 0 1 140px;
+  min-width: 160px;
+  max-width: 180px;
+  flex: 0 0 170px;
 }
 
-.month-filter-group select {
-  width: 100%;
-  min-width: 120px;
+.month-filter-group label {
+  white-space: nowrap;
+  margin: 0;
+}
+
+.month-filter-group .month-multiselect-wrapper {
+  position: relative;
+  z-index: 14000;
+  width: 160px;
+  min-width: 160px;
   max-width: 160px;
   flex-shrink: 0;
+  box-sizing: border-box;
+}
+
+.billing-date-filter-group {
+  min-width: 140px;
+  max-width: 170px;
+  flex: 0 1 150px;
+}
+
+.billing-date-filter-group input {
+  width: 100%;
+  min-width: 140px;
+  max-width: 170px;
   box-sizing: border-box;
 }
 
@@ -1466,14 +1486,14 @@
   }
   
   .month-filter-group {
-    min-width: 150px;
-    max-width: 170px;
+    min-width: 205px;
+    max-width: 230px;
   }
   
-  .month-filter-group select {
-    width: 150px;
-    min-width: 150px;
-    max-width: 150px;
+  .month-filter-group .month-multiselect-wrapper {
+    width: 160px;
+    min-width: 160px;
+    max-width: 160px;
   }
   
   .department-filter-group {
@@ -1533,7 +1553,8 @@
     width: 100%;
   }
   
-  .month-filter-group select {
+  .month-filter-group .month-multiselect-wrapper,
+  .month-filter-group .status-multiselect-input {
     width: 100% !important;
     min-width: auto !important;
     max-width: 100% !important;
