@@ -324,6 +324,8 @@ export default function ReportManagement() {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   const openEdit = (row) => {
+    setSealDropdownOpen(false);
+    setTypeDropdownOpen(false);
     setEditRow(row);
     const types = normalizeJsonArray(row.report_type)
       .map((n) => Number(n))
@@ -396,7 +398,7 @@ export default function ReportManagement() {
 
   return (
     <div className="commission-form">
-      <div className="filters">
+      <div className={`filters ${editRow ? 'filters-behind-modal' : ''}`}>
         <div className="filter-row">
           <div className="filter-group search-group">
             <label>搜索:</label>

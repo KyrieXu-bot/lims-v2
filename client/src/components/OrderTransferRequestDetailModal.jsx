@@ -7,6 +7,14 @@ function fmt(v) {
   return String(v);
 }
 
+function readStoredUser() {
+  try {
+    return JSON.parse(localStorage.getItem('lims_user') || 'null');
+  } catch {
+    return null;
+  }
+}
+
 /** 按北京时间展示 YYYY-MM-DD HH:mm:ss（与 CommissionForm 导出等场景可读性一致） */
 function formatDateTimeBeijing(v) {
   if (v === null || v === undefined || v === '') return '—';
@@ -65,6 +73,7 @@ const OrderTransferRequestDetailModal = ({ requestId, apiBase = '', onClose }) =
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [payload, setPayload] = useState(null);
+  const [currentUser, setCurrentUser] = useState(() => readStoredUser());
 
   useEffect(() => {
     let cancelled = false;
@@ -72,7 +81,8 @@ const OrderTransferRequestDetailModal = ({ requestId, apiBase = '', onClose }) =
       try {
         setLoading(true);
         setError(null);
-        const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
+        const user = readStoredUser();
+        if (!cancelled) setCurrentUser(user);
         if (!user?.token) {
           setError('请先登录');
           return;
@@ -99,6 +109,7 @@ const OrderTransferRequestDetailModal = ({ requestId, apiBase = '', onClose }) =
 
   const req = payload?.request;
   const ti = payload?.test_item;
+  const isOrderClerkDetail = String(currentUser?.user_id || '') === 'JC0089';
 
   const statusText =
     req?.status === 'pending'
@@ -161,21 +172,25 @@ const OrderTransferRequestDetailModal = ({ requestId, apiBase = '', onClose }) =
               <div className="order-transfer-detail-section">
                 <h3>申请信息</h3>
                 <dl className="order-transfer-readonly-grid">
-                  <dt>申请状态</dt>
-                  <dd>{statusText}</dd>
-                  <dt>审批流程</dt>
-                  <dd>{flowText}</dd>
-                  <dt>当前节点</dt>
-                  <dd>{stepText}</dd>
-                  {targetOrderTrim ? (
+                  {!isOrderClerkDetail && (
                     <>
-                      <dt>拟转新单号（历史填写）</dt>
-                      <dd>{fmt(targetOrderTrim)}</dd>
-                    </>
-                  ) : (
-                    <>
-                      <dt>新委托单号</dt>
-                      <dd>由开单员线下开立，本申请未在系统填写</dd>
+                      <dt>申请状态</dt>
+                      <dd>{statusText}</dd>
+                      <dt>审批流程</dt>
+                      <dd>{flowText}</dd>
+                      <dt>当前节点</dt>
+                      <dd>{stepText}</dd>
+                      {targetOrderTrim ? (
+                        <>
+                          <dt>拟转新单号（历史填写）</dt>
+                          <dd>{fmt(targetOrderTrim)}</dd>
+                        </>
+                      ) : (
+                        <>
+                          <dt>新委托单号</dt>
+                          <dd>由开单员线下开立，本申请未在系统填写</dd>
+                        </>
+                      )}
                     </>
                   )}
                   <dt>转单原因</dt>
@@ -184,13 +199,18 @@ const OrderTransferRequestDetailModal = ({ requestId, apiBase = '', onClose }) =
                   <dd>{fmt(req.applicant_name || req.applicant_id)}</dd>
                   <dt>申请时间</dt>
                   <dd>{formatDateTimeBeijing(req.created_at)}</dd>
-                  {req.approved_at != null && req.approved_at !== '' && (
+                  {isOrderClerkDetail ? (
                     <>
                       <dt>同意时间</dt>
                       <dd>{formatDateTimeBeijing(req.approved_at)}</dd>
                     </>
-                  )}
-                  {req.rejected_at != null && req.rejected_at !== '' && (
+                  ) : req.approved_at != null && req.approved_at !== '' ? (
+                    <>
+                      <dt>同意时间</dt>
+                      <dd>{formatDateTimeBeijing(req.approved_at)}</dd>
+                    </>
+                  ) : null}
+                  {!isOrderClerkDetail && req.rejected_at != null && req.rejected_at !== '' && (
                     <>
                       <dt>拒绝时间</dt>
                       <dd>{formatDateTimeBeijing(req.rejected_at)}</dd>
@@ -204,11 +224,15 @@ const OrderTransferRequestDetailModal = ({ requestId, apiBase = '', onClose }) =
                   <dl className="order-transfer-readonly-grid">
                     <dt>委托单号</dt>
                     <dd>{fmt(ti.order_id)}</dd>
-                    <dt>原单根单/转单</dt>
-                    <dd>
-                      {fmt(ti.original_order_id)} / {fmt(ti.root_order_id)}
-                      {Number(ti.is_transferred) === 1 ? '（本单为转单号）' : ''}
-                    </dd>
+                    {!isOrderClerkDetail && (
+                      <>
+                        <dt>原单根单/转单</dt>
+                        <dd>
+                          {fmt(ti.original_order_id)} / {fmt(ti.root_order_id)}
+                          {Number(ti.is_transferred) === 1 ? '（本单为转单号）' : ''}
+                        </dd>
+                      </>
+                    )}
                     <dt>检测ID</dt>
                     <dd>{fmt(ti.test_item_id)}</dd>
                     <dt>检测项目</dt>
@@ -231,70 +255,74 @@ const OrderTransferRequestDetailModal = ({ requestId, apiBase = '', onClose }) =
                     <dd>
                       {fmt(ti.department_name)} {ti.group_name ? `｜${ti.group_name}` : ''}
                     </dd>
-                    <dt>顺序号</dt>
-                    <dd>{fmt(ti.seq_no)}</dd>
-                    <dt>样品名称</dt>
-                    <dd>{fmt(ti.sample_name)}</dd>
-                    <dt>材质</dt>
-                    <dd>{fmt(ti.material)}</dd>
-                    <dt>数量 / 单位</dt>
-                    <dd>
-                      {fmt(ti.quantity)} {ti.unit ? `｜${ti.unit}` : ''}
-                    </dd>
-                    <dt>服务加急</dt>
-                    <dd>{fmt(ti.service_urgency)}</dd>
-                    <dt>标准单价</dt>
-                    <dd>{fmt(ti.standard_price)}</dd>
-                    <dt>标准总价</dt>
-                    <dd>{fmt(ti.line_total)}</dd>
-                    <dt>测试总价</dt>
-                    <dd>{fmt(ti.final_unit_price)}</dd>
-                    <dt>实验室报价</dt>
-                    <dd>{fmt(ti.lab_price)}</dd>
-                    <dt>折扣</dt>
-                    <dd>{fmt(ti.discount_rate)}</dd>
-                    <dt>业务报价说明</dt>
-                    <dd>{fmt(ti.price_note)}</dd>
-                    <dt>计费数量</dt>
-                    <dd>{fmt(ti.actual_sample_quantity)}</dd>
-                    <dt>测试工时 / 机时</dt>
-                    <dd>
-                      {fmt(ti.work_hours)} / {fmt(ti.machine_hours)}
-                    </dd>
-                    <dt>设备</dt>
-                    <dd>{fmt(ti.equipment_name)}</dd>
-                    <dt>现场测试时间</dt>
-                    <dd>{formatDateTimeBeijing(ti.field_test_time)}</dd>
-                    <dt>实际交付日期</dt>
-                    <dd>{formatDateTimeBeijing(ti.actual_delivery_date)}</dd>
-                    <dt>样品到达方式</dt>
-                    <dd>{formatArrivalMode(ti.arrival_mode)}</dd>
-                    <dt>样品是否已到</dt>
-                    <dd>{formatSampleArrivalStatus(ti.sample_arrival_status)}</dd>
-                    <dt>项目状态</dt>
-                    <dd>{formatProjectStatus(ti.status)}</dd>
-                    <dt>异常情况</dt>
-                    <dd>{fmt(ti.abnormal_condition)}</dd>
-                    <dt>加测</dt>
-                    <dd>
-                      {ti.is_add_on === 1 || ti.is_add_on === 2
-                        ? `是（${ti.is_add_on === 2 ? '复制加测' : '普通加测'}）`
-                        : '否'}
-                    </dd>
-                    <dt>指派备注</dt>
-                    <dd>{fmt(ti.assignment_note)}</dd>
-                    <dt>实验备注</dt>
-                    <dd>{fmt(ti.test_notes)}</dd>
-                    <dt>业务备注</dt>
-                    <dd>{fmt(ti.business_note)}</dd>
-                    <dt>开票备注</dt>
-                    <dd>{fmt(ti.invoice_note)}</dd>
-                    <dt>内部备注</dt>
-                    <dd>{fmt(ti.note)}</dd>
-                    <dt>收样日期</dt>
-                    <dd>{formatDateTimeBeijing(ti.order_created_at)}</dd>
-                    <dt>开单日期</dt>
-                    <dd>{formatDateTimeBeijing(ti.test_item_created_at)}</dd>
+                    {!isOrderClerkDetail && (
+                      <>
+                        <dt>顺序号</dt>
+                        <dd>{fmt(ti.seq_no)}</dd>
+                        <dt>样品名称</dt>
+                        <dd>{fmt(ti.sample_name)}</dd>
+                        <dt>材质</dt>
+                        <dd>{fmt(ti.material)}</dd>
+                        <dt>数量 / 单位</dt>
+                        <dd>
+                          {fmt(ti.quantity)} {ti.unit ? `｜${ti.unit}` : ''}
+                        </dd>
+                        <dt>服务加急</dt>
+                        <dd>{fmt(ti.service_urgency)}</dd>
+                        <dt>标准单价</dt>
+                        <dd>{fmt(ti.standard_price)}</dd>
+                        <dt>标准总价</dt>
+                        <dd>{fmt(ti.line_total)}</dd>
+                        <dt>测试总价</dt>
+                        <dd>{fmt(ti.final_unit_price)}</dd>
+                        <dt>实验室报价</dt>
+                        <dd>{fmt(ti.lab_price)}</dd>
+                        <dt>折扣</dt>
+                        <dd>{fmt(ti.discount_rate)}</dd>
+                        <dt>业务报价说明</dt>
+                        <dd>{fmt(ti.price_note)}</dd>
+                        <dt>计费数量</dt>
+                        <dd>{fmt(ti.actual_sample_quantity)}</dd>
+                        <dt>测试工时 / 机时</dt>
+                        <dd>
+                          {fmt(ti.work_hours)} / {fmt(ti.machine_hours)}
+                        </dd>
+                        <dt>设备</dt>
+                        <dd>{fmt(ti.equipment_name)}</dd>
+                        <dt>现场测试时间</dt>
+                        <dd>{formatDateTimeBeijing(ti.field_test_time)}</dd>
+                        <dt>实际交付日期</dt>
+                        <dd>{formatDateTimeBeijing(ti.actual_delivery_date)}</dd>
+                        <dt>样品到达方式</dt>
+                        <dd>{formatArrivalMode(ti.arrival_mode)}</dd>
+                        <dt>样品是否已到</dt>
+                        <dd>{formatSampleArrivalStatus(ti.sample_arrival_status)}</dd>
+                        <dt>项目状态</dt>
+                        <dd>{formatProjectStatus(ti.status)}</dd>
+                        <dt>异常情况</dt>
+                        <dd>{fmt(ti.abnormal_condition)}</dd>
+                        <dt>加测</dt>
+                        <dd>
+                          {ti.is_add_on === 1 || ti.is_add_on === 2
+                            ? `是（${ti.is_add_on === 2 ? '复制加测' : '普通加测'}）`
+                            : '否'}
+                        </dd>
+                        <dt>指派备注</dt>
+                        <dd>{fmt(ti.assignment_note)}</dd>
+                        <dt>实验备注</dt>
+                        <dd>{fmt(ti.test_notes)}</dd>
+                        <dt>业务备注</dt>
+                        <dd>{fmt(ti.business_note)}</dd>
+                        <dt>开票备注</dt>
+                        <dd>{fmt(ti.invoice_note)}</dd>
+                        <dt>内部备注</dt>
+                        <dd>{fmt(ti.note)}</dd>
+                        <dt>收样日期</dt>
+                        <dd>{formatDateTimeBeijing(ti.order_created_at)}</dd>
+                        <dt>开单日期</dt>
+                        <dd>{formatDateTimeBeijing(ti.test_item_created_at)}</dd>
+                      </>
+                    )}
                   </dl>
                 </div>
               )}

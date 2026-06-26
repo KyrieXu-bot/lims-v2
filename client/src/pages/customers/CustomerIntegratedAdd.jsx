@@ -44,7 +44,8 @@ function AutocompleteField({label, value, onChange, options, onCreate, required=
     if (searchTerm) {
       const filtered = options.filter(opt => 
         (opt.label && opt.label.toLowerCase().includes(searchTerm.toLowerCase())) ||
-        (opt.value && String(opt.value).toLowerCase().includes(searchTerm.toLowerCase()))
+        (opt.value && String(opt.value).toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (opt.tax_id && opt.tax_id.toLowerCase().includes(searchTerm.toLowerCase()))
       );
       setFilteredOptions(filtered);
       setShowOptions(true);
@@ -182,6 +183,7 @@ function AutocompleteField({label, value, onChange, options, onCreate, required=
               onMouseDown={() => handleSelect(opt)}
             >
               {opt.label}
+              {opt.tax_id ? <span style={{ color: '#666', marginLeft: 6 }}>({opt.tax_id})</span> : null}
             </div>
           ))}
         </div>
@@ -243,18 +245,31 @@ export default function CustomerIntegratedAdd() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    loadCustomers();
     loadSales();
   }, []);
 
-  const loadCustomers = async () => {
-    try {
-      const res = await api.listCustomers({ q: '', page: 1, pageSize: 1000 });
-      setCustomers(res.data.map(c => ({ value: c.customer_id, label: c.customer_name })));
-    } catch (e) {
-      console.error('加载客户列表失败:', e);
+  useEffect(() => {
+    const query = (customer.customer_name || '').trim();
+    if (!query || customer.customer_id) {
+      setCustomers([]);
+      return;
     }
-  };
+
+    const timer = setTimeout(async () => {
+      try {
+        const res = await api.listCustomers({ q: query, page: 1, pageSize: 50 });
+        setCustomers(res.data.map(c => ({
+          value: c.customer_id,
+          label: c.customer_name,
+          tax_id: c.tax_id || ''
+        })));
+      } catch (e) {
+        console.error('搜索客户列表失败:', e);
+      }
+    }, 250);
+
+    return () => clearTimeout(timer);
+  }, [customer.customer_name, customer.customer_id]);
 
   const loadPayers = async (customerId) => {
     try {
@@ -318,6 +333,7 @@ export default function CustomerIntegratedAdd() {
       }
     } else if (nameOrOption) {
       name = nameOrOption.label;
+      setSelectedCustomerOption(nameOrOption);
     } else {
       setCustomer({ ...customer, customer_name: '', customer_id: null });
       setSelectedCustomerOption(null);
@@ -327,8 +343,10 @@ export default function CustomerIntegratedAdd() {
     // 只更新名称
     setCustomer({ ...customer, customer_name: name, customer_id: null });
     // 查找并设置对应的option（用于显示和预填判断）
-    const existingCustomer = customers.find(c => c.label === name);
-    setSelectedCustomerOption(existingCustomer || null);
+    if (typeof nameOrOption === 'string') {
+      const existingCustomer = customers.find(c => c.label === name || c.tax_id === name);
+      setSelectedCustomerOption(existingCustomer || null);
+    }
   };
 
   const handleCustomerPreFill = async (option) => {
@@ -786,4 +804,3 @@ export default function CustomerIntegratedAdd() {
     </div>
   );
 }
-

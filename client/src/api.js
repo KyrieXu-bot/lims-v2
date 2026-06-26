@@ -778,8 +778,14 @@ export const api = {
   },
 
   // settlements
-  async getSettlements() {
-    const r = await fetch(`${API_BASE}/api/settlements`, { headers: this.authHeaders() });
+  async getSettlements({ q = '', page = 1, pageSize = 100, settlement_type, payment_status, approval_status, created_start, created_end } = {}) {
+    const params = new URLSearchParams({ q, page, pageSize });
+    if (settlement_type) params.set('settlement_type', settlement_type);
+    if (payment_status) params.set('payment_status', payment_status);
+    if (approval_status) params.set('approval_status', approval_status);
+    if (created_start) params.set('created_start', created_start);
+    if (created_end) params.set('created_end', created_end);
+    const r = await fetch(`${API_BASE}/api/settlements?${params.toString()}`, { headers: this.authHeaders() });
     return readApiJson(r, '获取结算记录失败');
   },
   async createSettlement(data) {

@@ -48,6 +48,16 @@ function normalizeAmount(value) {
   return Math.round(amount * 100) / 100;
 }
 
+function getSettlementItemBasis(item, fallbackKeys = ['final_unit_price']) {
+  const prefill = normalizeAmount(item?.invoice_prefill_price);
+  if (prefill !== null) return prefill;
+  for (const key of fallbackKeys) {
+    const value = normalizeAmount(item?.[key]);
+    if (value !== null) return value;
+  }
+  return 0;
+}
+
 function getPrepaymentUsableAmount(row) {
   return normalizeAmount(row?.prepayment_total_amount) ||
     normalizeAmount((normalizeAmount(row?.invoice_amount) || 0) + (normalizeAmount(row?.gift_amount) || 0)) ||
@@ -111,7 +121,7 @@ async function attachDepartmentAllocationAmounts(executor, settlementRows) {
       if (!item) continue;
       const deptId = Number(item.department_id);
       if (!SETTLEMENT_DEPARTMENT_IDS.has(deptId)) continue;
-      const basis = normalizeAmount(item.invoice_prefill_price) || normalizeAmount(item.final_unit_price) || 0;
+      const basis = getSettlementItemBasis(item, ['final_unit_price']);
       if (basis <= 0) continue;
       totalBasis += basis;
       deptBasis.set(deptId, (deptBasis.get(deptId) || 0) + basis);
@@ -343,8 +353,9 @@ function allocateAmountByWeight(rows, amount, weightKey = 'weight') {
 
   const allocatedTotal = allocations.reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
   const difference = normalizeAmount(total - allocatedTotal) || 0;
-  if (Math.abs(difference) >= 0.01 && allocations.length > 0) {
-    allocations[allocations.length - 1].amount = normalizeAmount(allocations[allocations.length - 1].amount + difference) || 0;
+  const lastPositiveIndex = allocations.map((row, index) => ({ row, index })).filter(({ row }) => (Number(row[weightKey]) || 0) > 0).pop()?.index;
+  if (Math.abs(difference) >= 0.01 && lastPositiveIndex !== undefined) {
+    allocations[lastPositiveIndex].amount = normalizeAmount(allocations[lastPositiveIndex].amount + difference) || 0;
   }
 
   return allocations.filter(row => row.amount > 0);
@@ -392,10 +403,7 @@ async function getSettlementTestItems(executor, settlement) {
 
   return rows.map(row => ({
     ...row,
-    weight: normalizeAmount(row.invoice_prefill_price) ||
-      normalizeAmount(row.final_unit_price) ||
-      normalizeAmount(row.line_total) ||
-      0
+    weight: getSettlementItemBasis(row, ['final_unit_price', 'line_total'])
   }));
 }
 
@@ -712,6 +720,80 @@ async function syncInvoiceStatusForSettlement(executor, settlementId) {
 router.get('/', requireAuth, async (req, res) => {
   const pool = await getPool();
   try {
+    const {
+      q = '',
+      keyword = '',
+      page = 1,
+      pageSize = 100,
+      settlement_type,
+      payment_status,
+      approval_status,
+      created_start,
+      created_end
+    } = req.query;
+    const safePage = Math.max(1, Number(page) || 1);
+    const safePageSize = Math.min(200, Math.max(1, Number(pageSize) || 100));
+    const offset = (safePage - 1) * safePageSize;
+    const filters = [];
+    const params = [];
+    const searchKeyword = String(keyword || q || '').trim();
+
+    if (searchKeyword) {
+      const like = `%${searchKeyword}%`;
+      filters.push(`(
+        s.settlement_serial_number LIKE ?
+        OR s.prepayment_serial_number LIKE ?
+        OR s.invoice_number LIKE ?
+        OR s.new_invoice_number LIKE ?
+        OR s.order_ids LIKE ?
+        OR s.customer_name LIKE ?
+        OR c.customer_name LIKE ?
+        OR p.contact_name LIKE ?
+        OR pc.customer_name LIKE ?
+      )`);
+      params.push(like, like, like, like, like, like, like, like, like);
+    }
+
+    if (settlement_type) {
+      if (settlement_type === 'prepaid') {
+        filters.push(`s.settlement_type = 'invoice' AND s.settlement_method = 'prepaid'`);
+      } else {
+        filters.push('s.settlement_type = ?');
+        params.push(settlement_type);
+      }
+    }
+
+    if (payment_status) {
+      filters.push('s.payment_status = ?');
+      params.push(payment_status);
+    }
+
+    if (approval_status) {
+      filters.push('s.approval_status = ?');
+      params.push(approval_status);
+    }
+
+    if (created_start) {
+      filters.push('s.created_at >= ?');
+      params.push(`${created_start} 00:00:00`);
+    }
+
+    if (created_end) {
+      filters.push('s.created_at <= ?');
+      params.push(`${created_end} 23:59:59`);
+    }
+
+    const whereSql = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
+    const [countRows] = await pool.query(
+      `SELECT COUNT(*) AS total
+       FROM settlements s
+       LEFT JOIN customers c ON s.customer_id = c.customer_id
+       LEFT JOIN payers p ON s.payer_id = p.payer_id
+       LEFT JOIN customers pc ON p.customer_id = pc.customer_id
+       ${whereSql}`,
+      params
+    );
+
     const [rows] = await pool.query(`
       SELECT 
         s.settlement_id,
@@ -756,11 +838,18 @@ router.get('/', requireAuth, async (req, res) => {
       LEFT JOIN users approver ON s.approved_by = approver.user_id
       LEFT JOIN payers p ON s.payer_id = p.payer_id
       LEFT JOIN customers pc ON p.customer_id = pc.customer_id
+      ${whereSql}
       ORDER BY s.invoice_date DESC, s.created_at DESC
-    `);
+      LIMIT ? OFFSET ?
+    `, [...params, safePageSize, offset]);
     
     await attachDepartmentAllocationAmounts(pool, rows);
-    res.json(rows);
+    res.json({
+      data: rows,
+      total: Number(countRows[0]?.total || 0),
+      page: safePage,
+      pageSize: safePageSize
+    });
   } catch (e) {
     return res.status(500).json({ error: e.message });
   }
@@ -1017,16 +1106,18 @@ router.post('/', requireAuth, async (req, res) => {
           const allocatedAmount = parseFloat((invoiceAmountNum * proportion).toFixed(2));
           return {
             test_item_id: item.test_item_id,
-            unpaid_amount: allocatedAmount
+            unpaid_amount: allocatedAmount,
+            _basis: prefillPrice
           };
         });
         
         // 处理精度问题：确保总和等于开票金额
         const allocatedTotal = allocations.reduce((sum, item) => sum + item.unpaid_amount, 0);
         const difference = invoiceAmountNum - allocatedTotal;
-        if (Math.abs(difference) > 0.01) {
+        const lastPositiveIndex = allocations.map((item, index) => ({ item, index })).filter(({ item }) => item._basis > 0).pop()?.index;
+        if (Math.abs(difference) > 0.01 && lastPositiveIndex !== undefined) {
           // 将差额加到最后一个项目
-          allocations[allocations.length - 1].unpaid_amount = parseFloat((allocations[allocations.length - 1].unpaid_amount + difference).toFixed(2));
+          allocations[lastPositiveIndex].unpaid_amount = parseFloat((allocations[lastPositiveIndex].unpaid_amount + difference).toFixed(2));
         }
         
         // 批量更新test_items表的unpaid_amount和invoice_status
@@ -1418,15 +1509,17 @@ router.put('/:id', requireAuth, async (req, res) => {
               const allocatedAmount = parseFloat((newInvoiceAmount * proportion).toFixed(2));
               return {
                 test_item_id: item.test_item_id,
-                unpaid_amount: allocatedAmount
+                unpaid_amount: allocatedAmount,
+                _basis: prefillPrice
               };
             });
 
             const allocatedTotal = allocations.reduce((sum, item) => sum + item.unpaid_amount, 0);
             const difference = newInvoiceAmount - allocatedTotal;
-            if (Math.abs(difference) > 0.01 && allocations.length > 0) {
-              allocations[allocations.length - 1].unpaid_amount = parseFloat(
-                (allocations[allocations.length - 1].unpaid_amount + difference).toFixed(2)
+            const lastPositiveIndex = allocations.map((item, index) => ({ item, index })).filter(({ item }) => item._basis > 0).pop()?.index;
+            if (Math.abs(difference) > 0.01 && lastPositiveIndex !== undefined) {
+              allocations[lastPositiveIndex].unpaid_amount = parseFloat(
+                (allocations[lastPositiveIndex].unpaid_amount + difference).toFixed(2)
               );
             }
 

@@ -5,8 +5,8 @@ import { requireAuth, requireAnyRole } from '../middleware/auth.js';
 const router = Router();
 router.use(requireAuth);
 
-// 获取转单链路（根据任意单号获取完整链路）- 允许 viewer 角色查看
-router.get('/chain/:order_id', requireAnyRole(['admin', 'leader', 'sales', 'viewer']), async (req, res) => {
+// 获取转单链路（根据任意单号获取完整链路）- 登录用户均可查看
+router.get('/chain/:order_id', async (req, res) => {
   try {
     const { order_id } = req.params;
     const pool = await getPool();
@@ -140,8 +140,8 @@ router.post('/create', requireAnyRole(['admin', 'leader', 'sales']), async (req,
   }
 });
 
-// 根据单号搜索所有相关单号（包括转单）- 允许 viewer 角色查看
-router.get('/search-related/:order_id', requireAnyRole(['admin', 'leader', 'sales', 'viewer']), async (req, res) => {
+// 根据单号搜索所有相关单号（包括转单）- 登录用户均可查看
+router.get('/search-related/:order_id', async (req, res) => {
   try {
     const { order_id } = req.params;
     const pool = await getPool();

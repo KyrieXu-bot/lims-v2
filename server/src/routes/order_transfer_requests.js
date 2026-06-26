@@ -113,7 +113,7 @@ async function notifyUser(pool, io, payload) {
 /** 检测项目快照（只读展示，字段与委托单列表对齐） */
 async function fetchTestItemSnapshot(pool, testItemId) {
   const [rows] = await pool.query(
-    `SELECT 
+    `SELECT
       ti.test_item_id,
       ti.order_id,
       o.original_order_id,
@@ -192,6 +192,62 @@ async function fetchTestItemSnapshot(pool, testItemId) {
   return rows[0] || null;
 }
 
+async function fetchExistingOrderTransferRequest(pool, orderId) {
+  const normalizedOrderId = normalizeOrderId(orderId);
+  if (!normalizedOrderId) return null;
+
+  const [rows] = await pool.query(
+    `SELECT
+       otr.request_id,
+       otr.test_item_id,
+       otr.status,
+       otr.current_step,
+       otr.approval_flow,
+       otr.transfer_reason,
+       otr.created_at,
+       otr.approved_at,
+       u.name as applicant_name,
+       otr.applicant_id,
+       ti.order_id,
+       CONCAT(ti.category_name, ' - ', ti.detail_name) as test_item_name,
+       ti.category_name,
+       ti.detail_name,
+       ti.test_code,
+       d.department_name,
+       lg.group_name
+     FROM order_transfer_requests otr
+     INNER JOIN test_items ti ON ti.test_item_id = otr.test_item_id
+     LEFT JOIN users u ON u.user_id = otr.applicant_id
+     LEFT JOIN departments d ON d.department_id = ti.department_id
+     LEFT JOIN lab_groups lg ON lg.group_id = ti.group_id
+     WHERE UPPER(ti.order_id) = ?
+       AND otr.status IN ('pending', 'approved')
+     ORDER BY
+       CASE otr.status WHEN 'pending' THEN 0 WHEN 'approved' THEN 1 ELSE 2 END,
+       otr.created_at DESC,
+       otr.request_id DESC
+     LIMIT 1`,
+    [normalizedOrderId]
+  );
+
+  return rows[0] || null;
+}
+
+// 按委托单号检查是否已有有效转单申请；转单最终按 order_id 给开单员执行，同单号跨部门也只允许发起一次
+router.get('/by-order/:orderId', requireAnyRole(['supervisor', 'employee', 'admin']), async (req, res) => {
+  try {
+    const pool = await getPool();
+    const duplicateRequest = await fetchExistingOrderTransferRequest(pool, req.params.orderId);
+    res.json({
+      has_existing: !!duplicateRequest,
+      duplicate_request: duplicateRequest
+    });
+  } catch (error) {
+    console.error('检查委托单转单申请失败:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // 实验室提交转单申请（常规窗口：实验员，或组长与检测员均为本人时可由组长发起；特殊窗口仅组长）
 router.post('/', requireAnyRole(['supervisor', 'employee']), async (req, res) => {
   try {
@@ -256,14 +312,12 @@ router.post('/', requireAnyRole(['supervisor', 'employee']), async (req, res) =>
       return res.status(400).json({ error: '已取消的项目不能申请转单' });
     }
 
-    const [existingRows] = await pool.query(
-      `SELECT request_id FROM order_transfer_requests 
-       WHERE test_item_id = ? AND status = 'pending'`,
-      [test_item_id]
-    );
-
-    if (existingRows.length > 0) {
-      return res.status(400).json({ error: '该检测项目已有待处理的转单申请' });
+    const duplicateRequest = await fetchExistingOrderTransferRequest(pool, testItem.order_id);
+    if (duplicateRequest) {
+      return res.status(409).json({
+        error: '该委托单号已有转单申请，不能重复发起；如后续还有新增项目，请走加测流程',
+        duplicate_request: duplicateRequest
+      });
     }
 
     const skipSupervisorReview =
