@@ -92,7 +92,7 @@ function formatUserLabel(userId, name) {
   return `${name || userId}（${userId}）`;
 }
 
-function UserPicker({ label, value, displayName, equipmentId, onChange, onInputTextChange, optional = false }) {
+function UserPicker({ label, value, displayName, equipmentId, onChange, onInputTextChange, optional = false, disabled = false }) {
   const [query, setQuery] = useState(() => formatUserLabel(value, displayName));
   const [options, setOptions] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -106,6 +106,10 @@ function UserPicker({ label, value, displayName, equipmentId, onChange, onInputT
   useEffect(() => {
     let ignore = false;
     const raw = query.trim();
+    if (disabled) {
+      setOptions([]);
+      return undefined;
+    }
     if (!raw || (value && raw === formatUserLabel(value, displayName))) {
       setOptions([]);
       return undefined;
@@ -125,7 +129,7 @@ function UserPicker({ label, value, displayName, equipmentId, onChange, onInputT
       ignore = true;
       clearTimeout(timer);
     };
-  }, [query, equipmentId, value, displayName]);
+  }, [query, equipmentId, value, displayName, disabled]);
 
   return (
     <label className="booking-field booking-user-picker">
@@ -133,6 +137,7 @@ function UserPicker({ label, value, displayName, equipmentId, onChange, onInputT
       <div className="booking-user-input-row">
         <input
           value={query}
+          disabled={disabled}
           onChange={(e) => {
             const next = e.target.value;
             setQuery(next);
@@ -141,7 +146,7 @@ function UserPicker({ label, value, displayName, equipmentId, onChange, onInputT
           }}
           placeholder="输入姓名或工号搜索"
         />
-        {value && (
+        {value && !disabled && (
           <button type="button" className="btn btn-secondary btn-sm" onClick={() => onChange('', '')}>清空</button>
         )}
       </div>
@@ -170,6 +175,7 @@ function UserPicker({ label, value, displayName, equipmentId, onChange, onInputT
 function BookingModal({ initial, equipmentOptions, onClose, onSaved, onCancelBooking }) {
   const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
   const isEdit = Boolean(initial?.booking_id);
+  const isReadOnly = Boolean(initial?.read_only);
   const [form, setForm] = useState(() => ({
     equipment_id: initial?.equipment_id || '',
     start_time: toLocalInputValue(initial?.start_time),
@@ -215,6 +221,7 @@ function BookingModal({ initial, equipmentOptions, onClose, onSaved, onCancelBoo
 
   async function handleSubmit(e) {
     e.preventDefault();
+    if (isReadOnly) return;
     setSaving(true);
     setError('');
     try {
@@ -283,6 +290,7 @@ function BookingModal({ initial, equipmentOptions, onClose, onSaved, onCancelBoo
               value={form.equipment_id}
               onChange={(e) => setForm((prev) => ({ ...prev, equipment_id: e.target.value }))}
               required
+              disabled={isReadOnly}
             >
               <option value="">请选择设备</option>
               {equipmentOptions.map((item) => (
@@ -301,6 +309,7 @@ function BookingModal({ initial, equipmentOptions, onClose, onSaved, onCancelBoo
                 value={form.start_time}
                 onChange={(e) => setForm((prev) => ({ ...prev, start_time: e.target.value }))}
                 required
+                disabled={isReadOnly}
               />
             </label>
             <label className="booking-field">
@@ -310,6 +319,7 @@ function BookingModal({ initial, equipmentOptions, onClose, onSaved, onCancelBoo
                 value={form.end_time}
                 onChange={(e) => setForm((prev) => ({ ...prev, end_time: e.target.value }))}
                 required
+                disabled={isReadOnly}
               />
             </label>
           </div>
@@ -320,6 +330,7 @@ function BookingModal({ initial, equipmentOptions, onClose, onSaved, onCancelBoo
             value={form.reserved_user_id}
             displayName={form.reserved_user_name}
             equipmentId={form.equipment_id}
+            disabled={isReadOnly}
             onChange={(userId, name) => setForm((prev) => ({
               ...prev,
               reserved_user_id: userId,
@@ -337,6 +348,7 @@ function BookingModal({ initial, equipmentOptions, onClose, onSaved, onCancelBoo
               value={form.order_id}
               onChange={(e) => setForm((prev) => ({ ...prev, order_id: e.target.value }))}
               placeholder="选填，输入后可绑定检测项目"
+              disabled={isReadOnly}
             />
           </label>
 
@@ -345,7 +357,7 @@ function BookingModal({ initial, equipmentOptions, onClose, onSaved, onCancelBoo
             <select
               value={form.test_item_id}
               onChange={(e) => setForm((prev) => ({ ...prev, test_item_id: e.target.value }))}
-              disabled={!form.order_id || loadingItems}
+              disabled={isReadOnly || !form.order_id || loadingItems}
             >
               <option value="">{loadingItems ? '加载中...' : '不绑定检测项目'}</option>
               {orderItems.map((item) => (
@@ -363,21 +375,24 @@ function BookingModal({ initial, equipmentOptions, onClose, onSaved, onCancelBoo
               onChange={(e) => setForm((prev) => ({ ...prev, note: e.target.value }))}
               rows={3}
               placeholder="选填"
+              disabled={isReadOnly}
             />
           </label>
 
           {error && <div className="booking-error">{error}</div>}
 
           <div className="booking-modal-actions">
-            {isEdit && initial?.can_cancel && (
+            {isEdit && !isReadOnly && initial?.can_cancel && (
               <button type="button" className="btn btn-danger" onClick={handleCancelBooking} disabled={saving}>
                 取消预约
               </button>
             )}
-            <button type="button" className="btn btn-secondary" onClick={onClose}>取消</button>
-            <button type="submit" className="btn btn-primary" disabled={saving}>
-              {saving ? '保存中...' : (isEdit ? '保存修改' : '保存')}
-            </button>
+            <button type="button" className="btn btn-secondary" onClick={onClose}>{isReadOnly ? '关闭' : '取消'}</button>
+            {!isReadOnly && (
+              <button type="submit" className="btn btn-primary" disabled={saving}>
+                {saving ? '保存中...' : (isEdit ? '保存修改' : '保存')}
+              </button>
+            )}
           </div>
         </form>
       </div>
@@ -539,6 +554,15 @@ export default function EquipmentBooking() {
     setModalInitial(booking);
   }
 
+  function handleTimelineBookingClick(booking) {
+    const isMine = String(booking.booker_id) === String(user?.user_id);
+    if (isMine && !isBookingExpired(booking, now)) {
+      handleEdit(booking);
+      return;
+    }
+    setModalInitial({ ...booking, read_only: true });
+  }
+
   async function handleModalCancel(booking) {
     const cancelled = await handleCancel(booking);
     return cancelled;
@@ -626,16 +650,15 @@ export default function EquipmentBooking() {
                       const right = clamp((end - windowRange.start) / (DAY_HOURS * 60 * MS_PER_MINUTE) * 100, 0, 100);
                       const isMine = String(booking.booker_id) === String(user?.user_id);
                       const status = getBookingStatus(booking, now);
-                      const canEditOnTimeline = isMine && !isBookingExpired(booking, now);
                       return (
                         <div
                           key={booking.booking_id}
-                          className={['booking-event', isMine ? 'mine' : '', status.className].filter(Boolean).join(' ')}
+                          className={['booking-event', 'viewable', isMine ? 'mine' : '', status.className].filter(Boolean).join(' ')}
                           style={{ left: `${left}%`, width: `${Math.max(2, right - left)}%` }}
                           title={`${status.text} ${booking.booker_name || booking.booker_id} ${formatDateTime(booking.start_time)} - ${formatDateTime(booking.end_time)}${booking.note ? ` ${booking.note}` : ''}`}
                           onClick={(e) => {
                             e.stopPropagation();
-                            if (canEditOnTimeline) handleEdit(booking);
+                            handleTimelineBookingClick(booking);
                           }}
                           onDoubleClick={(e) => e.stopPropagation()}
                         >

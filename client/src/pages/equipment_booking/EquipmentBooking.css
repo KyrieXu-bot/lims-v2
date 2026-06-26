@@ -239,6 +239,10 @@
   cursor: default;
 }
 
+.booking-event.viewable {
+  cursor: pointer;
+}
+
 .booking-event strong,
 .booking-event span {
   display: block;
