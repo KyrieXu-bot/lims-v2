@@ -78,6 +78,18 @@
   white-space: nowrap;
 }
 
+.settlements-toolbar-actions {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 10px;
+}
+
+.settlements-export-btn {
+  height: 38px;
+  white-space: nowrap;
+}
+
 .settlements-table-container {
   --settlement-header-height: 48px;
   --settlement-pagination-height: 48px;
@@ -135,8 +147,8 @@
 }
 
 .settlements-table {
-  width: 3040px;
-  min-width: 3040px;
+  width: 3088px;
+  min-width: 3088px;
   max-width: none;
   table-layout: fixed;
   border-collapse: separate;
@@ -197,8 +209,8 @@
 }
 
 .settlements-table-editing {
-  width: 3520px;
-  min-width: 3520px;
+  width: 3568px;
+  min-width: 3568px;
 }
 
 .table.settlements-table {
@@ -224,29 +236,32 @@
 }
 
 .settlements-table th:nth-child(1),
-.settlements-table td:nth-child(1) {
-  width: 150px;
+.settlements-table td:nth-child(1),
+.settlements-select-col {
+  width: 48px;
+  min-width: 48px;
+  text-align: center;
 }
 
 .settlements-table th:nth-child(2),
 .settlements-table td:nth-child(2) {
-  width: 235px;
-  min-width: 235px;
+  width: 150px;
 }
 
 .settlements-table th:nth-child(3),
 .settlements-table td:nth-child(3) {
-  width: 105px;
+  width: 235px;
+  min-width: 235px;
 }
 
 .settlements-table th:nth-child(4),
 .settlements-table td:nth-child(4) {
-  width: 125px;
+  width: 105px;
 }
 
 .settlements-table th:nth-child(5),
 .settlements-table td:nth-child(5) {
-  width: 170px;
+  width: 125px;
 }
 
 .settlements-table th:nth-child(6),
@@ -256,12 +271,12 @@
 
 .settlements-table th:nth-child(7),
 .settlements-table td:nth-child(7) {
-  width: 150px;
+  width: 170px;
 }
 
 .settlements-table th:nth-child(8),
 .settlements-table td:nth-child(8) {
-  width: 115px;
+  width: 150px;
 }
 
 .settlements-table th:nth-child(9),
@@ -271,37 +286,37 @@
 
 .settlements-table th:nth-child(10),
 .settlements-table td:nth-child(10) {
-  width: 125px;
-}
-
-.settlements-table th:nth-child(11),
-.settlements-table td:nth-child(11) {
-  width: 230px;
-}
-
-.settlements-table th:nth-child(12),
-.settlements-table td:nth-child(12) {
-  width: 110px;
-}
-
-.settlements-table th:nth-child(13),
-.settlements-table td:nth-child(13) {
   width: 115px;
 }
 
-.settlements-table th:nth-child(14),
-.settlements-table td:nth-child(14) {
-  width: 105px;
+.settlements-table th:nth-child(17),
+.settlements-table td:nth-child(17) {
+  width: 125px;
 }
 
-.settlements-table th:nth-child(15),
-.settlements-table td:nth-child(15) {
+.settlements-table th:nth-child(18),
+.settlements-table td:nth-child(18) {
+  width: 230px;
+}
+
+.settlements-table th:nth-child(19),
+.settlements-table td:nth-child(19) {
   width: 110px;
 }
 
-.settlements-table th:nth-child(16),
-.settlements-table td:nth-child(16) {
-  width: 125px;
+.settlements-table th:nth-child(20),
+.settlements-table td:nth-child(20) {
+  width: 115px;
+}
+
+.settlements-table th:nth-child(21),
+.settlements-table td:nth-child(21) {
+  width: 105px;
+}
+
+.settlements-table th:nth-child(22),
+.settlements-table td:nth-child(22) {
+  width: 110px;
 }
 
 .settlements-dept-col {
@@ -310,19 +325,14 @@
   text-align: right;
 }
 
-.settlements-table-editing th:nth-child(2),
-.settlements-table-editing td:nth-child(2) {
+.settlements-table-editing th:nth-child(3),
+.settlements-table-editing td:nth-child(3) {
   width: 260px;
 }
 
-.settlements-table-editing th:nth-child(4),
-.settlements-table-editing td:nth-child(4) {
+.settlements-table-editing th:nth-child(5),
+.settlements-table-editing td:nth-child(5) {
   width: 175px;
-}
-
-.settlements-table-editing th:nth-child(6),
-.settlements-table-editing td:nth-child(6) {
-  width: 225px;
 }
 
 .settlements-table-editing th:nth-child(7),
@@ -331,39 +341,44 @@
 }
 
 .settlements-table-editing th:nth-child(8),
-.settlements-table-editing td:nth-child(8),
-.settlements-table-editing th:nth-child(9),
-.settlements-table-editing td:nth-child(9) {
-  width: 155px;
+.settlements-table-editing td:nth-child(8) {
+  width: 225px;
 }
 
+.settlements-table-editing th:nth-child(9),
+.settlements-table-editing td:nth-child(9),
 .settlements-table-editing th:nth-child(10),
 .settlements-table-editing td:nth-child(10) {
-  width: 175px;
-}
-
-.settlements-table-editing th:nth-child(11),
-.settlements-table-editing td:nth-child(11) {
-  width: 220px;
-}
-
-.settlements-table-editing th:nth-child(12),
-.settlements-table-editing td:nth-child(12),
-.settlements-table-editing th:nth-child(13),
-.settlements-table-editing td:nth-child(13),
-.settlements-table-editing th:nth-child(14),
-.settlements-table-editing td:nth-child(14) {
   width: 155px;
-}
-
-.settlements-table-editing th:nth-child(16),
-.settlements-table-editing td:nth-child(16) {
-  width: 180px;
-  min-width: 180px;
 }
 
 .settlements-table-editing th:nth-child(17),
 .settlements-table-editing td:nth-child(17) {
+  width: 175px;
+}
+
+.settlements-table-editing th:nth-child(18),
+.settlements-table-editing td:nth-child(18) {
+  width: 220px;
+}
+
+.settlements-table-editing th:nth-child(19),
+.settlements-table-editing td:nth-child(19),
+.settlements-table-editing th:nth-child(20),
+.settlements-table-editing td:nth-child(20),
+.settlements-table-editing th:nth-child(21),
+.settlements-table-editing td:nth-child(21) {
+  width: 155px;
+}
+
+.settlements-table-editing th:nth-child(22),
+.settlements-table-editing td:nth-child(22) {
+  width: 180px;
+  min-width: 180px;
+}
+
+.settlements-table-editing th:nth-child(23),
+.settlements-table-editing td:nth-child(23) {
   width: 190px;
   min-width: 190px;
 }
@@ -541,15 +556,21 @@
     gap: 6px;
   }
 
+  .settlements-toolbar-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
   .settlements-search-input,
   .settlements-search-button,
   .settlements-filter-select,
   .settlements-filter-reset,
+  .settlements-export-btn,
   .settlements-prepayment-btn {
     width: 100%;
   }
 
   .settlements-table {
-    min-width: 2180px;
+    min-width: 3088px;
   }
 }

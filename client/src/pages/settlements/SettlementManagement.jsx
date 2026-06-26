@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
+import * as XLSX from 'xlsx';
 import { api } from '../../api';
 import React from 'react';
 import DetailViewLink from '../../components/DetailViewLink.jsx';
@@ -20,6 +21,8 @@ export default function SettlementManagement() {
   const [page, setPage] = useState(1);
   const pageSize = 100;
   const [loading, setLoading] = useState(true);
+  const [selectedSettlementIds, setSelectedSettlementIds] = useState([]);
+  const [selectAllLoading, setSelectAllLoading] = useState(false);
   const [editingSettlement, setEditingSettlement] = useState(null);
   const [editForm, setEditForm] = useState({
     invoice_number: '',
@@ -67,6 +70,8 @@ export default function SettlementManagement() {
   });
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
   const customerInputRef = useRef(null);
+  const selectedSettlementSnapshotRef = useRef(new Map());
+  const fullSelectionCacheRef = useRef(null);
 
   useEffect(() => {
     loadAssigneeOptions();
@@ -76,6 +81,16 @@ export default function SettlementManagement() {
   useEffect(() => {
     loadSettlements();
   }, [page, settlementFilters]);
+
+  useEffect(() => {
+    if (!settlements?.length) return;
+    settlements.forEach((settlement) => {
+      const id = normalizeSettlementId(settlement.settlement_id);
+      if (selectedSettlementIds.includes(id)) {
+        selectedSettlementSnapshotRef.current.set(id, settlement);
+      }
+    });
+  }, [settlements, selectedSettlementIds]);
 
   async function loadPayerOptions() {
     try {
@@ -171,7 +186,188 @@ export default function SettlementManagement() {
 
   function updateSettlementFilter(key, value) {
     setPage(1);
+    fullSelectionCacheRef.current = null;
     setSettlementFilters(prev => ({ ...prev, [key]: value }));
+  }
+
+  function normalizeSettlementId(id) {
+    return String(id ?? '');
+  }
+
+  function clearSettlementSelection() {
+    setSelectedSettlementIds([]);
+    selectedSettlementSnapshotRef.current.clear();
+    fullSelectionCacheRef.current = null;
+  }
+
+  async function fetchAllMatchingSettlements() {
+    if (fullSelectionCacheRef.current) {
+      return fullSelectionCacheRef.current;
+    }
+
+    const fetchPageSize = 200;
+    let currentPage = 1;
+    let expectedTotal = null;
+    const rows = [];
+
+    while (true) {
+      const result = await api.getSettlements({
+        q: settlementFilters.keyword,
+        page: currentPage,
+        pageSize: fetchPageSize,
+        settlement_type: settlementFilters.settlement_type,
+        payment_status: settlementFilters.payment_status,
+        approval_status: settlementFilters.approval_status,
+        created_start: settlementFilters.created_start,
+        created_end: settlementFilters.created_end
+      });
+      const pageRows = Array.isArray(result) ? result : (result.data || []);
+      if (expectedTotal === null) {
+        expectedTotal = Array.isArray(result) ? pageRows.length : Number(result.total || 0);
+      }
+      rows.push(...pageRows);
+      if (pageRows.length === 0 || rows.length >= expectedTotal || pageRows.length < fetchPageSize) {
+        break;
+      }
+      currentPage += 1;
+    }
+
+    fullSelectionCacheRef.current = rows;
+    return rows;
+  }
+
+  function handleSettlementSelect(settlement, checked) {
+    const id = normalizeSettlementId(settlement?.settlement_id);
+    if (!id) return;
+    if (checked) {
+      setSelectedSettlementIds(prev => {
+        const next = prev.filter(itemId => itemId !== id);
+        return [...next, id];
+      });
+      selectedSettlementSnapshotRef.current.set(id, settlement);
+    } else {
+      setSelectedSettlementIds(prev => prev.filter(itemId => itemId !== id));
+      selectedSettlementSnapshotRef.current.delete(id);
+    }
+  }
+
+  async function handleSettlementSelectAll(e) {
+    const checked = e.target.checked;
+    if (!checked) {
+      clearSettlementSelection();
+      return;
+    }
+
+    setSelectAllLoading(true);
+    try {
+      fullSelectionCacheRef.current = null;
+      const allRows = await fetchAllMatchingSettlements();
+      const ids = Array.from(new Set(allRows.map(row => normalizeSettlementId(row.settlement_id)).filter(Boolean)));
+      setSelectedSettlementIds(ids);
+      selectedSettlementSnapshotRef.current.clear();
+      allRows.forEach(row => {
+        const id = normalizeSettlementId(row.settlement_id);
+        if (id) selectedSettlementSnapshotRef.current.set(id, row);
+      });
+    } catch (error) {
+      console.error('全选结算单失败:', error);
+      alert('全选失败，请稍后再试');
+      clearSettlementSelection();
+    } finally {
+      setSelectAllLoading(false);
+    }
+  }
+
+  function getSelectedSettlementRows() {
+    if (selectedSettlementIds.length === 0) return [];
+    const byId = new Map();
+    settlements.forEach(row => {
+      const id = normalizeSettlementId(row.settlement_id);
+      if (id) byId.set(id, row);
+    });
+    selectedSettlementSnapshotRef.current.forEach((row, id) => {
+      if (!byId.has(id)) byId.set(id, row);
+    });
+    return selectedSettlementIds.map(id => byId.get(id)).filter(Boolean);
+  }
+
+  function getInvoiceNumberExportText(value) {
+    if (!value) return '';
+    return String(value)
+      .split('-')
+      .map(part => part.trim())
+      .filter(Boolean)
+      .join('\n');
+  }
+
+  function buildSettlementExportRow(settlement) {
+    const row = {
+      '流水号': settlement.settlement_serial_number || settlement.prepayment_serial_number || '',
+      '票号': getInvoiceNumberExportText(settlement.invoice_number),
+      '类型': getSettlementTypeText(settlement),
+      '开票日期': formatDate(settlement.invoice_date),
+      '委托单号组': settlement.order_ids || '',
+      '付款方': settlement.payer_contact_name ? `${settlement.payer_contact_name} (${settlement.payer_customer_name || ''})` : '',
+      '客户名称': settlement.display_customer_name || settlement.customer_name || '',
+      '开票金额': formatCurrency(settlement.invoice_amount),
+      '到账金额': formatCurrency(settlement.received_amount)
+    };
+    DEPARTMENT_ALLOCATION_COLUMNS.forEach(col => {
+      row[col.label] = formatCurrency(settlement[col.key] || 0);
+    });
+    return {
+      ...row,
+      '到账日期': formatDate(settlement.received_date),
+      '备注': settlement.remarks || '',
+      '业务人员': settlement.assignee_name || '',
+      '企业性质': settlement.customer_nature || '',
+      '到款情况': settlement.payment_status || '',
+      '审批状态': getApprovalStatusText(settlement.approval_status)
+    };
+  }
+
+  async function handleExportSettlementsExcel() {
+    if (selectedSettlementIds.length === 0) {
+      alert('请先选择要导出的结算单');
+      return;
+    }
+
+    try {
+      const selectedRows = getSelectedSettlementRows();
+      if (selectedRows.length === 0) {
+        alert('未找到可导出的结算单数据，请重新选择后再试');
+        return;
+      }
+
+      const exportRows = selectedRows.map(buildSettlementExportRow);
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.json_to_sheet(exportRows);
+      ws['!cols'] = [
+        { wch: 18 },
+        { wch: 26 },
+        { wch: 12 },
+        { wch: 12 },
+        { wch: 28 },
+        { wch: 24 },
+        { wch: 24 },
+        { wch: 14 },
+        { wch: 14 },
+        ...DEPARTMENT_ALLOCATION_COLUMNS.map(() => ({ wch: 16 })),
+        { wch: 12 },
+        { wch: 28 },
+        { wch: 12 },
+        { wch: 14 },
+        { wch: 12 },
+        { wch: 12 }
+      ];
+      XLSX.utils.book_append_sheet(wb, ws, '费用结算');
+      const now = new Date();
+      const timestamp = now.toISOString().slice(0, 19).replace(/[-:]/g, '').replace('T', '_');
+      XLSX.writeFile(wb, `费用结算_${timestamp}.xlsx`);
+    } catch (error) {
+      console.error('导出费用结算Excel失败:', error);
+      alert('导出Excel失败：' + error.message);
+    }
   }
 
   function handleEdit(settlement) {
@@ -801,9 +997,18 @@ export default function SettlementManagement() {
             </button>
           )}
         </div>
-        <button className="btn btn-primary settlements-prepayment-btn" onClick={() => setShowPrepaymentModal(true)}>
-          新增预存充值
-        </button>
+        <div className="settlements-toolbar-actions">
+          <button
+            className="btn btn-success settlements-export-btn"
+            onClick={handleExportSettlementsExcel}
+            disabled={selectedSettlementIds.length === 0}
+          >
+            导出Excel
+          </button>
+          <button className="btn btn-primary settlements-prepayment-btn" onClick={() => setShowPrepaymentModal(true)}>
+            新增预存充值
+          </button>
+        </div>
       </div>
 
       {/* 下拉框使用 fixed 定位，避免被表格裁剪 */}
@@ -1037,6 +1242,17 @@ export default function SettlementManagement() {
         <table className={`table settlements-table ${editingSettlement ? 'settlements-table-editing' : ''}`}>
           <thead>
             <tr>
+              <th className="settlements-select-col">
+                <input
+                  type="checkbox"
+                  checked={settlements.length > 0 && settlements.every(settlement =>
+                    selectedSettlementIds.includes(normalizeSettlementId(settlement.settlement_id))
+                  )}
+                  onChange={handleSettlementSelectAll}
+                  disabled={selectAllLoading || loading}
+                  title="全选当前筛选结果"
+                />
+              </th>
               <th>流水号</th>
               <th>票号</th>
               <th>类型</th>
@@ -1061,13 +1277,13 @@ export default function SettlementManagement() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan="22" style={{ textAlign: 'center', padding: '20px' }}>
+                <td colSpan="23" style={{ textAlign: 'center', padding: '20px' }}>
                   加载中...
                 </td>
               </tr>
             ) : settlements.length === 0 ? (
               <tr>
-                <td colSpan="22" style={{ textAlign: 'center', padding: '20px' }}>
+                <td colSpan="23" style={{ textAlign: 'center', padding: '20px' }}>
                   暂无匹配的结算记录
                 </td>
               </tr>
@@ -1079,6 +1295,13 @@ export default function SettlementManagement() {
                 >
                   {editingSettlement?.settlement_id === settlement.settlement_id ? (
                     <>
+                      <td className="settlements-select-col">
+                        <input
+                          type="checkbox"
+                          checked={selectedSettlementIds.includes(normalizeSettlementId(settlement.settlement_id))}
+                          onChange={(e) => handleSettlementSelect(settlement, e.target.checked)}
+                        />
+                      </td>
                       <td>{renderSettlementSerial(settlement)}</td>
                       <td>
                         <input
@@ -1243,6 +1466,13 @@ export default function SettlementManagement() {
                     </>
                   ) : (
                     <>
+                      <td className="settlements-select-col">
+                        <input
+                          type="checkbox"
+                          checked={selectedSettlementIds.includes(normalizeSettlementId(settlement.settlement_id))}
+                          onChange={(e) => handleSettlementSelect(settlement, e.target.checked)}
+                        />
+                      </td>
                       <td>{renderSettlementSerial(settlement)}</td>
                       <td className="settlement-invoice-cell">{renderInvoiceNumber(settlement.invoice_number)}</td>
                       <td>{getSettlementTypeText(settlement)}</td>
