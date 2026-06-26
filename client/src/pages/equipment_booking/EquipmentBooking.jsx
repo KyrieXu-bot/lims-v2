@@ -226,7 +226,7 @@ function BookingModal({ initial, equipmentOptions, onClose, onSaved, onCancelBoo
     setError('');
     try {
       if (form.reserved_user_text?.trim() && !form.reserved_user_id) {
-        setError('预约人必须从搜索结果中选择，不能手动输入未匹配的人员');
+        setError('测试人员必须从搜索结果中选择，不能手动输入未匹配的人员');
         setSaving(false);
         return;
       }
@@ -325,7 +325,7 @@ function BookingModal({ initial, equipmentOptions, onClose, onSaved, onCancelBoo
           </div>
 
           <UserPicker
-            label="预约人"
+            label="测试人员"
             optional
             value={form.reserved_user_id}
             displayName={form.reserved_user_name}
