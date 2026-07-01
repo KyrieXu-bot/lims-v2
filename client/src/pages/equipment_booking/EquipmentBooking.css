@@ -191,6 +191,10 @@
   background-color: #f8fbff;
 }
 
+.booking-row-track.read-only {
+  cursor: default;
+}
+
 .booking-event,
 .booking-draft {
   position: absolute;

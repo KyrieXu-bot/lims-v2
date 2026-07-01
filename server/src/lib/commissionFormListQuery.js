@@ -114,6 +114,8 @@ export const COMMISSION_FORM_LIST_SELECT_JOINS = `
         o.total_price,
         r.report_type,
         r.report_seals,
+        r.header_type,
+        r.header_other,
         s.settlement_id AS __settlement_alloc_id,
         s.invoice_amount AS __settlement_invoice_amount,
         s.test_item_ids AS __settlement_test_item_ids,

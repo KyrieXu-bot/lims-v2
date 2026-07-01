@@ -83,7 +83,9 @@ const MobileFileUpload = ({
     { value: 'experiment_report', label: '实验报告' }
   ];
 
-  const canUpload = enableUpload && ['admin', 'leader', 'supervisor', 'employee', 'sales'].includes(userRole);
+  const canUpload =
+    enableUpload &&
+    ['admin', 'leader', 'supervisor', 'employee'].includes(userRole);
 
   const hasValue = (value) => {
     if (value === null || value === undefined) return false;
@@ -491,25 +493,15 @@ const MobileFileUpload = ({
               }
             }));
 
-            if (selectedCategory === 'raw_data' && testItemId) {
-              const uploadedAt = uploaded.created_at || new Date().toISOString();
-              const dateOnly = new Date(uploadedAt).toISOString().slice(0, 10);
-
-              fetch(`${API_BASE}/api/test-items/${testItemId}`, {
-                method: 'PUT',
-                headers: {
-                  'Authorization': `Bearer ${user.token}`,
-                  'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ actual_delivery_date: dateOnly })
-              }).then(updateRes => {
-                if (updateRes.ok) {
-                  const event = new CustomEvent('realtime-data-update', {
-                    detail: { testItemId, field: 'actual_delivery_date', value: dateOnly }
-                  });
-                  window.dispatchEvent(event);
+            if (selectedCategory === 'raw_data' && testItemId && uploaded.actual_delivery_date) {
+              const event = new CustomEvent('realtime-data-update', {
+                detail: {
+                  testItemId,
+                  field: 'actual_delivery_date',
+                  value: uploaded.actual_delivery_date
                 }
               });
+              window.dispatchEvent(event);
             }
 
             resolve(uploaded);
@@ -875,6 +867,11 @@ const MobileFileUpload = ({
   };
 
   const canDeleteFile = (file) => {
+    const isLockedPreConfirmRawData =
+      file.category === 'raw_data' &&
+      (file.is_business_confirm_locked === 1 || file.is_business_confirm_locked === true || file.is_business_confirm_locked === '1');
+    if (isLockedPreConfirmRawData) return false;
+
     if (['admin', 'leader', 'supervisor'].includes(userRole)) {
       return true;
     }
@@ -1130,4 +1127,3 @@ const MobileFileUpload = ({
 };
 
 export default MobileFileUpload;
-

@@ -541,7 +541,8 @@ router.put('/:id', requireRole(EDIT_ROLES), async (req, res) => {
     return value;
   };
 
-  const pool = await getPool();
+  const dbPool = await getPool();
+  const pool = await dbPool.getConnection();
   
   try {
     // 开始事务
@@ -556,7 +557,8 @@ router.put('/:id', requireRole(EDIT_ROLES), async (req, res) => {
                 actual_sample_quantity, line_total, lab_price, business_confirmed, status, unit_mismatch_reviewed,
                 estimated_delivery_date, delivery_date_confirmed
          FROM test_items
-         WHERE test_item_id = ?`,
+         WHERE test_item_id = ?
+         FOR UPDATE`,
         [req.params.id]
       );
       
@@ -571,6 +573,14 @@ router.put('/:id', requireRole(EDIT_ROLES), async (req, res) => {
 
       const isBusinessConfirmed = oldData.business_confirmed === 1 || oldData.business_confirmed === true || oldData.business_confirmed === '1';
       const userRoles = new Set([req.user.role, ...(Array.isArray(req.user.roles) ? req.user.roles : [])]);
+      if (
+        isBusinessConfirmed &&
+        hasField('actual_delivery_date') &&
+        normalizeDateForCompare(actual_delivery_date) !== normalizeDateForCompare(oldData.actual_delivery_date)
+      ) {
+        await pool.query('ROLLBACK');
+        return res.status(400).json({ error: '测试总价已确认，实际交付日期已锁定，不能修改' });
+      }
       if (isBusinessConfirmed && !userRoles.has('admin')) {
         // 价格确认后仅放开状态流转和备注字段，其他字段保持锁定（管理员可改开票相关字段）
         const allowedAfterConfirm = new Set(['status', 'assignment_note', 'test_notes', 'business_note']);
@@ -612,6 +622,28 @@ router.put('/:id', requireRole(EDIT_ROLES), async (req, res) => {
       const mergedBusinessConfirmed = hasField('business_confirmed')
         ? (business_confirmed === 1 || business_confirmed === true || business_confirmed === '1')
         : isBusinessConfirmed;
+      const isConfirmingBusinessPrice =
+        hasField('business_confirmed') && mergedBusinessConfirmed && !isBusinessConfirmed;
+      if (isConfirmingBusinessPrice) {
+        const [rawDataRows] = await pool.query(
+          `SELECT file_id
+           FROM project_files
+           WHERE test_item_id = ? AND category = 'raw_data'
+           LIMIT 1
+           FOR UPDATE`,
+          [req.params.id]
+        );
+        if (rawDataRows.length === 0) {
+          await pool.query('ROLLBACK');
+          return res.status(400).json({ error: '请先上传实验原始数据，再确认测试总价' });
+        }
+        await pool.query(
+          `UPDATE project_files
+           SET is_business_confirm_locked = 1
+           WHERE test_item_id = ? AND category = 'raw_data'`,
+          [req.params.id]
+        );
+      }
       const mergedFinalUnitPrice = hasField('final_unit_price') ? final_unit_price : oldData.final_unit_price;
       const hasConfirmedFinalPrice = mergedBusinessConfirmed && hasNonNegativeNumber(mergedFinalUnitPrice);
       const invoicePrefillTouched = hasField('invoice_prefill_price') || hasField('invoice_prefill_confirmed');
@@ -973,6 +1005,8 @@ router.put('/:id', requireRole(EDIT_ROLES), async (req, res) => {
       params: req.params
     });
     return res.status(500).json({ error: e.message });
+  } finally {
+    pool.release();
   }
 });
 

@@ -1199,6 +1199,8 @@ export default function TestItems() {
               testItemId={selectedFileTestItem.test_item_id}
               orderId={selectedFileTestItem.order_id}
               userRole={user?.role}
+              businessConfirmed={selectedFileTestItem.business_confirmed}
+              testItemData={selectedFileTestItem}
               onFileUploaded={() => {
                 // 文件上传成功后的回调
                 console.log('文件上传成功');
@@ -1236,5 +1238,4 @@ export default function TestItems() {
     </div>
   )
 }
-
 

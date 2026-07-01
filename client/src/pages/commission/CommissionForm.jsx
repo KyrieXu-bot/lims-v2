@@ -1739,7 +1739,7 @@ const CommissionForm = () => {
     return num !== null && num >= 0;
   };
 
-  // 检查原始数据上传/确认测试总价所需的必填字段是否都已填写
+  // 确认测试总价前，实验字段必须完整且已上传原始数据
   const checkRawDataRequiredFields = (item) => {
     const fieldTestTimeFilled = hasValue(item.field_test_time);
     const equipmentFilled = hasValue(item.equipment_id) || hasValue(item.equipment_name);
@@ -1749,6 +1749,7 @@ const CommissionForm = () => {
     const machineHoursFilled = hasNonNegativeNumber(item.machine_hours);
     // 标准总价（line_total）也必须有值（允许为0）
     const standardTotalFilled = hasNonNegativeNumber(item.line_total);
+    const rawDataUploaded = hasUploadedFile(item.has_raw_data);
     
     return {
       // 现场测试时间不再作为必填项参与 allFilled 判断
@@ -1758,14 +1759,16 @@ const CommissionForm = () => {
         unitFilled &&
         workHoursFilled &&
         machineHoursFilled &&
-        standardTotalFilled,
+        standardTotalFilled &&
+        rawDataUploaded,
       fieldTestTimeFilled,
       equipmentFilled,
       quantityFilled,
       unitFilled,
       workHoursFilled,
       machineHoursFilled,
-      standardTotalFilled
+      standardTotalFilled,
+      rawDataUploaded
     };
   };
 
@@ -2419,7 +2422,7 @@ const CommissionForm = () => {
   // 检查当前是否可以对所选项目执行合并填价：
   // 1）必须是业务员角色；2）有选中项目；3）所有选中的项目 business_confirmed 都为未确认；
   // 4）当前用户是这些项目的 current_assignee（与单个行编辑规则保持一致）；
-  // 5）每一行均满足「实验数据」必填（与单行测试总价可编辑规则一致，缺一则禁用按钮、不弹窗）。
+  // 5）每一行均满足实验字段必填且已上传原始数据（与单行测试总价可编辑规则一致）。
   const canMergeFillPrice = () => {
     if (!user || user.role !== 'sales') return false;
     if (!selectedItems || selectedItems.length === 0) return false;
@@ -2643,9 +2646,8 @@ const CommissionForm = () => {
           body: JSON.stringify(payload)
         });
         if (!r.ok) {
-          const errText = await r.text().catch(() => '');
-          console.error('合并填价更新失败:', errText);
-          throw new Error('保存合并价格失败，请稍后重试');
+          const errorData = await r.json().catch(() => null);
+          throw new Error(errorData?.error || '保存合并价格失败，请稍后重试');
         }
       }
 
@@ -2684,6 +2686,15 @@ const CommissionForm = () => {
     } finally {
       setMergePriceLoading(false);
     }
+  };
+
+  const buildReportHeaderTemplateFields = (item) => {
+    const isOtherHeader = Number(item?.header_type) === 2;
+    return {
+      headerType1Symbol: isOtherHeader ? '☐' : '☑',
+      headerType2Symbol: isOtherHeader ? '☑' : '☐',
+      header_additional_info: isOtherHeader ? (item?.header_other || '') : ''
+    };
   };
 
   // 导出委托单模板
@@ -2753,8 +2764,7 @@ const CommissionForm = () => {
         paperReportType3Symbol: '☐',
         
         // 报告抬头
-        headerType1Symbol: '☑',
-        headerType2Symbol: '☐',
+        ...buildReportHeaderTemplateFields(firstItem),
         
         // 报告版式
         reportForm1Symbol: '☑',
@@ -2762,7 +2772,6 @@ const CommissionForm = () => {
         
         // 报告附加信息
         report_additional_info: '',
-        header_additional_info: '',
         
         // 样品处置
         sampleHandlingType1Symbol: '☑',
@@ -2977,9 +2986,7 @@ const CommissionForm = () => {
         reportForm2Symbol: '☐',
         
         // 报告抬头
-        headerType1Symbol: '☑',
-        headerType2Symbol: '☐',
-        header_additional_info: '',
+        ...buildReportHeaderTemplateFields(firstItem),
         
         // 服务类型
         serviceType1Symbol: '☑',
@@ -3713,6 +3720,11 @@ const CommissionForm = () => {
     // 阻止事件冒泡，防止触发行的点击事件
     if (e) e.stopPropagation();
     
+    if (!hasUploadedFile(item.has_raw_data)) {
+      alert('请先上传实验原始数据，再确认测试总价');
+      return;
+    }
+
     if (window.confirm('是否确认？确认后不可更改')) {
       try {
         const userLocal = JSON.parse(localStorage.getItem('lims_user') || 'null');
@@ -3741,7 +3753,10 @@ const CommissionForm = () => {
           headers: { 'Authorization': `Bearer ${userLocal.token}`, 'Content-Type': 'application/json' },
           body: JSON.stringify(updatePayload)
         });
-        if (!r.ok) throw new Error('确认失败');
+        if (!r.ok) {
+          const errorData = await r.json().catch(() => null);
+          throw new Error(errorData?.error || '确认失败');
+        }
         
         // Update local state
         setData(prev => prev.map(x => {
@@ -5021,13 +5036,15 @@ const CommissionForm = () => {
                 加测申请
               </button>
             )}
-            <button 
-              onClick={handleBatchUpload} 
-              className="btn btn-success"
-              disabled={selectedItems.length === 0}
-            >
-              一键上传 ({selectedItems.length})
-            </button>
+            {['admin', 'leader', 'supervisor', 'employee'].includes(user?.role) && (
+              <button
+                onClick={handleBatchUpload}
+                className="btn btn-success"
+                disabled={selectedItems.length === 0}
+              >
+                一键上传 ({selectedItems.length})
+              </button>
+            )}
             <button 
               onClick={handleExport} 
               className="btn btn-primary"
@@ -6272,7 +6289,7 @@ const CommissionForm = () => {
                           {!isItemBusinessConfirmed(item) && user?.user_id === item.current_assignee ? (
                             <>
                               {(() => {
-                                // 权限检查：如果6个必填字段有一个是空值，则不能填写测试总价也不能点击确认按钮
+                                // 权限检查：实验字段缺失或未上传原始数据时，不能填写或确认测试总价
                                 // 检查条件：1. 业务员角色 2. 组长角色且指派自己做实验（supervisor_id === technician_id === user_id）
                                 const isSales = user?.role === 'sales';
                                 const isSupervisorAsTechnician = user?.role === 'supervisor' && 
@@ -6290,10 +6307,10 @@ const CommissionForm = () => {
                                 
                                 // 根据角色显示不同的提示信息
                                 const errorMessage = isSales 
-                                  ? '实验数据未填写' 
+                                  ? (!requiredFieldsCheck.rawDataUploaded ? '请先上传原始数据' : '实验数据未填写')
                                   : '请先填写：检测设备、计数量、开单单位、测试工时、测试机时';
                                 const errorTooltip = isSales 
-                                  ? '实验数据未填写' 
+                                  ? (!requiredFieldsCheck.rawDataUploaded ? '请先上传实验原始数据' : '实验数据未填写')
                                   : '请先填写必填项：检测设备、计数量、开单单位、测试工时、测试机时';
                                 
                                 return (

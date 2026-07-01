@@ -172,6 +172,10 @@ const hasNonNegativeNumber = (value) => {
   const num = Number(value);
   return Number.isFinite(num) && num >= 0;
 };
+const isBusinessConfirmedValue = (value) => value === 1 || value === true || value === '1';
+const removeUploadedFile = (file) => {
+  if (file?.path && fs.existsSync(file.path)) fs.unlinkSync(file.path);
+};
 
 // 上传文件
 router.post('/upload', 
@@ -179,6 +183,9 @@ router.post('/upload',
   upload.single('file'),
   handleMulterError,
   async (req, res) => {
+  let transactionStarted = false;
+  let pool;
+  let connection;
   try {
     if (!req.file) {
       return res.status(400).json({ error: '没有选择文件' });
@@ -207,31 +214,45 @@ router.post('/upload',
     // 处理中文文件名编码
     const originalName = decodeFileName(req.file.originalname);
     
-    const pool = await getPool();
-    if (category === 'raw_data' && test_item_id && RAW_UPLOAD_REQUIRED_ROLES.has(user.role)) {
-      const [testItems] = await pool.query(
-        `SELECT equipment_id, actual_sample_quantity, unit, work_hours, machine_hours
-         FROM test_items WHERE test_item_id = ? LIMIT 1`,
+    pool = await getPool();
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
+    transactionStarted = true;
+    let testItemBusinessConfirmed = false;
+    let syncedActualDeliveryDate = null;
+
+    if (test_item_id) {
+      const [testItems] = await connection.query(
+        `SELECT business_confirmed, equipment_id, actual_sample_quantity, unit, work_hours, machine_hours
+         FROM test_items WHERE test_item_id = ? LIMIT 1 FOR UPDATE`,
         [test_item_id]
       );
       if (testItems.length === 0) {
-        if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+        await connection.rollback();
+        transactionStarted = false;
+        removeUploadedFile(req.file);
         return res.status(404).json({ error: '检测项目不存在' });
       }
       const ti = testItems[0];
-      const ready =
-        hasFilledValue(ti.equipment_id) &&
-        hasNonNegativeNumber(ti.actual_sample_quantity) &&
-        hasFilledValue(ti.unit) &&
-        hasNonNegativeNumber(ti.work_hours) &&
-        hasNonNegativeNumber(ti.machine_hours);
-      if (!ready) {
-        if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
-        return res.status(400).json({ error: '上传原始数据前，请先填写检测设备、计费数量、单位、测试工时、测试机时' });
+      testItemBusinessConfirmed = isBusinessConfirmedValue(ti.business_confirmed);
+
+      if (category === 'raw_data' && RAW_UPLOAD_REQUIRED_ROLES.has(user.role)) {
+        const ready =
+          hasFilledValue(ti.equipment_id) &&
+          hasNonNegativeNumber(ti.actual_sample_quantity) &&
+          hasFilledValue(ti.unit) &&
+          hasNonNegativeNumber(ti.work_hours) &&
+          hasNonNegativeNumber(ti.machine_hours);
+        if (!ready) {
+          await connection.rollback();
+          transactionStarted = false;
+          removeUploadedFile(req.file);
+          return res.status(400).json({ error: '上传原始数据前，请先填写检测设备、计费数量、单位、测试工时、测试机时' });
+        }
       }
     }
 
-    const [result] = await pool.query(
+    const [result] = await connection.query(
       `INSERT INTO project_files 
        (category, filename, filepath, order_id, test_item_id, sample_id, uploaded_by) 
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -245,6 +266,23 @@ router.post('/upload',
         user.user_id
       ]
     );
+
+    if (category === 'raw_data' && test_item_id && !testItemBusinessConfirmed) {
+      await connection.query(
+        'UPDATE test_items SET actual_delivery_date = CURRENT_DATE() WHERE test_item_id = ?',
+        [test_item_id]
+      );
+      const [deliveryRows] = await connection.query(
+        `SELECT DATE_FORMAT(actual_delivery_date, '%Y-%m-%d') AS actual_delivery_date
+         FROM test_items WHERE test_item_id = ?`,
+        [test_item_id]
+      );
+      syncedActualDeliveryDate = deliveryRows[0]?.actual_delivery_date || null;
+    }
+    await connection.commit();
+    transactionStarted = false;
+    connection.release();
+    connection = null;
 
     const fileId = result.insertId;
 
@@ -309,14 +347,22 @@ router.post('/upload',
       file_id: fileId,
       filename: originalName,
       filepath: req.file.path,
-      category
+      category,
+      actual_delivery_date: syncedActualDeliveryDate
     });
   } catch (error) {
-    // 如果数据库操作失败，删除已上传的文件
-    if (req.file && fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path);
+    if (transactionStarted && connection) {
+      try {
+        await connection.rollback();
+      } catch (rollbackError) {
+        console.error('上传文件事务回滚失败:', rollbackError);
+      }
     }
+    // 如果数据库操作失败，删除已上传的文件
+    removeUploadedFile(req.file);
     res.status(500).json({ error: error.message });
+  } finally {
+    if (connection) connection.release();
   }
 });
 
@@ -447,44 +493,75 @@ router.get('/download/:id', requireAnyRole(['admin', 'leader', 'supervisor', 'em
 
 // 删除文件
 router.delete('/:id', requireAnyRole(['admin', 'leader', 'supervisor', 'employee']), async (req, res) => {
+  let transactionStarted = false;
+  let pool;
+  let connection;
   try {
-    const pool = await getPool();
+    pool = await getPool();
     const user = req.user;
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
+    transactionStarted = true;
     
-    const [rows] = await pool.query(
-      'SELECT * FROM project_files WHERE file_id = ?',
+    const [rows] = await connection.query(
+      'SELECT * FROM project_files WHERE file_id = ? FOR UPDATE',
       [req.params.id]
     );
     
     if (rows.length === 0) {
+      await connection.rollback();
+      transactionStarted = false;
       return res.status(404).json({ error: '文件不存在' });
     }
     
     const file = rows[0];
+
+    if (file.category === 'raw_data' && isBusinessConfirmedValue(file.is_business_confirm_locked)) {
+      await connection.rollback();
+      transactionStarted = false;
+      return res.status(409).json({ error: '该原始数据在测试总价确认前已存在，不能删除' });
+    }
     
     // 权限检查：实验员只能删除自己上传的原始数据文件
     if (user.role === 'employee') {
       // 实验员只能删除自己上传的文件
       if (file.uploaded_by !== user.user_id) {
+        await connection.rollback();
+        transactionStarted = false;
         return res.status(403).json({ error: '您只能删除自己上传的文件' });
       }
       // 实验员只能删除原始数据类型的文件
       if (file.category !== 'raw_data') {
+        await connection.rollback();
+        transactionStarted = false;
         return res.status(403).json({ error: '实验员只能删除原始数据文件' });
       }
     }
     
     // 删除数据库记录
-    await pool.query('DELETE FROM project_files WHERE file_id = ?', [req.params.id]);
-    
-    // 删除物理文件
+    await connection.query('DELETE FROM project_files WHERE file_id = ?', [req.params.id]);
+    await connection.commit();
+    transactionStarted = false;
+    connection.release();
+    connection = null;
+
+    // 数据库删除成功后再清理物理文件，避免文件已删但事务回滚后记录仍存在
     if (fs.existsSync(file.filepath)) {
       fs.unlinkSync(file.filepath);
     }
     
     res.json({ success: true, message: '文件删除成功' });
   } catch (error) {
+    if (transactionStarted && connection) {
+      try {
+        await connection.rollback();
+      } catch (rollbackError) {
+        console.error('删除文件事务回滚失败:', rollbackError);
+      }
+    }
     res.status(500).json({ error: error.message });
+  } finally {
+    if (connection) connection.release();
   }
 });
 
@@ -494,6 +571,9 @@ router.post('/batch-upload',
   upload.single('file'),
   handleMulterError,
   async (req, res) => {
+  let transactionStarted = false;
+  let pool;
+  let connection;
   try {
     if (!req.file) {
       return res.status(400).json({ error: '没有选择文件' });
@@ -530,11 +610,15 @@ router.post('/batch-upload',
     // 处理中文文件名编码
     const originalName = decodeFileName(req.file.originalname);
     
-    const pool = await getPool();
-    
+    pool = await getPool();
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
+    transactionStarted = true;
+
+    const uniqueTestItemIds = [...new Set(testItemIdArray)];
     // 为每个检测项目创建文件记录
-    const insertPromises = testItemIdArray.map(testItemId => 
-      pool.query(
+    const insertPromises = uniqueTestItemIds.map(testItemId =>
+      connection.query(
         `INSERT INTO project_files 
          (category, filename, filepath, test_item_id, uploaded_by) 
          VALUES (?, ?, ?, ?, ?)`,
@@ -549,20 +633,31 @@ router.post('/batch-upload',
     );
 
     await Promise.all(insertPromises);
+    await connection.commit();
+    transactionStarted = false;
+    connection.release();
+    connection = null;
 
     res.json({
       success: true,
       filename: originalName,
       filepath: req.file.path,
-      affectedRows: testItemIdArray.length,
-      testItemIds: testItemIdArray
+      affectedRows: uniqueTestItemIds.length,
+      testItemIds: uniqueTestItemIds
     });
   } catch (error) {
-    // 如果数据库操作失败，删除已上传的文件
-    if (req.file && fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path);
+    if (transactionStarted && connection) {
+      try {
+        await connection.rollback();
+      } catch (rollbackError) {
+        console.error('批量上传事务回滚失败:', rollbackError);
+      }
     }
+    // 如果数据库操作失败，删除已上传的文件
+    removeUploadedFile(req.file);
     res.status(500).json({ error: error.message });
+  } finally {
+    if (connection) connection.release();
   }
 });
 

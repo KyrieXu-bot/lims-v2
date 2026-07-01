@@ -8,6 +8,8 @@ const DAY_HOURS = 16;
 const SLOT_MINUTES = 30;
 const MS_PER_MINUTE = 60 * 1000;
 const VIEW_MODE_STORAGE_KEY = 'equipment_booking_view_mode';
+const MECHANICS_DEPARTMENT_ID = 3;
+const MECHANICS_USER_IDS = new Set(['JC0023', 'JC0101', 'JC0011', 'JC0019', 'JC005']);
 
 function getInitialViewMode() {
   try {
@@ -418,6 +420,18 @@ export default function EquipmentBooking() {
   const [now, setNow] = useState(() => new Date());
   const rowRefs = useRef(new Map());
 
+  function canCreateForEquipment(equipmentId) {
+    const target = equipment.find((item) => String(item.equipment_id) === String(equipmentId));
+    if (!target) return false;
+    const roles = Array.isArray(user?.roles) ? user.roles : [user?.role].filter(Boolean);
+    if (roles.includes('admin')) return true;
+    if (Number(target.department_id) === MECHANICS_DEPARTMENT_ID) {
+      return MECHANICS_USER_IDS.has(String(user?.user_id || ''));
+    }
+    return (roles.includes('sales') && Number(user?.department_id) === 4) ||
+      (roles.includes('supervisor') && Number(user?.department_id) === 1);
+  }
+
   const windowRange = useMemo(() => getWindow(dateFilter), [dateFilter]);
 
   const filteredEquipment = useMemo(() => {
@@ -509,6 +523,7 @@ export default function EquipmentBooking() {
   }
 
   function openQuickBooking(equipmentId, start, end) {
+    if (!canCreateForEquipment(equipmentId)) return;
     setModalInitial({
       equipment_id: equipmentId,
       start_time: start,
@@ -517,7 +532,7 @@ export default function EquipmentBooking() {
   }
 
   function handleMouseDown(e, equipmentId) {
-    if (e.button !== 0 || e.target.closest('.booking-event')) return;
+    if (!canCreateForEquipment(equipmentId) || e.button !== 0 || e.target.closest('.booking-event')) return;
     const start = getTimeFromPointer(e, equipmentId);
     if (!start) return;
     setDragDraft({ equipmentId, start, end: addMinutes(start, SLOT_MINUTES) });
@@ -549,14 +564,15 @@ export default function EquipmentBooking() {
   }
 
   function handleEdit(booking) {
-    if (String(booking.booker_id) !== String(user?.user_id) && !booking.can_approve) return;
+    const canEditOwn = String(booking.booker_id) === String(user?.user_id) && canCreateForEquipment(booking.equipment_id);
+    if (!canEditOwn && !booking.can_approve) return;
     if (isBookingExpired(booking, now)) return;
     setModalInitial(booking);
   }
 
   function handleTimelineBookingClick(booking) {
     const isMine = String(booking.booker_id) === String(user?.user_id);
-    if (isMine && !isBookingExpired(booking, now)) {
+    if (((isMine && canCreateForEquipment(booking.equipment_id)) || booking.can_approve) && !isBookingExpired(booking, now)) {
       handleEdit(booking);
       return;
     }
@@ -631,7 +647,7 @@ export default function EquipmentBooking() {
                     <span>{item.department_name || '未分部门'}{item.equipment_no ? ` · ${item.equipment_no}` : ''}</span>
                   </div>
                   <div
-                    className="booking-row-track"
+                    className={`booking-row-track${canCreateForEquipment(item.equipment_id) ? '' : ' read-only'}`}
                     ref={(node) => {
                       if (node) rowRefs.current.set(String(item.equipment_id), node);
                       else rowRefs.current.delete(String(item.equipment_id));

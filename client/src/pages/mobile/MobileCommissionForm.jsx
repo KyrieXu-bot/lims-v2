@@ -678,8 +678,10 @@ const MobileCommissionDetail = ({ item, onClose, onUpdate }) => {
     // 与浏览器端保持一致：业务确认价格依赖标准总价（line_total）是否可用，
     // 不直接要求 unit_price 必填；单位不一致待处理状态不应误判为“实验数据未填写”。
     const pricingReady = standardTotalFilled || unitMismatchReviewed === 1;
+    const rawDataUploaded = current?.has_raw_data === 1 || current?.has_raw_data === true || current?.has_raw_data === '1';
     return {
-      allFilled: equipmentFilled && quantityFilled && unitFilled && workHoursFilled && machineHoursFilled && pricingReady
+      allFilled: equipmentFilled && quantityFilled && unitFilled && workHoursFilled && machineHoursFilled && pricingReady && rawDataUploaded,
+      rawDataUploaded
     };
   };
   const salesCanEditPrice = !isCurrentSalesAssignee || checkRawDataRequiredFields(formData).allFilled;
@@ -965,7 +967,7 @@ const MobileCommissionDetail = ({ item, onClose, onUpdate }) => {
   const handleBusinessConfirm = async () => {
     if (!isCurrentSalesAssignee) return;
     if (!salesCanEditPrice) {
-      alert('实验数据未填写');
+      alert(checkRawDataRequiredFields(formData).rawDataUploaded ? '实验数据未填写' : '请先上传实验原始数据');
       return;
     }
     if (isBusinessConfirmed) {
@@ -1098,7 +1100,9 @@ const MobileCommissionDetail = ({ item, onClose, onUpdate }) => {
                 className={`mobile-status-filter-btn active mobile-price-confirm-btn ${!salesCanEditPrice ? 'disabled' : ''}`}
                 onClick={handleBusinessConfirm}
                 disabled={!salesCanEditPrice}
-                title={!salesCanEditPrice ? '实验数据未填写' : '确认测试总价'}
+                title={!salesCanEditPrice
+                  ? (checkRawDataRequiredFields(formData).rawDataUploaded ? '实验数据未填写' : '请先上传实验原始数据')
+                  : '确认测试总价'}
               >
                 确认
               </button>
@@ -1281,6 +1285,7 @@ const MobileCommissionDetail = ({ item, onClose, onUpdate }) => {
                 enableUpload={true}
                 onFileUploaded={() => {
                   // 文件上传后可以刷新数据
+                  setFormData((prev) => ({ ...prev, has_raw_data: 1 }));
                   if (onUpdate) onUpdate();
                 }}
               />
@@ -1308,8 +1313,6 @@ const MobileCommissionDetail = ({ item, onClose, onUpdate }) => {
 };
 
 export default MobileCommissionForm;
-
-
 
 
 

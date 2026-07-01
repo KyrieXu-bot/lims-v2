@@ -44,7 +44,7 @@ function Layout({ children }) {
   const canUseEquipmentBooking = Boolean(user?.token) && (
     hasRole('admin') ||
     (hasRole('sales') && Number(user.department_id) === 4) ||
-    ((hasRole('employee') || hasRole('supervisor')) && Number(user.department_id) === 1) ||
+    ((hasRole('supervisor') || hasRole('leader')) && Number(user.department_id) === 1) ||
     ['JC0023', 'JC0101', 'JC0011', 'JC0019', 'JC005'].includes(String(user.user_id || ''))
   );
   function logout() {

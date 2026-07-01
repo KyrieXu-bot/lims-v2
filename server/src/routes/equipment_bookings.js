@@ -7,10 +7,6 @@ const router = Router();
 
 const ALL_ROLES = ['admin', 'leader', 'supervisor', 'employee', 'sales', 'viewer'];
 const MICRO_LABELS = ['FIBTEM', 'SEMXRD'];
-const MICRO_GROUP_LABEL_BY_ID = {
-  4: 'FIBTEM',
-  5: 'SEMXRD'
-};
 const MECHANICS_DEPARTMENT_ID = 3;
 const MECHANICS_USER_IDS = ['JC0023', 'JC0101', 'JC0011', 'JC0019', 'JC005'];
 
@@ -38,12 +34,12 @@ function isSalesUser(user) {
   return hasRole(user, 'sales') && Number(user.department_id) === 4;
 }
 
-function isMicroscopeEmployee(user) {
-  return hasRole(user, 'employee') && Number(user.department_id) === 1;
+function isMicroscopeSupervisor(user) {
+  return hasRole(user, 'supervisor') && Number(user.department_id) === 1;
 }
 
-function isMicroscopeSupervisor(user) {
-  return hasRole(user, 'supervisor') && Boolean(MICRO_GROUP_LABEL_BY_ID[Number(user.group_id)]);
+function isMicroscopeLeader(user) {
+  return hasRole(user, 'leader') && Number(user.department_id) === 1;
 }
 
 function isMechanicsUser(user) {
@@ -51,12 +47,7 @@ function isMechanicsUser(user) {
 }
 
 function canUseBookingModule(user) {
-  return isAdmin(user) || isSalesUser(user) || isMicroscopeEmployee(user) || isMicroscopeSupervisor(user) || isMechanicsUser(user);
-}
-
-function getApprovalLabelForUser(user) {
-  if (!isMicroscopeSupervisor(user)) return '';
-  return MICRO_GROUP_LABEL_BY_ID[Number(user.group_id)] || '';
+  return isAdmin(user) || isSalesUser(user) || isMicroscopeSupervisor(user) || isMicroscopeLeader(user) || isMechanicsUser(user);
 }
 
 function normalizeLabel(value) {
@@ -76,13 +67,22 @@ function requiresApproval(user, equipment) {
   return isMicroEquipment(equipment);
 }
 
+function canUserCreateBooking(user, equipment) {
+  if (isAdmin(user)) return true;
+  if (isMicroEquipment(equipment)) return isSalesUser(user) || isMicroscopeSupervisor(user);
+  if (isMechanicsEquipment(equipment)) return isMechanicsUser(user);
+  return false;
+}
+
+function canUserApproveBooking(user, equipment) {
+  return isMicroscopeSupervisor(user) && isMicroEquipment(equipment);
+}
+
 function canUserAccessEquipment(user, equipment) {
   if (isAdmin(user)) return true;
   if (isMechanicsEquipment(equipment)) return isSalesUser(user) || isMechanicsUser(user);
   if (isMicroEquipment(equipment)) {
-    const label = normalizeLabel(equipment.equipment_label);
-    if (isSalesUser(user) || isMicroscopeEmployee(user)) return true;
-    return getApprovalLabelForUser(user) === label;
+    return isSalesUser(user) || isMicroscopeSupervisor(user) || isMicroscopeLeader(user);
   }
   return false;
 }
@@ -103,15 +103,9 @@ function buildEquipmentScope(user, alias = 'e') {
     params.push(...MICRO_LABELS);
     parts.push(`${alias}.department_id = ?`);
     params.push(MECHANICS_DEPARTMENT_ID);
-  } else if (isMicroscopeEmployee(user)) {
+  } else if (isMicroscopeSupervisor(user) || isMicroscopeLeader(user)) {
     parts.push(`UPPER(${alias}.equipment_label) IN (?, ?)`);
     params.push(...MICRO_LABELS);
-  }
-
-  const approvalLabel = getApprovalLabelForUser(user);
-  if (approvalLabel) {
-    parts.push(`UPPER(${alias}.equipment_label) = ?`);
-    params.push(approvalLabel);
   }
 
   if (isMechanicsUser(user)) {
@@ -236,20 +230,18 @@ async function validateBookingPayload(pool, user, {
 }
 
 function decorateBookingRows(rows, user) {
-  const approvalLabel = getApprovalLabelForUser(user);
   return rows.map((row) => {
     const isApplicant = String(row.booker_id) === String(user.user_id);
     const canApprove =
       !isAdmin(user) &&
       row.status === 'active' &&
       row.approval_status === 'pending' &&
-      approvalLabel &&
-      normalizeLabel(row.equipment_label) === approvalLabel;
+      canUserApproveBooking(user, row);
     return {
       ...row,
       applicant_name: row.booker_name,
-      can_edit: isAdmin(user) || isApplicant || canApprove,
-      can_cancel: isAdmin(user) || isApplicant,
+      can_edit: isAdmin(user) || (isApplicant && canUserCreateBooking(user, row)) || canApprove,
+      can_cancel: isAdmin(user) || (isApplicant && canUserCreateBooking(user, row)),
       can_approve: Boolean(canApprove)
     };
   });
@@ -345,7 +337,7 @@ router.get('/assignees', async (req, res) => {
     if (isMechanicsUser(req.user)) {
       filters.push('u.department_id = ?');
       params.push(MECHANICS_DEPARTMENT_ID);
-    } else if (isMicroscopeEmployee(req.user) || isMicroscopeSupervisor(req.user)) {
+    } else if (isMicroscopeSupervisor(req.user) || isMicroscopeLeader(req.user)) {
       filters.push('u.department_id = ?');
       params.push(1);
     } else if (equipment_id) {
@@ -454,11 +446,10 @@ router.get('/', async (req, res) => {
     params.push(req.user.user_id, req.user.user_id);
   }
   if (approvals === 'true' || approvals === '1') {
-    const label = getApprovalLabelForUser(req.user);
-    if (!label) return res.json({ data: [] });
+    if (!isMicroscopeSupervisor(req.user)) return res.json({ data: [] });
     filters.push("b.approval_status = 'pending'");
-    filters.push('UPPER(e.equipment_label) = ?');
-    params.push(label);
+    filters.push('UPPER(e.equipment_label) IN (?, ?)');
+    params.push(...MICRO_LABELS);
   }
 
   try {
@@ -537,6 +528,10 @@ router.post('/', async (req, res) => {
         await pool.query('ROLLBACK');
         return res.status(validation.status).json({ error: validation.error });
       }
+      if (!canUserCreateBooking(req.user, validation.equipment)) {
+        await pool.query('ROLLBACK');
+        return res.status(403).json({ error: '当前账号无权预约该设备' });
+      }
 
       const approvalStatus = requiresApproval(req.user, validation.equipment) ? 'pending' : 'not_required';
       const [result] = await pool.query(
@@ -601,7 +596,7 @@ router.put('/:id', async (req, res) => {
         return res.status(404).json({ error: '预约不存在' });
       }
       const booking = bookingRows[0];
-      const canApprove = getApprovalLabelForUser(req.user) === normalizeLabel(booking.equipment_label);
+      const canApprove = canUserApproveBooking(req.user, booking);
       const isApplicant = booking.booker_id === req.user.user_id;
       if (booking.status !== 'active') {
         await pool.query('ROLLBACK');
@@ -628,6 +623,10 @@ router.put('/:id', async (req, res) => {
       if (validation?.error) {
         await pool.query('ROLLBACK');
         return res.status(validation.status).json({ error: validation.error });
+      }
+      if (isApplicant && !canApprove && !canUserCreateBooking(req.user, validation.equipment)) {
+        await pool.query('ROLLBACK');
+        return res.status(403).json({ error: '当前账号无权修改为该设备的预约' });
       }
 
       let nextApprovalStatus = booking.approval_status;
@@ -703,7 +702,7 @@ router.post('/:id/approve', async (req, res) => {
         await pool.query('ROLLBACK');
         return res.status(400).json({ error: '该预约不在待审批状态' });
       }
-      if (getApprovalLabelForUser(req.user) !== normalizeLabel(booking.equipment_label)) {
+      if (!canUserApproveBooking(req.user, booking)) {
         await pool.query('ROLLBACK');
         return res.status(403).json({ error: '无权审批该设备预约' });
       }
@@ -766,7 +765,7 @@ router.post('/:id/reject', async (req, res) => {
         await pool.query('ROLLBACK');
         return res.status(400).json({ error: '该预约不在待审批状态' });
       }
-      if (getApprovalLabelForUser(req.user) !== normalizeLabel(booking.equipment_label)) {
+      if (!canUserApproveBooking(req.user, booking)) {
         await pool.query('ROLLBACK');
         return res.status(403).json({ error: '无权审批该设备预约' });
       }
@@ -800,7 +799,12 @@ router.post('/:id/cancel', async (req, res) => {
     await pool.query('START TRANSACTION');
     try {
       const [rows] = await pool.query(
-        'SELECT booking_id, booker_id, status, end_time FROM equipment_bookings WHERE booking_id = ? FOR UPDATE',
+        `SELECT b.booking_id, b.booker_id, b.status, b.end_time,
+                e.department_id, e.equipment_label
+         FROM equipment_bookings b
+         JOIN equipment e ON e.equipment_id = b.equipment_id
+         WHERE b.booking_id = ?
+         FOR UPDATE`,
         [id]
       );
       if (rows.length === 0) {
@@ -812,7 +816,7 @@ router.post('/:id/cancel', async (req, res) => {
         await pool.query('ROLLBACK');
         return res.status(400).json({ error: '该预约已取消或已释放' });
       }
-      if (!isAdmin(req.user) && booking.booker_id !== req.user.user_id) {
+      if (!isAdmin(req.user) && (booking.booker_id !== req.user.user_id || !canUserCreateBooking(req.user, booking))) {
         await pool.query('ROLLBACK');
         return res.status(403).json({ error: '只能取消自己的预约' });
       }

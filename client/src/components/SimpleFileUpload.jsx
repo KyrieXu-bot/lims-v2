@@ -26,7 +26,9 @@ const SimpleFileUpload = ({
     { value: 'experiment_report', label: '实验报告', icon: '📊' }
   ];
 
-  const canUpload = enableUpload && ['admin', 'leader', 'supervisor', 'employee', 'sales'].includes(userRole);
+  const canUpload =
+    enableUpload &&
+    ['admin', 'leader', 'supervisor', 'employee'].includes(userRole);
 
   useEffect(() => {
     if (testItemId) {
@@ -224,30 +226,16 @@ const SimpleFileUpload = ({
               }
             }));
 
-            // 如果上传的是“实验原始数据”，则把上传时间写入对应检测项目的实际交付日期
-            try {
-              if (selectedCategory === 'raw_data' && testItemId) {
-                const uploadedAt = uploaded.created_at || new Date().toISOString();
-                const dateOnly = new Date(uploadedAt).toISOString().slice(0, 10);
-
-                fetch(`/api/test-items/${testItemId}`, {
-                  method: 'PUT',
-                  headers: {
-                    'Authorization': `Bearer ${user.token}`,
-                    'Content-Type': 'application/json'
-                  },
-                  body: JSON.stringify({ actual_delivery_date: dateOnly })
-                }).then(updateRes => {
-                  if (updateRes.ok) {
-                    const event = new CustomEvent('realtime-data-update', {
-                      detail: { testItemId, field: 'actual_delivery_date', value: dateOnly }
-                    });
-                    window.dispatchEvent(event);
-                  }
-                });
-              }
-            } catch (err) {
-              console.error('更新实际交付日期失败:', err);
+            // 后端只会在价格确认前同步实际交付日期；确认后上传不会返回新日期
+            if (selectedCategory === 'raw_data' && testItemId && uploaded.actual_delivery_date) {
+              const event = new CustomEvent('realtime-data-update', {
+                detail: {
+                  testItemId,
+                  field: 'actual_delivery_date',
+                  value: uploaded.actual_delivery_date
+                }
+              });
+              window.dispatchEvent(event);
             }
 
             resolve(uploaded);
@@ -566,6 +554,11 @@ const SimpleFileUpload = ({
 
   // 判断是否显示删除按钮
   const canDeleteFile = (file) => {
+    const isLockedPreConfirmRawData =
+      file.category === 'raw_data' &&
+      (file.is_business_confirm_locked === 1 || file.is_business_confirm_locked === true || file.is_business_confirm_locked === '1');
+    if (isLockedPreConfirmRawData) return false;
+
     // 管理员、室主任、主管可以删除所有文件
     if (['admin', 'leader', 'supervisor'].includes(userRole)) {
       return true;

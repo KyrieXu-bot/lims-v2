@@ -88,7 +88,8 @@ const BatchFileUpload = ({ testItemIds, userRole, onFileUploaded }) => {
       });
 
       if (!response.ok) {
-        throw new Error(`上传失败: ${response.status}`);
+        const errorData = await response.json().catch(() => null);
+        throw new Error(errorData?.error || `上传失败: ${response.status}`);
       }
 
       const result = await response.json();

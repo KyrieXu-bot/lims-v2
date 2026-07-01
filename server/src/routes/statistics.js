@@ -60,8 +60,8 @@ async function buildLeaderData(pool, user, from, to, jcPrefix = null) {
 
   // 如果使用JC号筛选，不使用日期条件
   const baseWhere = jcPrefix 
-    ? 'ti.actual_delivery_date IS NOT NULL'
-    : 'ti.actual_delivery_date BETWEEN ? AND ? AND ti.actual_delivery_date IS NOT NULL';
+    ? "ti.actual_delivery_date IS NOT NULL AND ti.status <> 'cancelled'"
+    : "ti.actual_delivery_date BETWEEN ? AND ? AND ti.actual_delivery_date IS NOT NULL AND ti.status <> 'cancelled'";
   
   const params = [];
   if (!jcPrefix) {
@@ -186,8 +186,8 @@ async function buildSupervisorData(pool, user, from, to, jcPrefix = null) {
   
   // 如果使用JC号筛选，不使用日期条件
   const baseWhere = jcPrefix 
-    ? 'ti.actual_delivery_date IS NOT NULL'
-    : 'ti.actual_delivery_date BETWEEN ? AND ? AND ti.actual_delivery_date IS NOT NULL';
+    ? "ti.actual_delivery_date IS NOT NULL AND ti.status <> 'cancelled'"
+    : "ti.actual_delivery_date BETWEEN ? AND ? AND ti.actual_delivery_date IS NOT NULL AND ti.status <> 'cancelled'";
   
   const params = [];
   if (!jcPrefix) {
@@ -264,8 +264,8 @@ async function buildEmployeeData(pool, user, from, to, jcPrefix = null) {
   
   // 如果使用JC号筛选，不使用日期条件
   const baseWhere = jcPrefix 
-    ? 'ti.actual_delivery_date IS NOT NULL'
-    : 'ti.actual_delivery_date BETWEEN ? AND ? AND ti.actual_delivery_date IS NOT NULL';
+    ? "ti.actual_delivery_date IS NOT NULL AND ti.status <> 'cancelled'"
+    : "ti.actual_delivery_date BETWEEN ? AND ? AND ti.actual_delivery_date IS NOT NULL AND ti.status <> 'cancelled'";
   
   const params = [];
   if (!jcPrefix) {
@@ -495,6 +495,7 @@ router.get('/jc-prefixes', async (req, res) => {
        WHERE ti.order_id IS NOT NULL 
          AND ti.order_id LIKE 'JC%'
          AND LENGTH(ti.order_id) >= 6
+         AND ti.status <> 'cancelled'
        ORDER BY jc_prefix DESC`
     );
     const prefixes = rows.map(row => row.jc_prefix).filter(Boolean);
@@ -536,5 +537,4 @@ router.get('/export', async (req, res) => {
 });
 
 export default router;
-
 
