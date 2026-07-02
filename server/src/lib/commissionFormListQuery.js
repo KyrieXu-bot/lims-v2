@@ -146,7 +146,8 @@ export const COMMISSION_FORM_LIST_SELECT_JOINS = `
         FROM project_files
         GROUP BY test_item_id
       ) pf ON pf.test_item_id = ti.test_item_id
-      LEFT JOIN settlements s ON s.settlement_type = 'invoice' AND JSON_CONTAINS(s.test_item_ids, CAST(ti.test_item_id AS JSON), '$')
+      LEFT JOIN settlements s ON s.settlement_type = 'invoice'
+        AND s.settlement_serial_number = ti.settlement_serial_number
       LEFT JOIN (
         SELECT settlement_id, test_item_id, SUM(amount) AS allocated_amount
         FROM settlement_item_payment_allocations

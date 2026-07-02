@@ -445,6 +445,7 @@ const CommissionForm = () => {
   const micrographUploadAbortRef = useRef(null);
   const operationColumnRef = useRef(null); // 操作列的引用
   const [selectAllLoading, setSelectAllLoading] = useState(false);
+  const [excelExporting, setExcelExporting] = useState(false);
   const [copiedFieldTestTime, setCopiedFieldTestTime] = useState('');
   // 流转顺序信息缓存：{orderId: [{test_item_id, seq_no, group_name}, ...]}
   const [flowSequenceCache, setFlowSequenceCache] = useState({});
@@ -2207,15 +2208,17 @@ const CommissionForm = () => {
       try {
         fullSelectionCacheRef.current = null;
         const allItems = await fetchAllMatchingItems();
-        const allIds = allItems
-          .map(item => normalizeTestItemId(item.test_item_id))
-          .filter((id) => id !== null && id !== undefined);
-        const uniqueIds = Array.from(new Set(allIds));
-        setSelectedItems(uniqueIds);
-        uniqueIds.forEach((id) => {
-          const row = allItems.find(it => isSameTestItemId(it.test_item_id, id));
-          if (row) selectedItemSnapshotRef.current.set(id, row);
+        const uniqueIds = [];
+        const seenIds = new Set();
+        selectedItemSnapshotRef.current.clear();
+        allItems.forEach((item) => {
+          const id = normalizeTestItemId(item.test_item_id);
+          if (id === null || id === undefined || seenIds.has(id)) return;
+          seenIds.add(id);
+          uniqueIds.push(id);
+          selectedItemSnapshotRef.current.set(id, item);
         });
+        setSelectedItems(uniqueIds);
       } catch (error) {
         console.error('全选失败:', error);
         alert('全选失败，请稍后再试');
@@ -2254,7 +2257,10 @@ const CommissionForm = () => {
       return;
     }
 
+    setExcelExporting(true);
     try {
+      // 先让加载提示完成一次绘制，再进入可能较重的数据整理与工作簿生成。
+      await new Promise(resolve => requestAnimationFrame(resolve));
       // 获取选中的数据
       const selectedData = await getSelectedItemsData();
       
@@ -2416,6 +2422,8 @@ const CommissionForm = () => {
     } catch (error) {
       console.error('导出Excel失败:', error);
       alert('导出Excel失败：' + error.message);
+    } finally {
+      setExcelExporting(false);
     }
   };
 
@@ -5214,6 +5222,14 @@ const CommissionForm = () => {
               </div>
             )}
             <div className="table-wrapper">
+              {selectAllLoading && (
+                <div className="commission-operation-toast" role="status" aria-live="polite">
+                  <span>正在选择当前筛选结果，请稍候…</span>
+                  <div className="commission-operation-progress" aria-hidden="true">
+                    <div className="commission-operation-progress-bar" />
+                  </div>
+                </div>
+              )}
               <table className="data-table">
                 <thead>
                   <tr>
@@ -7057,11 +7073,17 @@ const CommissionForm = () => {
 
       {/* 导出模态框 */}
       {showExportModal && (
-        <div className="file-modal-overlay" onClick={() => setShowExportModal(false)}>
+        <div className="file-modal-overlay" onClick={() => {
+          if (!excelExporting) setShowExportModal(false);
+        }}>
           <div className="file-modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="file-modal-header">
               <h3>导出模板 - 已选择 {selectedItems.length} 个检测项目</h3>
-              <button className="close-button" onClick={() => setShowExportModal(false)}>×</button>
+              <button
+                className="close-button"
+                onClick={() => setShowExportModal(false)}
+                disabled={excelExporting}
+              >×</button>
             </div>
             <div className="file-modal-body">
               <div
@@ -7079,8 +7101,9 @@ const CommissionForm = () => {
                     className="btn btn-success"
                     style={{ ...EXPORT_MODAL_GRID_BTN, backgroundColor: '#28a745', color: 'white' }}
                     onClick={handleExportExcel}
+                    disabled={excelExporting}
                   >
-                    导出Excel
+                    {excelExporting ? '正在导出…' : '导出Excel'}
                   </button>
                   {user?.role === 'admin' && (
                     <button
@@ -7254,9 +7277,20 @@ const CommissionForm = () => {
                       </div>
                     </div>
                   </>
+                  )}
+                </div>
+                {excelExporting && (
+                  <div className="export-operation-status" role="status" aria-live="polite">
+                    <div className="export-operation-status-title">正在生成 Excel 文件</div>
+                    <div className="export-operation-status-detail">
+                      正在整理 {selectedItems.length} 条已选数据，请勿关闭窗口…
+                    </div>
+                    <div className="commission-operation-progress" aria-hidden="true">
+                      <div className="commission-operation-progress-bar" />
+                    </div>
+                  </div>
                 )}
               </div>
-            </div>
           </div>
         </div>
       )}
