@@ -62,6 +62,15 @@ function isSupervisorSelfTechnician(supervisorId, technicianId) {
   );
 }
 
+/** 项目仅分配给组长、尚未分配检测组员 */
+function isSupervisorWithoutTechnician(supervisorId, technicianId) {
+  return (
+    supervisorId != null &&
+    String(supervisorId).trim() !== '' &&
+    (technicianId == null || String(technicianId).trim() === '')
+  );
+}
+
 /** 新单号由开单员线下确定时为空，通知文案中不展示拟转新单号 */
 function formatTargetOrderFragment(targetOrderId) {
   const t = targetOrderId != null ? String(targetOrderId).trim() : '';
@@ -248,7 +257,7 @@ router.get('/by-order/:orderId', requireAnyRole(['supervisor', 'employee', 'admi
   }
 });
 
-// 实验室提交转单申请（常规窗口：实验员，或组长与检测员均为本人时可由组长发起；特殊窗口仅组长）
+// 实验室提交转单申请（常规窗口：实验员，或本组项目未分配组员/组长亲自测试时由组长发起；特殊窗口仅组长）
 router.post('/', requireAnyRole(['supervisor', 'employee']), async (req, res) => {
   try {
     const user = req.user;
@@ -289,14 +298,15 @@ router.post('/', requireAnyRole(['supervisor', 'employee']), async (req, res) =>
     }
 
     if (isEmployeeFlow) {
-      const selfTestSupervisor =
+      const directInitiatingSupervisor =
         user.role === 'supervisor' &&
         String(user.user_id) === String(testItem.supervisor_id) &&
-        isSupervisorSelfTechnician(testItem.supervisor_id, testItem.technician_id);
-      if (user.role !== 'employee' && !selfTestSupervisor) {
+        (isSupervisorWithoutTechnician(testItem.supervisor_id, testItem.technician_id) ||
+          isSupervisorSelfTechnician(testItem.supervisor_id, testItem.technician_id));
+      if (user.role !== 'employee' && !directInitiatingSupervisor) {
         return res.status(403).json({
           error:
-            '每月5日及以前的常规窗口内一般由实验员发起；若为本组项目且组长与检测员均为本人亲自测试，组长也可发起'
+            '每月5日及以前的常规窗口内一般由实验员发起；若为本组项目且尚未分配组员，或组长本人亲自测试，组长也可发起'
         });
       }
     }
@@ -324,7 +334,8 @@ router.post('/', requireAnyRole(['supervisor', 'employee']), async (req, res) =>
       isEmployeeFlow &&
       user.role === 'supervisor' &&
       String(user.user_id) === String(testItem.supervisor_id) &&
-      isSupervisorSelfTechnician(testItem.supervisor_id, testItem.technician_id);
+      (isSupervisorWithoutTechnician(testItem.supervisor_id, testItem.technician_id) ||
+        isSupervisorSelfTechnician(testItem.supervisor_id, testItem.technician_id));
 
     let initialEmployeeStep = 'supervisor_review';
     if (skipSupervisorReview) {
@@ -385,7 +396,7 @@ router.post('/', requireAnyRole(['supervisor', 'employee']), async (req, res) =>
       await notifyUser(pool, io, {
         user_id: testItem.current_assignee,
         title: '转单申请待业务审批',
-        content: `${content}（组长亲自测试，已跳过组长重复审批环节）`,
+        content: `${content}（由项目组长直接发起，已跳过组长重复审批环节）`,
         type: 'order_transfer_request',
         related_order_id: testItem.order_id || null,
         related_test_item_id: test_item_id,

@@ -131,7 +131,7 @@ const OrderTransferRequestDetailModal = ({ requestId, apiBase = '', onClose }) =
     req?.approval_flow === 'leader_then_sales'
       ? '特殊窗口（组长发起 → 室主任 → 业务 → 许文凤，通过后通知开单员）'
       : req?.approval_flow === 'direct_sales'
-        ? '常规窗口（一般由实验员 → 组长 → 业务 → 开单员；组长亲自测试且本人发起时可从业务审批起）'
+        ? '常规窗口（一般由实验员 → 组长 → 业务 → 开单员；未分配组员或组长亲自测试且由组长发起时，可从业务审批起）'
         : '转单审批流程';
   const targetOrderTrim =
     req?.target_order_id != null && String(req.target_order_id).trim() !== ''

@@ -1981,6 +1981,11 @@ const CommissionForm = () => {
     item?.technician_id &&
     String(item.supervisor_id) === String(item.technician_id);
 
+  /** 项目仅分配给组长、尚未分配检测组员 */
+  const isSupervisorWithoutTechnicianOnItem = (item) =>
+    item?.supervisor_id &&
+    (item?.technician_id == null || String(item.technician_id).trim() === '');
+
   const getTransferStatusLabel = (status, currentStep) => {
     if (status === 'approved') return '已同意';
     if (status === 'rejected') return '已拒绝';
@@ -2009,7 +2014,8 @@ const CommissionForm = () => {
     if (user?.role === 'employee') return true;
     if (user?.role === 'supervisor') {
       return (
-        String(item.supervisor_id) === String(user?.user_id) && isSupervisorSelfTechnicianOnItem(item)
+        String(item.supervisor_id) === String(user?.user_id) &&
+        (isSupervisorWithoutTechnicianOnItem(item) || isSupervisorSelfTechnicianOnItem(item))
       );
     }
     return false;
@@ -6661,9 +6667,10 @@ const CommissionForm = () => {
                                     ? getTransferRequestModeForItem(item) === 'leader_then_sales'
                                       ? '超期转单申请（组长发起，必填原因）'
                                       : user?.role === 'supervisor' &&
-                                          isSupervisorSelfTechnicianOnItem(item) &&
                                           String(item.supervisor_id) === String(user?.user_id)
-                                        ? '申请转单（组长亲自测试，直接进入业务审批）'
+                                        ? isSupervisorWithoutTechnicianOnItem(item)
+                                          ? '申请转单（尚未分配组员，由组长直接发起并进入业务审批）'
+                                          : '申请转单（组长亲自测试，直接进入业务审批）'
                                         : !item.supervisor_id
                                           ? '未设置组长，无法申请转单'
                                           : '申请转单（实验员发起）'
@@ -7662,7 +7669,7 @@ const CommissionForm = () => {
             )}
             {transferMode === 'direct_sales' && (
               <p style={{ margin: '0 0 12px', color: '#555', fontSize: '13px' }}>
-                当前为每月5日及以前的常规转单窗口：一般由实验员发起，经组长审批、业务审批后，由开单员收到通知并线下执行转单。若检测员与组长为同一人（亲自测试），组长本人也可发起，系统将跳过「组长审自己」并直接进入业务审批。请核对下方原委托单号与检测项目名称；新委托单号由开单员线下开立，本系统不填写。
+                当前为每月5日及以前的常规转单窗口：一般由实验员发起，经组长审批、业务审批后，由开单员收到通知并线下执行转单。若项目尚未分配组员，或检测员与组长为同一人（亲自测试），组长本人也可直接发起，系统将跳过组长审批并进入业务审批。请核对下方原委托单号与检测项目名称；新委托单号由开单员线下开立，本系统不填写。
               </p>
             )}
             <div
