@@ -18,6 +18,13 @@ const MobileNotifications = () => {
   const [selectedRequestId, setSelectedRequestId] = useState(null);
   const [showOrderTransferModal, setShowOrderTransferModal] = useState(false);
   const [selectedOrderTransferRequestId, setSelectedOrderTransferRequestId] = useState(null);
+  const currentUser = (() => {
+    try {
+      return JSON.parse(localStorage.getItem('lims_user') || 'null');
+    } catch {
+      return null;
+    }
+  })();
 
   // 加载通知列表
   const loadNotifications = async () => {
@@ -245,11 +252,6 @@ const MobileNotifications = () => {
   };
 
   const handleViewRequest = (notification) => {
-    // 与浏览器一致：有委托单则先跳主页并自动搜索
-    if (navigateToCommissionWithNotification(notification)) {
-      return;
-    }
-
     let requestId = notification.related_addon_request_id || notification.addon_request_id;
     if (!requestId && notification.content) {
       const match = notification.content.match(/申请ID[：:]\s*(\d+)/);
@@ -266,6 +268,50 @@ const MobileNotifications = () => {
       setShowAddonRequestModal(true);
     } else {
       alert('无法定位该加测申请，请从委托单页按单号搜索');
+    }
+  };
+
+  const getWorkflowRequestId = (notification, field) => {
+    if (notification[field]) return notification[field];
+    const match = notification.content?.match(/申请ID[：:]\s*(\d+)/);
+    return match ? parseInt(match[1], 10) : null;
+  };
+
+  const canReviewOrderTransfer = (notification) => {
+    if (notification.type !== 'order_transfer_request' || notification.order_transfer_request_status !== 'pending') return false;
+    const step = notification.order_transfer_current_step;
+    return currentUser?.role === 'admin' ||
+      (step === 'leader_review' && currentUser?.role === 'leader') ||
+      (step === 'supervisor_review' && currentUser?.user_id === notification.order_transfer_supervisor_id) ||
+      (step === 'sales_review' && currentUser?.role === 'sales') ||
+      (step === 'xwf_review' && currentUser?.user_id === 'JC0092');
+  };
+
+  const canReviewCancellation = (notification) =>
+    (notification.type === 'cancel_request' || notification.type === 'delete_request') &&
+    notification.cancellation_request_status === 'pending' &&
+    (currentUser?.role === 'sales' || currentUser?.role === 'admin');
+
+  const reviewRequest = async (notification, kind, action) => {
+    if (action === 'reject' && !window.confirm('确定要驳回此申请吗？')) return;
+    const field = kind === 'transfer' ? 'related_order_transfer_request_id' : 'related_cancellation_request_id';
+    const requestId = getWorkflowRequestId(notification, field);
+    if (!requestId) return alert('无法获取申请ID，请刷新后重试');
+    try {
+      const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
+      if (!user?.token) return alert('请先登录');
+      const apiBase = getApiBase();
+      const path = kind === 'transfer' ? 'order-transfer-requests' : 'cancellation-requests';
+      const response = await fetch(`${apiBase}/api/${path}/${requestId}/${action}`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${user.token}`, 'Content-Type': 'application/json' }
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || '操作失败');
+      alert(result.message || (action === 'approve' ? '申请已通过' : '申请已驳回'));
+      loadNotifications();
+    } catch (error) {
+      alert(error.message || '操作失败');
     }
   };
 
@@ -438,6 +484,18 @@ const MobileNotifications = () => {
                     </button>
                   </div>
                 )}
+                {canReviewOrderTransfer(notification) && (
+                  <div className="mobile-notification-action">
+                    <button className="mobile-view-request-btn" onClick={(e) => { e.stopPropagation(); reviewRequest(notification, 'transfer', 'approve'); }}>通过</button>
+                    <button className="mobile-view-request-btn mobile-reject-request-btn" onClick={(e) => { e.stopPropagation(); reviewRequest(notification, 'transfer', 'reject'); }}>驳回</button>
+                  </div>
+                )}
+                {canReviewCancellation(notification) && (
+                  <div className="mobile-notification-action">
+                    <button className="mobile-view-request-btn" onClick={(e) => { e.stopPropagation(); reviewRequest(notification, 'cancellation', 'approve'); }}>通过</button>
+                    <button className="mobile-view-request-btn mobile-reject-request-btn" onClick={(e) => { e.stopPropagation(); reviewRequest(notification, 'cancellation', 'reject'); }}>驳回</button>
+                  </div>
+                )}
               </div>
             </div>
           ))}
@@ -453,6 +511,9 @@ const MobileNotifications = () => {
             setSelectedRequestId(null);
           }}
           onApprove={() => {
+            loadNotifications();
+          }}
+          onReject={() => {
             loadNotifications();
           }}
         />

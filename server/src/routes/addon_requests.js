@@ -18,6 +18,8 @@ router.post('/', requireAnyRole(['leader', 'supervisor', 'employee']), async (re
 
     // 加测时样品类型必填（包含“其他”场景的兜底校验）
     const testItemDataForCreate = { ...(requestData.test_item_data || {}) };
+    // 加测申请只创建检测项目，实验员统一由组长在预计交付日期确认后分配。
+    delete testItemDataForCreate.technician_id;
     const createAddonFlag = Number(testItemDataForCreate.is_add_on);
     if (createAddonFlag === 1 || createAddonFlag === 2) {
       const st = testItemDataForCreate.sample_type == null ? '' : String(testItemDataForCreate.sample_type).trim();
@@ -286,6 +288,8 @@ router.put('/:id/approve', requireRole('admin'), async (req, res) => {
 
     // 使用管理员提交的数据（可能已修改）
     let finalTestItemData = { ...(req.body.test_item_data || testItemData) };
+    // 审批加测时不允许直接指派实验员，避免绕过预计交付日期卡控。
+    delete finalTestItemData.technician_id;
 
     // 加测时样品类型必填（包含“其他”场景的兜底校验）
     const approveAddonFlag = Number(finalTestItemData.is_add_on);
@@ -360,7 +364,7 @@ router.put('/:id/approve', requireRole('admin'), async (req, res) => {
         'order_id', 'price_id', 'category_name', 'detail_name', 'sample_name', 'material', 'sample_type', 'original_no',
         'test_code', 'standard_code', 'department_id', 'group_id', 'quantity', 'unit_price', 'discount_rate',
         'final_unit_price', 'line_total', 'machine_hours', 'work_hours', 'is_add_on', 'is_outsourced',
-        'seq_no', 'sample_preparation', 'note', 'status', 'current_assignee', 'supervisor_id', 'technician_id',
+        'seq_no', 'sample_preparation', 'note', 'status', 'current_assignee', 'supervisor_id',
         'arrival_mode', 'sample_arrival_status', 'equipment_id', 'check_notes', 'test_notes',
         'actual_sample_quantity', 'actual_delivery_date', 'field_test_time', 'price_note',
         'assignment_note', 'business_note', 'service_urgency', 'unit', 'addon_reason', 'addon_target'
@@ -407,7 +411,6 @@ router.put('/:id/approve', requireRole('admin'), async (req, res) => {
         'new',
         finalTestItemData.current_assignee || null,
         finalTestItemData.supervisor_id || null,
-        finalTestItemData.technician_id || null,
         finalTestItemData.arrival_mode || null,
         finalTestItemData.sample_arrival_status || 'not_arrived',
         finalTestItemData.equipment_id || null,
@@ -496,5 +499,64 @@ router.put('/:id/approve', requireRole('admin'), async (req, res) => {
   }
 });
 
-export default router;
+// 驳回加测申请
+router.put('/:id/reject', requireRole('admin'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user = req.user;
+    const pool = await getPool();
+    const [requestRows] = await pool.query(
+      `SELECT request_id, applicant_id, order_id
+       FROM addon_requests
+       WHERE request_id = ? AND status = 'pending'`,
+      [id]
+    );
+    if (requestRows.length === 0) {
+      return res.status(404).json({ error: '加测申请不存在或已被处理' });
+    }
+    const request = requestRows[0];
+    await pool.query(
+      `UPDATE addon_requests
+       SET status = 'rejected', approved_by = ?, approved_at = NOW(3)
+       WHERE request_id = ? AND status = 'pending'`,
+      [user.user_id, id]
+    );
 
+    const content = `您的加测申请未通过。委托单号：${request.order_id || '未知'}。申请ID：${id}`;
+    const notificationId = await createNotification(pool, {
+      user_id: request.applicant_id,
+      title: '加测申请未通过',
+      content,
+      type: 'addon_request',
+      related_order_id: request.order_id || null,
+      related_test_item_id: null,
+      related_file_id: null,
+      related_addon_request_id: id
+    });
+    const io = getIO();
+    if (io) {
+      const [countRows] = await pool.query(
+        'SELECT COUNT(*) AS count FROM notifications WHERE user_id = ? AND is_read = 0',
+        [request.applicant_id]
+      );
+      io.to(`user-${request.applicant_id}`).emit('new-notification', {
+        notification_id: notificationId,
+        title: '加测申请未通过',
+        content,
+        type: 'addon_request',
+        related_order_id: request.order_id || null,
+        related_test_item_id: null,
+        related_addon_request_id: Number(id),
+        addon_request_status: 'rejected',
+        unread_count: countRows[0].count,
+        created_at: new Date()
+      });
+    }
+    res.json({ success: true, message: '加测申请已驳回，并已通知申请人' });
+  } catch (error) {
+    console.error('驳回加测申请失败:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+export default router;

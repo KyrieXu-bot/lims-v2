@@ -225,6 +225,11 @@
   color: #fff;
 }
 
+.mobile-reject-request-btn {
+  border-color: #c62828;
+  color: #c62828;
+}
+
 .mobile-loading,
 .mobile-empty {
   text-align: center;
@@ -242,7 +247,6 @@
 .mobile-notification-card.unread:active {
   background: #e3f2fd;
 }
-
 
 
 

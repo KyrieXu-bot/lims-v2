@@ -30,7 +30,7 @@ function formatIsAddOnDisplay(v) {
   return '否';
 }
 
-const AddonRequestModal = ({ requestId, onClose, onApprove }) => {
+const AddonRequestModal = ({ requestId, onClose, onApprove, onReject }) => {
   const [request, setRequest] = useState(null);
   const [loading, setLoading] = useState(true);
   const [testItemData, setTestItemData] = useState({});
@@ -46,12 +46,8 @@ const AddonRequestModal = ({ requestId, onClose, onApprove }) => {
   const [showSupervisorSuggestions, setShowSupervisorSuggestions] = useState(false);
   const [supervisorDisplayText, setSupervisorDisplayText] = useState('');
   const [businessStaffDisplayText, setBusinessStaffDisplayText] = useState('');
-  const [employeeDisplayText, setEmployeeDisplayText] = useState('');
-  const [employeeSuggestions, setEmployeeSuggestions] = useState([]);
-  const [showEmployeeSuggestions, setShowEmployeeSuggestions] = useState(false);
   const businessInputWrapperRef = useRef(null);
   const supervisorInputWrapperRef = useRef(null);
-  const employeeInputWrapperRef = useRef(null);
 
   const typeMappings = { 
     sampleType: { '板材': 1, '棒材': 2, '粉末': 3, '液体': 4, '其他': 5 } 
@@ -100,9 +96,6 @@ const AddonRequestModal = ({ requestId, onClose, onApprove }) => {
       }
       if (supervisorInputWrapperRef.current && !supervisorInputWrapperRef.current.contains(event.target)) {
         setShowSupervisorSuggestions(false);
-      }
-      if (employeeInputWrapperRef.current && !employeeInputWrapperRef.current.contains(event.target)) {
-        setShowEmployeeSuggestions(false);
       }
     };
     document.addEventListener('mousedown', handleDocumentMouseDown);
@@ -179,22 +172,6 @@ const AddonRequestModal = ({ requestId, onClose, onApprove }) => {
         }
       }
       
-      // 设置实验员显示文本
-      if (itemData.technician_id) {
-        try {
-          const employees = await api.getAllEmployees({ q: itemData.technician_id });
-          const employee = employees.find(e => e.user_id === itemData.technician_id);
-          if (employee) {
-            const name = employee.name || '';
-            const account = employee.account || employee.user_id || '';
-            setEmployeeDisplayText(account ? `${name}(${account})` : name || employee.user_id);
-          } else {
-            setEmployeeDisplayText(itemData.technician_id);
-          }
-        } catch (e) {
-          setEmployeeDisplayText(itemData.technician_id);
-        }
-      }
     } catch (error) {
       console.error('加载申请失败:', error);
       alert('加载申请失败：' + error.message);
@@ -243,16 +220,6 @@ const AddonRequestModal = ({ requestId, onClose, onApprove }) => {
     }
   };
 
-  const searchEmployees = async (query) => {
-    try {
-      const users = await api.getAllEmployees({ q: query });
-      setEmployeeSuggestions(users);
-      setShowEmployeeSuggestions(true);
-    } catch (error) {
-      console.error('搜索实验员失败:', error);
-    }
-  };
-
   const selectBusinessStaff = (user) => {
     setTestItemData(prev => ({...prev, current_assignee: user.user_id}));
     const name = user.name || '';
@@ -270,17 +237,6 @@ const AddonRequestModal = ({ requestId, onClose, onApprove }) => {
     const account = user.account || user.user_id || '';
     setSupervisorDisplayText(account ? `${name}(${account})` : name || user.user_id);
     setShowSupervisorSuggestions(false);
-  };
-
-  const selectEmployee = (user) => {
-    setTestItemData(prev => ({
-      ...prev,
-      technician_id: user.user_id
-    }));
-    const name = user.name || '';
-    const account = user.account || user.user_id || '';
-    setEmployeeDisplayText(account ? `${name}(${account})` : name || user.user_id);
-    setShowEmployeeSuggestions(false);
   };
 
   const selectPriceItem = (priceItem) => {
@@ -361,6 +317,8 @@ const AddonRequestModal = ({ requestId, onClose, onApprove }) => {
 
       // 如果选择“其他”，提交时把用户输入的内容写入 sample_type
       let finalTestItemData = { ...testItemData };
+      // 加测审批只创建项目，实验员由组长后续统一分配。
+      delete finalTestItemData.technician_id;
       if (isAddOnTestItemFlag(finalTestItemData.is_add_on)) {
         const st = String(finalTestItemData.sample_type || '').trim();
         const isOther = st === '其他' || st === '5';
@@ -400,6 +358,28 @@ const AddonRequestModal = ({ requestId, onClose, onApprove }) => {
     }
   };
 
+  const handleReject = async () => {
+    if (!window.confirm('确定要驳回此加测申请吗？')) return;
+    try {
+      setSaving(true);
+      const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
+      if (!user?.token) return alert('用户未登录');
+      const response = await fetch(addonRequestsApiPath(`/api/addon-requests/${requestId}/reject`), {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${user.token}`, 'Content-Type': 'application/json' }
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || '驳回申请失败');
+      alert(result.message || '加测申请已驳回');
+      onReject && onReject(result);
+      onClose();
+    } catch (error) {
+      alert('驳回申请失败：' + error.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const updateField = (field, value) => {
     setTestItemData(prev => ({
       ...prev,
@@ -408,7 +388,7 @@ const AddonRequestModal = ({ requestId, onClose, onApprove }) => {
   };
 
   // 判断是否应该禁用表单字段：申请已通过或用户不是管理员
-  const isFormDisabled = request?.status === 'approved' || currentUser?.role !== 'admin';
+  const isFormDisabled = request?.status !== 'pending' || currentUser?.role !== 'admin';
 
   if (loading) {
     return (
@@ -463,6 +443,12 @@ const AddonRequestModal = ({ requestId, onClose, onApprove }) => {
               <span className="info-label">申请时间：</span>
               <span className="info-value">{new Date(request.created_at).toLocaleString('zh-CN')}</span>
             </div>
+            <div className="info-row">
+              <span className="info-label">申请状态：</span>
+              <span className="info-value">
+                {request.status === 'pending' ? '待处理' : request.status === 'approved' ? '已通过' : '已驳回'}
+              </span>
+            </div>
             {request.note && (
               <div className="info-row">
                 <span className="info-label">申请备注：</span>
@@ -472,7 +458,10 @@ const AddonRequestModal = ({ requestId, onClose, onApprove }) => {
           </div>
 
           <div className="test-item-form">
-            <h3>检测项目信息{request.status === 'approved' ? '（已通过）' : '（可修改）'}</h3>
+            <h3>
+              检测项目信息
+              {request.status === 'approved' ? '（已通过）' : request.status === 'rejected' ? '（已驳回）' : '（可修改）'}
+            </h3>
             <div className="grid-3">
               <div>
                 <label>委托单号 *</label>
@@ -787,57 +776,6 @@ const AddonRequestModal = ({ requestId, onClose, onApprove }) => {
                 </div>
               </div>
               <div>
-                <label>实验员工号</label>
-                <div style={{position: 'relative'}} ref={employeeInputWrapperRef}>
-                  <input 
-                    className="input" 
-                    value={employeeDisplayText} 
-                    onChange={e => {
-                      const value = e.target.value;
-                      setEmployeeDisplayText(value);
-                      if (!value) {
-                        updateField('technician_id', '');
-                      }
-                      searchEmployees(value);
-                    }}
-                    onFocus={() => searchEmployees(employeeDisplayText || '')}
-                    placeholder="输入实验员姓名或工号"
-                    disabled={isFormDisabled}
-                  />
-                  {showEmployeeSuggestions && employeeSuggestions && employeeSuggestions.length > 0 && (
-                    <div style={{
-                      position: 'absolute',
-                      top: '100%',
-                      left: 0,
-                      right: 0,
-                      background: 'white',
-                      border: '1px solid #ddd',
-                      borderTop: 'none',
-                      maxHeight: '200px',
-                      overflowY: 'auto',
-                      zIndex: 1000
-                    }}>
-                      {employeeSuggestions.map(user => (
-                        <div 
-                          key={user.user_id}
-                          style={{
-                            padding: '8px 12px',
-                            cursor: 'pointer',
-                            borderBottom: '1px solid #eee'
-                          }}
-                          onMouseDown={() => selectEmployee(user)}
-                          onMouseEnter={e => e.target.style.background = '#f5f5f5'}
-                          onMouseLeave={e => e.target.style.background = 'white'}
-                        >
-                          <div style={{fontWeight: 'bold'}}>{user.name}</div>
-                          <div style={{fontSize: '12px', color: '#666'}}>{user.account}</div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-              <div>
                 <label>样品到达方式</label>
                 <select className="input" value={testItemData.arrival_mode || ''} onChange={e=>updateField('arrival_mode', e.target.value)} disabled={isFormDisabled}>
                   <option value="">请选择</option>
@@ -869,16 +807,17 @@ const AddonRequestModal = ({ requestId, onClose, onApprove }) => {
           </div>
         </div>
         <div className="addon-request-modal-footer">
-          {request.status === 'approved' ? (
-            // 如果申请已通过，只显示关闭按钮
+          {request.status !== 'pending' ? (
             <button className="btn btn-secondary" onClick={onClose}>
               关闭
             </button>
           ) : currentUser?.role === 'admin' ? (
-            // 如果申请未通过且用户是管理员，显示取消和同意按钮
             <>
               <button className="btn btn-secondary" onClick={onClose} disabled={saving}>
                 取消
+              </button>
+              <button className="btn btn-danger" onClick={handleReject} disabled={saving}>
+                {saving ? '处理中...' : '驳回'}
               </button>
               <button className="btn btn-primary" onClick={handleApprove} disabled={saving}>
                 {saving ? '处理中...' : '同意并加测'}

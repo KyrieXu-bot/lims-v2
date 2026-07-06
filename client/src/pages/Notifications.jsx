@@ -323,6 +323,7 @@ const Notifications = () => {
     const statusMap = {
       'pending': { text: '待处理', className: 'status-pending' },
       'approved': { text: '已通过', className: 'status-approved' },
+      'rejected': { text: '已驳回', className: 'status-cancelled' },
       'cancelled': { text: '已取消', className: 'status-cancelled' }
     };
     return statusMap[status] || null;
@@ -457,6 +458,28 @@ const Notifications = () => {
     } catch (error) {
       console.error('批准申请失败:', error);
       alert('操作失败：' + error.message);
+    }
+  };
+
+  const handleRejectCancellationRequest = async (notification) => {
+    if (!window.confirm('确定要驳回此申请吗？')) return;
+    try {
+      const currentUser = JSON.parse(localStorage.getItem('lims_user') || 'null');
+      if (!currentUser?.token) return alert('请先登录');
+      const requestId = notification.related_cancellation_request_id ||
+        parseInt(notification.content?.match(/申请ID[：:]\s*(\d+)/)?.[1], 10);
+      if (!requestId) return alert('无法获取申请ID，请刷新页面重试');
+      const apiBase = getApiBase();
+      const response = await fetch(`${apiBase}/api/cancellation-requests/${requestId}/reject`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${currentUser.token}`, 'Content-Type': 'application/json' }
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || '操作失败');
+      alert(result.message || '申请已驳回');
+      loadNotifications();
+    } catch (error) {
+      alert(error.message || '操作失败');
     }
   };
 
@@ -709,6 +732,18 @@ const Notifications = () => {
                             {getOrderTransferStatusText(notification)?.text || notification.order_transfer_request_status}
                           </span>
                         )}
+                      {(notification.type === 'cancel_request' || notification.type === 'delete_request') &&
+                        notification.cancellation_request_status && (
+                          <span className={`request-status-badge ${notification.cancellation_request_status === 'rejected' ? 'status-cancelled' : notification.cancellation_request_status === 'pending' ? 'status-pending' : 'status-approved'}`}>
+                            {notification.cancellation_request_status === 'pending'
+                              ? '待处理'
+                              : notification.cancellation_request_status === 'rejected'
+                                ? '已驳回'
+                                : notification.cancellation_request_status === 'executed'
+                                  ? '已执行'
+                                  : '已通过'}
+                          </span>
+                        )}
                     </div>
                     <div className="notification-card-actions">
                       {notification.type === 'addon_request' && notification.addon_request_status !== 'approved' && (
@@ -780,15 +815,26 @@ const Notifications = () => {
                       {(notification.type === 'cancel_request' || notification.type === 'delete_request') && 
                        notification.cancellation_request_status === 'pending' && 
                        (user?.role === 'sales' || user?.role === 'admin') && (
-                        <button
-                          className="btn-view-request"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleApproveCancellationRequest(notification);
-                          }}
-                        >
-                          申请通过
-                        </button>
+                        <>
+                          <button
+                            className="btn-view-request"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleApproveCancellationRequest(notification);
+                            }}
+                          >
+                            申请通过
+                          </button>
+                          <button
+                            className="btn-view-request btn-revert-action"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRejectCancellationRequest(notification);
+                            }}
+                          >
+                            驳回
+                          </button>
+                        </>
                       )}
                       {/* 取消/删除申请：开单员可以执行（approved状态） */}
                       {(notification.type === 'cancel_request' || notification.type === 'delete_request') && 
@@ -932,6 +978,7 @@ const Notifications = () => {
             setSelectedRequestId(null);
           }}
           onApprove={handleRequestApproved}
+          onReject={handleRequestApproved}
         />
       )}
 
@@ -950,4 +997,3 @@ const Notifications = () => {
 };
 
 export default Notifications;
-

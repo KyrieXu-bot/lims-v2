@@ -56,7 +56,7 @@ router.get('/', async (req, res) => {
        LEFT JOIN order_transfer_requests otr ON otr.request_id = n.related_order_transfer_request_id
        LEFT JOIN cancellation_requests cr ON (
          cr.test_item_id = n.related_test_item_id 
-         AND cr.status IN ('pending', 'approved', 'executed')
+          AND cr.status IN ('pending', 'approved', 'executed', 'rejected')
          AND (
            n.content LIKE CONCAT('%申请ID：', cr.request_id, '%') 
            OR n.content LIKE CONCAT('%申请ID：', cr.request_id, '。%')
@@ -276,6 +276,5 @@ export async function createNotification(pool, {
 }
 
 export default router;
-
 
 

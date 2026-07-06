@@ -319,6 +319,8 @@ router.post('/', requireRole(CREATE_ROLES), async (req, res) => {
   // 加测（普通/复制）时样品类型必填（包含“其他”场景的兜底校验）
   const isAddOnLevel = Number(is_add_on);
   const normalizedIsAddOn = isAddOnLevel === 2 ? 2 : (isAddOnLevel === 1 ? 1 : 0);
+  // 加测创建时不直接指派实验员，创建后由组长按预计交付日期流程分配。
+  const technicianIdForCreate = normalizedIsAddOn === 0 ? technician_id : null;
   if (normalizedIsAddOn === 1 || normalizedIsAddOn === 2) {
     const st = sample_type == null ? '' : String(sample_type).trim();
     if (!st) {
@@ -396,7 +398,7 @@ router.post('/', requireRole(CREATE_ROLES), async (req, res) => {
         finalStatus, 
         current_assignee || null, 
         finalSupervisorId || null, 
-        technician_id || null,
+        technicianIdForCreate || null,
         arrival_mode || null, 
         sample_arrival_status || null, 
         equipment_id || null, 

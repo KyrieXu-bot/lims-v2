@@ -208,6 +208,74 @@ router.put('/:id/approve', requireAnyRole(['sales', 'admin']), async (req, res) 
   }
 });
 
+// 业务员驳回取消/删除申请
+router.put('/:id/reject', requireAnyRole(['sales', 'admin']), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user = req.user;
+    const pool = await getPool();
+    const [requestRows] = await pool.query(
+      `SELECT cr.*, ti.current_assignee, ti.order_id, o.order_id AS order_id_display
+       FROM cancellation_requests cr
+       LEFT JOIN test_items ti ON ti.test_item_id = cr.test_item_id
+       LEFT JOIN orders o ON o.order_id = ti.order_id
+       WHERE cr.request_id = ? AND cr.status = 'pending'`,
+      [id]
+    );
+    if (requestRows.length === 0) {
+      return res.status(404).json({ error: '申请不存在或已被处理' });
+    }
+    const request = requestRows[0];
+    if (user.role === 'sales' && request.current_assignee !== user.user_id) {
+      return res.status(403).json({ error: '无权驳回此申请' });
+    }
+
+    await pool.query(
+      `UPDATE cancellation_requests
+       SET status = 'rejected', approved_by = ?, approved_at = NOW(3)
+       WHERE request_id = ? AND status = 'pending'`,
+      [user.user_id, id]
+    );
+
+    const actionName = request.request_type === 'cancel' ? '取消' : '删除';
+    const content = `您的${actionName}申请未通过。委托单号：${request.order_id_display || '未知'}。申请ID：${id}`;
+    const notificationId = await createNotification(pool, {
+      user_id: request.applicant_id,
+      title: `${actionName}申请未通过`,
+      content,
+      type: request.request_type === 'cancel' ? 'cancel_request' : 'delete_request',
+      related_order_id: request.order_id || null,
+      related_test_item_id: request.test_item_id,
+      related_file_id: null,
+      related_addon_request_id: null
+    });
+    const io = getIO();
+    if (io) {
+      const [countRows] = await pool.query(
+        'SELECT COUNT(*) AS count FROM notifications WHERE user_id = ? AND is_read = 0',
+        [request.applicant_id]
+      );
+      io.to(`user-${request.applicant_id}`).emit('new-notification', {
+        notification_id: notificationId,
+        title: `${actionName}申请未通过`,
+        content,
+        type: request.request_type === 'cancel' ? 'cancel_request' : 'delete_request',
+        related_order_id: request.order_id || null,
+        related_test_item_id: request.test_item_id,
+        related_cancellation_request_id: Number(id),
+        cancellation_request_status: 'rejected',
+        cancellation_request_type: request.request_type,
+        unread_count: countRows[0].count,
+        created_at: new Date()
+      });
+    }
+    res.json({ success: true, message: '申请已驳回，并已通知申请人' });
+  } catch (error) {
+    console.error('驳回申请失败:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // 开单员执行取消/删除操作
 router.put('/:id/execute', requireAnyRole(['admin']), async (req, res) => {
   try {

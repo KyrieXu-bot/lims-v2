@@ -789,7 +789,7 @@ router.put('/:id/reject', requireAuth, async (req, res) => {
         return res.status(403).json({ error: '无权处理非本部门转单申请' });
       }
     } else if (request.current_step === 'sales_review') {
-      if (user.role === 'sales' && request.current_assignee !== user.user_id) {
+      if (user.role !== 'admin' && (user.role !== 'sales' || request.current_assignee !== user.user_id)) {
         return res.status(403).json({ error: '无权处理此申请' });
       }
     } else if (request.current_step === 'xwf_review') {

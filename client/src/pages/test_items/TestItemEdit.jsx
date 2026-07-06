@@ -238,7 +238,8 @@ export default function TestItemEdit() {
             'seq_no',                // 序号字段未在输入框中展示/编辑
             'field_test_time',       // 非输入框字段
             'machine_hours',
-            'work_hours'
+            'work_hours',
+            'technician_id'         // 加测创建后由组长统一分配实验员
           ]);
           for (const [key, value] of copyData.entries()) {
             if (ignoredCopyKeys.has(key)) continue;
@@ -716,6 +717,10 @@ export default function TestItemEdit() {
     }
     
     const payload = { ...it };
+    if (isNew) {
+      // 所有新增加测入口均不直接指派实验员。
+      delete payload.technician_id;
+    }
 
     // 管理员新建 或 提交加测申请（非复制预填）：业务报价与折扣率必填
     if (bizPriceDiscountRequired) {
@@ -789,21 +794,6 @@ export default function TestItemEdit() {
       }
     }
 
-    // 权限校验：管理员新增检测、或实验室用户提交加测申请时
-    // 若已填写实验员工号但未填写单价，则禁止提交
-    const isAdminCreate = isNew && roleCode === 'admin';
-    const isLabAddonRequest = isAddonRequest && isNew;
-    const hasTechnicianAssigned = payload.technician_id !== undefined
-      && payload.technician_id !== null
-      && String(payload.technician_id).trim() !== '';
-    const hasUnitPrice = payload.unit_price !== undefined
-      && payload.unit_price !== null
-      && String(payload.unit_price).trim() !== ''
-      && !Number.isNaN(Number(payload.unit_price));
-    if ((isAdminCreate || isLabAddonRequest) && hasTechnicianAssigned && !hasUnitPrice) {
-      return alert('需要先填写单价，才能指派对应的测试人员');
-    }
-    
     // 验证和转换折扣率
     if (payload.discount_rate !== undefined && payload.discount_rate !== null && payload.discount_rate !== '') {
       const discountRate = Number(payload.discount_rate);
@@ -1294,7 +1284,7 @@ export default function TestItemEdit() {
               )}
             </div>
           </div>
-          <div>
+          {!isNew && <div>
             <label>实验员工号</label>
           <div style={{position: 'relative'}} ref={employeeInputWrapperRef}>
               <input 
@@ -1346,7 +1336,7 @@ export default function TestItemEdit() {
                 </div>
               )}
             </div>
-          </div>
+          </div>}
           <div>
             <label>样品到达方式</label>
             <select className="input" value={it.arrival_mode || ''} onChange={e=>setIt({...it, arrival_mode:e.target.value})} disabled={isView}>
