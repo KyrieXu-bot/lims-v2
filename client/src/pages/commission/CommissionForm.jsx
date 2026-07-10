@@ -14,7 +14,7 @@ import * as XLSX from 'xlsx';
 import './CommissionForm.css';
 
 /** 物化报告模板导出入口（暂停时 false，handleExportWH 逻辑保留） */
-const WH_REPORT_TEMPLATE_EXPORT_ENABLED = false;
+const WH_REPORT_TEMPLATE_EXPORT_ENABLED = true;
 
 /** 导出弹窗内网格按钮：满格宽度，由 grid 列宽控制 */
 const EXPORT_MODAL_GRID_BTN = {
