@@ -710,7 +710,7 @@ router.post('/generate-wh-report', async (req, res) => {
     const templateData = {
       report_title: '物化实验报告',
       order_num: order.order_id,
-      create_time: new Date(order.created_at).toISOString().slice(0,10),
+      create_time: new Date(order.created_at).toISOString().slice(0,10).replace(/-/g, '/'),
       customer_name: order.customer_name || '',
       customer_address: order.customer_address || '',
       test_items: sanitizedItems,
@@ -736,7 +736,7 @@ router.post('/generate-wh-report', async (req, res) => {
       signature_leader_type: typeof templateData.signature_leader
     });
 
-    const templatePath = path.join(__dirname, '..', 'templates', 'WH_template_2026.docx');
+    const templatePath = path.join(__dirname, '..', 'templates', 'WH_template_2026_v2.docx');
     await fs.access(templatePath);
     const templateBuffer = await fs.readFile(templatePath);
     const zip = new PizZip(templateBuffer);
