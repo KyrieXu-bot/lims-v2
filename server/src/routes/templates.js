@@ -505,9 +505,11 @@ router.post('/generate-wh-report', async (req, res) => {
     const pool = await getPool();
 
     const [orderRows] = await pool.query(
-      `SELECT o.order_id, o.created_at, c.customer_name, c.address AS customer_address
+      `SELECT o.order_id, o.created_at,
+              comm.commissioner_name,
+              comm.address AS commissioner_address
        FROM orders o
-       LEFT JOIN customers c ON o.customer_id = c.customer_id
+       LEFT JOIN commissioners comm ON o.commissioner_id = comm.commissioner_id
        WHERE o.order_id = ?`,
       [order_id]
     );
@@ -711,8 +713,10 @@ router.post('/generate-wh-report', async (req, res) => {
       report_title: '物化实验报告',
       order_num: order.order_id,
       create_time: new Date(order.created_at).toISOString().slice(0,10).replace(/-/g, '/'),
-      customer_name: order.customer_name || '',
-      customer_address: order.customer_address || '',
+      commissioner_name: order.commissioner_name || '',
+      commissioner_address: order.commissioner_address || '',
+      customer_name: order.commissioner_name || '',
+      customer_address: order.commissioner_address || '',
       test_items: sanitizedItems,
       total_count: totalCount,
       test_location: testLocation,

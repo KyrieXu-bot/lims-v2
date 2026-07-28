@@ -855,6 +855,293 @@ router.get('/', requireAuth, async (req, res) => {
   }
 });
 
+router.get('/invoice-summary', requireAuth, async (req, res) => {
+  const pool = await getPool();
+  try {
+    const {
+      q = '',
+      page = 1,
+      pageSize = 100,
+      order_month,
+      invoice_status,
+      invoice_overdue,
+      payment_overdue,
+      export_all
+    } = req.query;
+    const safePage = Math.max(1, Number(page) || 1);
+    const safePageSize = Math.min(200, Math.max(1, Number(pageSize) || 100));
+    const offset = (safePage - 1) * safePageSize;
+    const shouldExportAll = export_all === '1' || export_all === 'true';
+    const orderFilters = [];
+    const orderParams = [];
+    const finalFilters = [];
+    const finalParams = [];
+    const searchKeyword = String(q || '').trim();
+    let matchingOrdersCteSql = '';
+    let matchingOrdersJoinSql = '';
+    const matchingOrdersParams = [];
+
+    function parseSettlementOrderIds(orderIds) {
+      return String(orderIds || '')
+        .split('-')
+        .map(id => id.trim())
+        .filter(Boolean);
+    }
+
+    if (searchKeyword) {
+      const like = `%${searchKeyword}%`;
+      matchingOrdersCteSql = `
+        matching_order_ids AS (
+          SELECT o.order_id
+          FROM orders o
+          LEFT JOIN commissioners comm ON o.commissioner_id = comm.commissioner_id
+          LEFT JOIN payers p ON o.payer_id = p.payer_id
+          LEFT JOIN users order_sales ON p.owner_user_id = order_sales.user_id
+          WHERE o.order_id LIKE ?
+             OR comm.commissioner_name LIKE ?
+             OR p.contact_name LIKE ?
+             OR order_sales.name LIKE ?
+          UNION
+          SELECT DISTINCT o.order_id
+          FROM (
+            SELECT search_s.order_ids
+            FROM settlements search_s
+            LEFT JOIN users search_u ON search_s.assignee_id = search_u.user_id
+            WHERE search_s.settlement_type = 'invoice'
+              AND (
+                search_s.invoice_number LIKE ?
+                OR search_s.customer_name LIKE ?
+                OR search_u.name LIKE ?
+              )
+          ) matched_settlements
+          JOIN orders o
+            ON CONCAT('-', REPLACE(matched_settlements.order_ids, ' ', ''), '-') LIKE CONCAT('%-', o.order_id, '-%')
+        )`;
+      matchingOrdersJoinSql = 'JOIN matching_order_ids moi ON moi.order_id = o.order_id';
+      matchingOrdersParams.push(like, like, like, like, like, like, like);
+    }
+
+    if (order_month && /^\d{6}$/.test(String(order_month))) {
+      orderFilters.push('CONCAT(\'20\', SUBSTRING(o.order_id, 3, 2), SUBSTRING(o.order_id, 5, 2)) = ?');
+      orderParams.push(String(order_month));
+    }
+
+    orderFilters.push(`EXISTS (
+      SELECT 1
+      FROM test_items active_ti
+      WHERE active_ti.order_id = o.order_id
+        AND active_ti.status != 'cancelled'
+    )`);
+
+    if (invoice_status === 'invoiced' || invoice_status === 'uninvoiced') {
+      const [statusRows] = await pool.query(
+        `SELECT order_ids
+         FROM settlements
+         WHERE settlement_type = 'invoice'
+           AND invoice_number IS NOT NULL
+           AND invoice_number <> ''`
+      );
+      const invoicedOrderIds = Array.from(new Set(
+        statusRows.flatMap(row => parseSettlementOrderIds(row.order_ids))
+      ));
+
+      if (invoice_status === 'invoiced') {
+        if (invoicedOrderIds.length === 0) {
+          orderFilters.push('1 = 0');
+        } else {
+          orderFilters.push(`o.order_id IN (${invoicedOrderIds.map(() => '?').join(',')})`);
+          orderParams.push(...invoicedOrderIds);
+        }
+      } else if (invoicedOrderIds.length > 0) {
+        orderFilters.push(`o.order_id NOT IN (${invoicedOrderIds.map(() => '?').join(',')})`);
+        orderParams.push(...invoicedOrderIds);
+      }
+    }
+
+    if (invoice_overdue === 'overdue') {
+      finalFilters.push('COALESCE(base.invoice_date, CURDATE()) > base.invoice_deadline_date');
+    } else if (invoice_overdue === 'not_overdue') {
+      finalFilters.push('COALESCE(base.invoice_date, CURDATE()) <= base.invoice_deadline_date');
+    }
+
+    if (payment_overdue === 'overdue') {
+      finalFilters.push('base.payment_deadline_date IS NOT NULL AND COALESCE(base.received_date, CURDATE()) > base.payment_deadline_date');
+    } else if (payment_overdue === 'not_overdue') {
+      finalFilters.push('(base.payment_deadline_date IS NULL OR COALESCE(base.received_date, CURDATE()) <= base.payment_deadline_date)');
+    }
+
+    const orderWhereSql = orderFilters.length ? `WHERE ${orderFilters.join(' AND ')}` : '';
+    const finalWhereSql = finalFilters.length ? `WHERE ${finalFilters.join(' AND ')}` : '';
+    const commonCtes = [matchingOrdersCteSql].filter(Boolean);
+    const commonWithSql = commonCtes.length ? `WITH ${commonCtes.join(',')}` : '';
+    const rowsWithSql = commonCtes.length ? `${commonWithSql},` : 'WITH';
+    const pageLimitSql = shouldExportAll ? '' : 'LIMIT ? OFFSET ?';
+    const rowParams = shouldExportAll
+      ? [...matchingOrdersParams, ...orderParams, ...finalParams]
+      : [...matchingOrdersParams, ...orderParams, safePageSize, offset, ...finalParams];
+
+    const [countRows] = await pool.query(
+      `${commonWithSql}
+       SELECT COUNT(*) AS total
+       FROM orders o
+       ${matchingOrdersJoinSql}
+       ${orderWhereSql}`,
+      [...matchingOrdersParams, ...orderParams]
+    );
+
+    const [rows] = await pool.query(
+      `${rowsWithSql} page_orders AS (
+        SELECT
+          o.order_id,
+          CONCAT('20', SUBSTRING(o.order_id, 3, 2), SUBSTRING(o.order_id, 5, 2)) AS order_month,
+          comm.commissioner_name AS order_customer_name,
+          p.contact_name AS payer_contact_name,
+          p.payment_term_days,
+          order_sales.user_id AS order_assignee_id,
+          order_sales.name AS order_assignee_name
+        FROM orders o
+        LEFT JOIN commissioners comm ON o.commissioner_id = comm.commissioner_id
+        LEFT JOIN payers p ON o.payer_id = p.payer_id
+        LEFT JOIN users order_sales ON p.owner_user_id = order_sales.user_id
+        ${matchingOrdersJoinSql}
+        ${orderWhereSql}
+        ORDER BY o.order_id DESC
+        ${pageLimitSql}
+      ),
+      item_totals AS (
+        SELECT
+          ti.order_id,
+          SUM(CASE
+            WHEN (ti.business_confirmed = 1 OR ti.business_confirmed = '1')
+              AND ti.final_unit_price IS NOT NULL
+              AND ti.final_unit_price <> ''
+            THEN ti.final_unit_price
+            ELSE 0
+          END) AS lims_total_amount,
+          SUM(CASE
+            WHEN ti.unpaid_amount IS NULL OR ti.unpaid_amount = '' THEN 0
+            ELSE ti.unpaid_amount
+          END) AS order_invoice_amount,
+          SUM(CASE
+            WHEN ti.unpaid_amount IS NULL OR ti.unpaid_amount = '' THEN 0
+            ELSE 1
+          END) AS order_invoice_amount_count
+        FROM test_items ti
+        JOIN page_orders po ON ti.order_id = po.order_id
+        WHERE ti.status != 'cancelled'
+        GROUP BY ti.order_id
+      ),
+      settlement_ranked AS (
+        SELECT
+          s.*,
+          po.order_id AS matched_order_id,
+          ROW_NUMBER() OVER (
+            PARTITION BY po.order_id
+            ORDER BY s.invoice_date DESC, s.created_at DESC, s.settlement_id DESC
+          ) AS rn
+        FROM page_orders po
+        JOIN settlements s
+          ON s.settlement_type = 'invoice'
+         AND CONCAT('-', REPLACE(s.order_ids, ' ', ''), '-') LIKE CONCAT('%-', po.order_id, '-%')
+      ),
+      base AS (
+        SELECT
+          po.order_id,
+          po.order_month,
+          po.order_customer_name,
+          po.payer_contact_name,
+          po.payment_term_days,
+          po.order_assignee_id AS assignee_id,
+          po.order_assignee_name AS assignee_name,
+          COALESCE(ti.lims_total_amount, 0) AS lims_total_amount,
+          CASE
+            WHEN COALESCE(ti.order_invoice_amount_count, 0) = 0 THEN NULL
+            ELSE COALESCE(ti.order_invoice_amount, 0)
+          END AS invoice_amount,
+          s.invoice_date,
+          s.invoice_number,
+          s.customer_name AS invoice_customer_name,
+          s.remarks AS invoice_remark,
+          s.received_date,
+          s.received_amount,
+          LAST_DAY(DATE_ADD(
+            STR_TO_DATE(CONCAT(po.order_month, '01'), '%Y%m%d'),
+            INTERVAL 3 MONTH
+          )) AS invoice_deadline_date,
+          CASE
+            WHEN s.invoice_date IS NULL OR po.payment_term_days IS NULL THEN NULL
+            ELSE DATE_ADD(s.invoice_date, INTERVAL po.payment_term_days DAY)
+          END AS payment_deadline_date,
+          CASE
+            WHEN COALESCE(s.invoice_date, CURDATE()) > LAST_DAY(DATE_ADD(
+              STR_TO_DATE(CONCAT(po.order_month, '01'), '%Y%m%d'),
+              INTERVAL 3 MONTH
+            ))
+            THEN DATEDIFF(
+              COALESCE(s.invoice_date, CURDATE()),
+              LAST_DAY(DATE_ADD(
+                STR_TO_DATE(CONCAT(po.order_month, '01'), '%Y%m%d'),
+                INTERVAL 3 MONTH
+              ))
+            )
+            ELSE 0
+          END AS invoice_overdue_days,
+          CASE
+            WHEN s.invoice_date IS NULL OR po.payment_term_days IS NULL THEN NULL
+            WHEN COALESCE(s.received_date, CURDATE()) > DATE_ADD(s.invoice_date, INTERVAL po.payment_term_days DAY)
+            THEN DATEDIFF(COALESCE(s.received_date, CURDATE()), DATE_ADD(s.invoice_date, INTERVAL po.payment_term_days DAY))
+            ELSE 0
+          END AS payment_overdue_days
+        FROM page_orders po
+        LEFT JOIN item_totals ti ON ti.order_id = po.order_id
+        LEFT JOIN settlement_ranked s ON s.matched_order_id = po.order_id AND s.rn = 1
+      )
+      SELECT
+        base.*,
+        CASE
+          WHEN base.invoice_amount IS NULL THEN NULL
+          ELSE base.invoice_amount - base.lims_total_amount
+        END AS invoice_amount_diff,
+        CASE WHEN base.invoice_number IS NOT NULL AND base.invoice_number <> '' THEN '已开票' ELSE '未开票' END AS invoice_status
+      FROM base
+      ${finalWhereSql}
+      ORDER BY base.order_id DESC`,
+      rowParams
+    );
+
+    res.json({
+      data: rows,
+      total: Number(countRows[0]?.total || 0),
+      page: safePage,
+      pageSize: shouldExportAll ? rows.length : safePageSize
+    });
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+router.get('/invoice-summary/months', requireAuth, async (req, res) => {
+  const pool = await getPool();
+  try {
+    const [rows] = await pool.query(
+      `SELECT DISTINCT
+         CONCAT('20', SUBSTRING(o.order_id, 3, 2), SUBSTRING(o.order_id, 5, 2)) AS order_month
+       FROM orders o
+       WHERE o.order_id REGEXP '^JC[0-9]{4}'
+         AND EXISTS (
+           SELECT 1
+           FROM test_items active_ti
+           WHERE active_ti.order_id = o.order_id
+             AND active_ti.status != 'cancelled'
+         )
+       ORDER BY order_month DESC`
+    );
+    res.json(rows.map(row => row.order_month).filter(Boolean));
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
 router.get('/payers/:payerId/prepayment-lots', requireAuth, async (req, res) => {
   const pool = await getPool();
   try {
@@ -1300,6 +1587,11 @@ router.put('/:id', requireAuth, async (req, res) => {
     if (invoice_number !== undefined) {
       updateFields.push('invoice_number = ?');
       updateValues.push(invoice_number || null);
+      updateFields.push(`new_invoice_number = CASE
+        WHEN settlement_type = 'invoice' AND settlement_method <> 'prepaid' THEN ?
+        ELSE new_invoice_number
+      END`);
+      updateValues.push(invoice_number || null);
     }
 
     if (invoice_date !== undefined) {
@@ -1567,6 +1859,8 @@ router.put('/:id', requireAuth, async (req, res) => {
         s.settlement_serial_number,
         s.prepayment_serial_number,
         s.prepayment_type,
+        s.invoice_number,
+        s.new_invoice_number,
         s.invoice_date,
         s.order_ids,
         s.invoice_amount,

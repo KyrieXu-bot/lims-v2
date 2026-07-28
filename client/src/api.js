@@ -788,6 +788,20 @@ export const api = {
     const r = await fetch(`${API_BASE}/api/settlements?${params.toString()}`, { headers: this.authHeaders() });
     return readApiJson(r, '获取结算记录失败');
   },
+  async getSettlementInvoiceSummary({ q = '', page = 1, pageSize = 100, order_month, invoice_status, invoice_overdue, payment_overdue, exportAll = false, signal } = {}) {
+    const params = new URLSearchParams({ q, page, pageSize });
+    if (order_month) params.set('order_month', order_month);
+    if (invoice_status) params.set('invoice_status', invoice_status);
+    if (invoice_overdue) params.set('invoice_overdue', invoice_overdue);
+    if (payment_overdue) params.set('payment_overdue', payment_overdue);
+    if (exportAll) params.set('export_all', '1');
+    const r = await fetch(`${API_BASE}/api/settlements/invoice-summary?${params.toString()}`, { headers: this.authHeaders(), signal });
+    return readApiJson(r, '获取开票汇总表失败');
+  },
+  async getSettlementInvoiceSummaryMonths() {
+    const r = await fetch(`${API_BASE}/api/settlements/invoice-summary/months`, { headers: this.authHeaders() });
+    return readApiJson(r, '获取开票汇总月份失败');
+  },
   async createSettlement(data) {
     const r = await fetch(`${API_BASE}/api/settlements`, {
       method: 'POST',

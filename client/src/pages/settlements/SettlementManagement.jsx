@@ -16,11 +16,26 @@ const DEPARTMENT_ALLOCATION_COLUMNS = [
 ];
 
 export default function SettlementManagement() {
+  const [activeView, setActiveView] = useState('settlements');
   const [settlements, setSettlements] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const pageSize = 100;
   const [loading, setLoading] = useState(true);
+  const [invoiceSummaryRows, setInvoiceSummaryRows] = useState([]);
+  const [invoiceSummaryTotal, setInvoiceSummaryTotal] = useState(0);
+  const [invoiceSummaryPage, setInvoiceSummaryPage] = useState(1);
+  const [invoiceSummaryLoading, setInvoiceSummaryLoading] = useState(false);
+  const [invoiceSummaryMonths, setInvoiceSummaryMonths] = useState([]);
+  const [invoiceSummaryExporting, setInvoiceSummaryExporting] = useState(false);
+  const [invoiceSummaryExportProgress, setInvoiceSummaryExportProgress] = useState({
+    visible: false,
+    percent: 0,
+    text: ''
+  });
+  const [selectedInvoiceSummaryOrderIds, setSelectedInvoiceSummaryOrderIds] = useState([]);
+  const [invoiceSummaryAllSelected, setInvoiceSummaryAllSelected] = useState(false);
+  const [excludedInvoiceSummaryOrderIds, setExcludedInvoiceSummaryOrderIds] = useState([]);
   const [selectedSettlementIds, setSelectedSettlementIds] = useState([]);
   const [selectAllLoading, setSelectAllLoading] = useState(false);
   const [editingSettlement, setEditingSettlement] = useState(null);
@@ -68,10 +83,20 @@ export default function SettlementManagement() {
     created_start: '',
     created_end: ''
   });
+  const [invoiceSummaryFilters, setInvoiceSummaryFilters] = useState({
+    keyword: '',
+    order_month: '',
+    invoice_status: '',
+    invoice_overdue: '',
+    payment_overdue: ''
+  });
+  const [invoiceSummaryKeywordInput, setInvoiceSummaryKeywordInput] = useState('');
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
   const customerInputRef = useRef(null);
   const selectedSettlementSnapshotRef = useRef(new Map());
+  const selectedInvoiceSummarySnapshotRef = useRef(new Map());
   const fullSelectionCacheRef = useRef(null);
+  const invoiceSummaryAbortRef = useRef(null);
 
   useEffect(() => {
     loadAssigneeOptions();
@@ -79,8 +104,28 @@ export default function SettlementManagement() {
   }, []);
 
   useEffect(() => {
-    loadSettlements();
-  }, [page, settlementFilters]);
+    return () => {
+      invoiceSummaryAbortRef.current?.abort();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (activeView === 'settlements') {
+      loadSettlements();
+    }
+  }, [activeView, page, settlementFilters]);
+
+  useEffect(() => {
+    if (activeView === 'invoiceSummary') {
+      loadInvoiceSummary();
+    }
+  }, [activeView, invoiceSummaryPage, invoiceSummaryFilters]);
+
+  useEffect(() => {
+    if (activeView === 'invoiceSummary' && invoiceSummaryMonths.length === 0) {
+      loadInvoiceSummaryMonths();
+    }
+  }, [activeView, invoiceSummaryMonths.length]);
 
   useEffect(() => {
     if (!settlements?.length) return;
@@ -91,6 +136,16 @@ export default function SettlementManagement() {
       }
     });
   }, [settlements, selectedSettlementIds]);
+
+  useEffect(() => {
+    if (!invoiceSummaryRows?.length) return;
+    invoiceSummaryRows.forEach((row) => {
+      const id = normalizeInvoiceSummaryOrderId(row.order_id);
+      if (selectedInvoiceSummaryOrderIds.includes(id)) {
+        selectedInvoiceSummarySnapshotRef.current.set(id, row);
+      }
+    });
+  }, [invoiceSummaryRows, selectedInvoiceSummaryOrderIds]);
 
   async function loadPayerOptions() {
     try {
@@ -184,14 +239,135 @@ export default function SettlementManagement() {
     }
   }
 
+  async function loadInvoiceSummary() {
+    invoiceSummaryAbortRef.current?.abort();
+    const controller = new AbortController();
+    invoiceSummaryAbortRef.current = controller;
+
+    try {
+      setInvoiceSummaryLoading(true);
+      const data = await api.getSettlementInvoiceSummary({
+        q: invoiceSummaryFilters.keyword,
+        page: invoiceSummaryPage,
+        pageSize,
+        order_month: invoiceSummaryFilters.order_month,
+        invoice_status: invoiceSummaryFilters.invoice_status,
+        invoice_overdue: invoiceSummaryFilters.invoice_overdue,
+        payment_overdue: invoiceSummaryFilters.payment_overdue,
+        signal: controller.signal
+      });
+      if (controller.signal.aborted) return;
+      const rows = Array.isArray(data) ? data : (data.data || []);
+      setInvoiceSummaryRows(rows);
+      setInvoiceSummaryTotal(Array.isArray(data) ? rows.length : Number(data.total || 0));
+    } catch (e) {
+      if (e.name === 'AbortError') return;
+      alert('加载开票汇总表失败: ' + e.message);
+    } finally {
+      if (invoiceSummaryAbortRef.current === controller) {
+        invoiceSummaryAbortRef.current = null;
+        setInvoiceSummaryLoading(false);
+      }
+    }
+  }
+
+  async function loadInvoiceSummaryMonths() {
+    try {
+      const data = await api.getSettlementInvoiceSummaryMonths();
+      setInvoiceSummaryMonths(Array.isArray(data) ? data : []);
+    } catch (e) {
+      console.error('加载开票汇总月份失败:', e);
+      setInvoiceSummaryMonths([]);
+    }
+  }
+
   function updateSettlementFilter(key, value) {
     setPage(1);
     fullSelectionCacheRef.current = null;
     setSettlementFilters(prev => ({ ...prev, [key]: value }));
   }
 
+  function updateInvoiceSummaryFilter(key, value) {
+    setInvoiceSummaryPage(1);
+    clearInvoiceSummarySelection();
+    setInvoiceSummaryFilters(prev => ({ ...prev, [key]: value }));
+  }
+
+  function applyInvoiceSummarySearch() {
+    const keyword = invoiceSummaryKeywordInput.trim();
+    setInvoiceSummaryPage(1);
+    clearInvoiceSummarySelection();
+    setInvoiceSummaryFilters(prev => (
+      prev.keyword === keyword ? prev : { ...prev, keyword }
+    ));
+  }
+
   function normalizeSettlementId(id) {
     return String(id ?? '');
+  }
+
+  function normalizeInvoiceSummaryOrderId(id) {
+    return String(id ?? '');
+  }
+
+  function clearInvoiceSummarySelection() {
+    setSelectedInvoiceSummaryOrderIds([]);
+    setInvoiceSummaryAllSelected(false);
+    setExcludedInvoiceSummaryOrderIds([]);
+    selectedInvoiceSummarySnapshotRef.current.clear();
+  }
+
+  function handleInvoiceSummarySelect(row, checked) {
+    const id = normalizeInvoiceSummaryOrderId(row?.order_id);
+    if (!id) return;
+    if (invoiceSummaryAllSelected) {
+      setExcludedInvoiceSummaryOrderIds(prev => {
+        const next = prev.filter(itemId => itemId !== id);
+        return checked ? next : [...next, id];
+      });
+      return;
+    }
+
+    if (checked) {
+      setSelectedInvoiceSummaryOrderIds(prev => {
+        const next = prev.filter(itemId => itemId !== id);
+        return [...next, id];
+      });
+      selectedInvoiceSummarySnapshotRef.current.set(id, row);
+    } else {
+      setSelectedInvoiceSummaryOrderIds(prev => prev.filter(itemId => itemId !== id));
+      selectedInvoiceSummarySnapshotRef.current.delete(id);
+    }
+  }
+
+  function handleInvoiceSummarySelectAll(e) {
+    const checked = e.target.checked;
+    selectedInvoiceSummarySnapshotRef.current.clear();
+    setSelectedInvoiceSummaryOrderIds([]);
+    setExcludedInvoiceSummaryOrderIds([]);
+    setInvoiceSummaryAllSelected(checked);
+  }
+
+  function getSelectedInvoiceSummaryRows() {
+    return selectedInvoiceSummaryOrderIds
+      .map(id => selectedInvoiceSummarySnapshotRef.current.get(id))
+      .filter(Boolean);
+  }
+
+  function isInvoiceSummaryRowSelected(row) {
+    const id = normalizeInvoiceSummaryOrderId(row?.order_id);
+    if (!id) return false;
+    if (invoiceSummaryAllSelected) {
+      return !excludedInvoiceSummaryOrderIds.includes(id);
+    }
+    return selectedInvoiceSummaryOrderIds.includes(id);
+  }
+
+  function getInvoiceSummarySelectedCount() {
+    if (invoiceSummaryAllSelected) {
+      return Math.max(0, invoiceSummaryTotal - excludedInvoiceSummaryOrderIds.length);
+    }
+    return selectedInvoiceSummaryOrderIds.length;
   }
 
   function clearSettlementSelection() {
@@ -644,6 +820,162 @@ export default function SettlementManagement() {
     return `¥${Number(amount).toFixed(2)}`;
   }
 
+  function formatSummaryDate(dateStr) {
+    if (!dateStr) return '-';
+    const date = new Date(dateStr);
+    if (Number.isNaN(date.getTime())) return '-';
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}/${month}/${day}`;
+  }
+
+  function formatOverdueDays(days) {
+    if (days === null || days === undefined || days === '') return '-';
+    const value = Number(days);
+    if (!Number.isFinite(value) || value <= 0) return '未逾期';
+    return `${Math.round(value)}天`;
+  }
+
+  function renderSummaryDetail(text, fieldName, maxLength = 14) {
+    return (
+      <DetailViewLink
+        text={text || ''}
+        maxLength={maxLength}
+        fieldName={fieldName}
+        className="settlement-detail-link"
+      />
+    );
+  }
+
+  function buildInvoiceSummaryExportRow(row) {
+    return {
+      '月份': row.order_month || '',
+      '委托单号': row.order_id || '',
+      '委托单位': row.order_customer_name || '',
+      '付款联系人': row.payer_contact_name || '',
+      '对接业务': row.assignee_name || '',
+      'lims业务总价': row.lims_total_amount ?? '',
+      '是否开票': row.invoice_status || '未开票',
+      '截止开票日期': formatSummaryDate(row.invoice_deadline_date) === '-' ? '' : formatSummaryDate(row.invoice_deadline_date),
+      '开票日期': formatSummaryDate(row.invoice_date) === '-' ? '' : formatSummaryDate(row.invoice_date),
+      '开票是否逾期': formatOverdueDays(row.invoice_overdue_days),
+      '票号': row.invoice_number || '',
+      '开票客户名称': row.invoice_customer_name || '',
+      '开票金额': row.invoice_amount ?? '',
+      '开票金额差值': row.invoice_amount_diff ?? '',
+      '开票备注': row.invoice_remark || '',
+      '客户付款周期': row.payment_term_days ?? '',
+      '截止到款日期': formatSummaryDate(row.payment_deadline_date) === '-' ? '' : formatSummaryDate(row.payment_deadline_date),
+      '到款日期': formatSummaryDate(row.received_date) === '-' ? '' : formatSummaryDate(row.received_date),
+      '到款金额': row.received_amount ?? '',
+      '到款是否逾期': formatOverdueDays(row.payment_overdue_days)
+    };
+  }
+
+  async function handleExportInvoiceSummaryExcel() {
+    if (getInvoiceSummarySelectedCount() === 0) {
+      alert('请先选择要导出的开票汇总记录');
+      return;
+    }
+
+    try {
+      setInvoiceSummaryExporting(true);
+      setInvoiceSummaryExportProgress({
+        visible: true,
+        percent: 8,
+        text: '准备导出...'
+      });
+      let rows = getSelectedInvoiceSummaryRows();
+      if (invoiceSummaryAllSelected) {
+        setInvoiceSummaryExportProgress({
+          visible: true,
+          percent: 28,
+          text: '正在拉取全部选中记录...'
+        });
+        const data = await api.getSettlementInvoiceSummary({
+          q: invoiceSummaryFilters.keyword,
+          page: 1,
+          pageSize,
+          order_month: invoiceSummaryFilters.order_month,
+          invoice_status: invoiceSummaryFilters.invoice_status,
+          invoice_overdue: invoiceSummaryFilters.invoice_overdue,
+          payment_overdue: invoiceSummaryFilters.payment_overdue,
+          exportAll: true
+        });
+        const excludedIds = new Set(excludedInvoiceSummaryOrderIds);
+        rows = (Array.isArray(data) ? data : (data.data || []))
+          .filter(row => !excludedIds.has(normalizeInvoiceSummaryOrderId(row.order_id)));
+        setInvoiceSummaryExportProgress({
+          visible: true,
+          percent: 68,
+          text: `已获取 ${rows.length} 条记录`
+        });
+      } else {
+        setInvoiceSummaryExportProgress({
+          visible: true,
+          percent: 58,
+          text: `已准备 ${rows.length} 条记录`
+        });
+      }
+      if (rows.length === 0) {
+        alert('未找到可导出的开票汇总记录，请重新选择后再试');
+        return;
+      }
+
+      setInvoiceSummaryExportProgress({
+        visible: true,
+        percent: 82,
+        text: '正在生成Excel文件...'
+      });
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.json_to_sheet(rows.map(buildInvoiceSummaryExportRow));
+      ws['!cols'] = [
+        { wch: 10 },
+        { wch: 14 },
+        { wch: 24 },
+        { wch: 14 },
+        { wch: 12 },
+        { wch: 14 },
+        { wch: 10 },
+        { wch: 14 },
+        { wch: 12 },
+        { wch: 14 },
+        { wch: 22 },
+        { wch: 24 },
+        { wch: 14 },
+        { wch: 14 },
+        { wch: 24 },
+        { wch: 14 },
+        { wch: 14 },
+        { wch: 12 },
+        { wch: 14 },
+        { wch: 14 }
+      ];
+      XLSX.utils.book_append_sheet(wb, ws, '开票汇总表');
+      const now = new Date();
+      const timestamp = now.toISOString().slice(0, 19).replace(/[-:]/g, '').replace('T', '_');
+      XLSX.writeFile(wb, `开票汇总表_${timestamp}.xlsx`);
+      setInvoiceSummaryExportProgress({
+        visible: true,
+        percent: 100,
+        text: `导出完成，共 ${rows.length} 条`
+      });
+    } catch (error) {
+      console.error('导出开票汇总表失败:', error);
+      alert('导出开票汇总表失败：' + error.message);
+    } finally {
+      setInvoiceSummaryExporting(false);
+      window.setTimeout(() => {
+        setInvoiceSummaryExportProgress({
+          visible: false,
+          percent: 0,
+          text: ''
+        });
+      }, 900);
+    }
+  }
+
   async function handleDelete(settlement) {
     if (!canDeleteSettlement(settlement)) {
       alert('您没有权限删除结算记录');
@@ -874,6 +1206,254 @@ export default function SettlementManagement() {
     );
   };
 
+  const renderInvoiceSummaryView = () => {
+    const summaryTotalPages = Math.max(1, Math.ceil(invoiceSummaryTotal / pageSize));
+    const invoiceSummarySelectedCount = getInvoiceSummarySelectedCount();
+
+    return (
+      <>
+        <div className="settlements-toolbar invoice-summary-toolbar">
+          <div className="settlements-filter-group">
+            <div className="settlements-filter-item settlements-search-item">
+              <label>搜索:</label>
+              <input
+                className="input settlements-search-input"
+                value={invoiceSummaryKeywordInput}
+                onChange={(e) => setInvoiceSummaryKeywordInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    applyInvoiceSummarySearch();
+                  }
+                }}
+                placeholder="委托单号 / 委托单位 / 付款联系人 / 业务 / 票号"
+              />
+              <button
+                className="btn btn-primary settlements-search-button"
+                onClick={applyInvoiceSummarySearch}
+              >
+                搜索
+              </button>
+            </div>
+            <div className="settlements-filter-item">
+              <label>月份:</label>
+              <select
+                className="input settlements-filter-select"
+                value={invoiceSummaryFilters.order_month}
+                onChange={(e) => updateInvoiceSummaryFilter('order_month', e.target.value)}
+              >
+                <option value="">全部月份</option>
+                {invoiceSummaryMonths.map(month => (
+                  <option key={month} value={month}>{month}</option>
+                ))}
+              </select>
+            </div>
+            <div className="settlements-filter-item">
+              <label>是否开票:</label>
+              <select
+                className="input settlements-filter-select"
+                value={invoiceSummaryFilters.invoice_status}
+                onChange={(e) => updateInvoiceSummaryFilter('invoice_status', e.target.value)}
+              >
+                <option value="">全部</option>
+                <option value="invoiced">已开票</option>
+                <option value="uninvoiced">未开票</option>
+              </select>
+            </div>
+            <div className="settlements-filter-item">
+              <label>开票逾期:</label>
+              <select
+                className="input settlements-filter-select"
+                value={invoiceSummaryFilters.invoice_overdue}
+                onChange={(e) => updateInvoiceSummaryFilter('invoice_overdue', e.target.value)}
+              >
+                <option value="">全部</option>
+                <option value="overdue">已逾期</option>
+                <option value="not_overdue">未逾期</option>
+              </select>
+            </div>
+            <div className="settlements-filter-item">
+              <label>到款逾期:</label>
+              <select
+                className="input settlements-filter-select"
+                value={invoiceSummaryFilters.payment_overdue}
+                onChange={(e) => updateInvoiceSummaryFilter('payment_overdue', e.target.value)}
+              >
+                <option value="">全部</option>
+                <option value="overdue">已逾期</option>
+                <option value="not_overdue">未逾期</option>
+              </select>
+            </div>
+            {(invoiceSummaryFilters.keyword || invoiceSummaryFilters.order_month || invoiceSummaryFilters.invoice_status || invoiceSummaryFilters.invoice_overdue || invoiceSummaryFilters.payment_overdue) && (
+              <button
+                className="btn btn-secondary settlements-filter-reset"
+                onClick={() => {
+                  setInvoiceSummaryPage(1);
+                  clearInvoiceSummarySelection();
+                  setInvoiceSummaryKeywordInput('');
+                  setInvoiceSummaryFilters({
+                    keyword: '',
+                    order_month: '',
+                    invoice_status: '',
+                    invoice_overdue: '',
+                    payment_overdue: ''
+                  });
+                }}
+              >
+                重置
+              </button>
+            )}
+          </div>
+          <div className="settlements-toolbar-actions">
+            <button
+              className="btn btn-success settlements-export-btn"
+              onClick={handleExportInvoiceSummaryExcel}
+              disabled={invoiceSummaryExporting || invoiceSummaryLoading || invoiceSummarySelectedCount === 0}
+            >
+              {invoiceSummaryExporting ? '导出中...' : '导出Excel'}
+            </button>
+            {invoiceSummaryExportProgress.visible && (
+              <div className="invoice-summary-export-progress" role="status" aria-live="polite">
+                <div className="invoice-summary-export-progress-meta">
+                  <span>{invoiceSummaryExportProgress.text}</span>
+                  <span>{invoiceSummaryExportProgress.percent}%</span>
+                </div>
+                <div className="invoice-summary-export-progress-track">
+                  <div
+                    className="invoice-summary-export-progress-bar"
+                    style={{ width: `${invoiceSummaryExportProgress.percent}%` }}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="table-container settlements-table-container invoice-summary-table-container" style={{ marginTop: '20px' }}>
+          <div className="settlements-table-info">
+            <span>共 {invoiceSummaryTotal} 条记录，已选 {invoiceSummarySelectedCount} 条</span>
+            <div className="settlements-pagination">
+              <button
+                className="btn btn-secondary btn-sm"
+                disabled={invoiceSummaryPage <= 1}
+                onClick={() => setInvoiceSummaryPage(1)}
+              >
+                首页
+              </button>
+              <button
+                className="btn btn-secondary btn-sm"
+                disabled={invoiceSummaryPage <= 1}
+                onClick={() => setInvoiceSummaryPage(prev => Math.max(1, prev - 1))}
+              >
+                上一页
+              </button>
+              <span className="settlements-page-info">
+                第 {invoiceSummaryPage} 页，共 {summaryTotalPages} 页
+              </span>
+              <button
+                className="btn btn-secondary btn-sm"
+                disabled={invoiceSummaryPage >= summaryTotalPages}
+                onClick={() => setInvoiceSummaryPage(prev => Math.min(summaryTotalPages, prev + 1))}
+              >
+                下一页
+              </button>
+              <button
+                className="btn btn-secondary btn-sm"
+                disabled={invoiceSummaryPage >= summaryTotalPages}
+                onClick={() => setInvoiceSummaryPage(summaryTotalPages)}
+              >
+                末页
+              </button>
+            </div>
+          </div>
+          <div className="settlements-table-scroll">
+            <table className="table invoice-summary-table">
+              <thead>
+                <tr>
+                  <th className="invoice-summary-select-col">
+                    <input
+                      type="checkbox"
+                      checked={invoiceSummaryTotal > 0 && invoiceSummaryAllSelected && excludedInvoiceSummaryOrderIds.length === 0}
+                      onChange={handleInvoiceSummarySelectAll}
+                      disabled={invoiceSummaryLoading || invoiceSummaryTotal === 0}
+                      title="全选当前筛选结果"
+                    />
+                  </th>
+                  <th>月份</th>
+                  <th>委托单号</th>
+                  <th>委托单位</th>
+                  <th>付款联系人</th>
+                  <th>对接业务</th>
+                  <th>lims业务总价</th>
+                  <th>是否开票</th>
+                  <th>截止开票日期</th>
+                  <th>开票日期</th>
+                  <th>开票是否逾期</th>
+                  <th>票号</th>
+                  <th>开票客户名称</th>
+                  <th>开票金额</th>
+                  <th>开票金额差值</th>
+                  <th>开票备注</th>
+                  <th>客户付款周期</th>
+                  <th>截止到款日期</th>
+                  <th>到款日期</th>
+                  <th>到款金额</th>
+                  <th>到款是否逾期</th>
+                </tr>
+              </thead>
+              <tbody>
+                {invoiceSummaryLoading ? (
+                  <tr>
+                    <td colSpan="21" style={{ textAlign: 'center', padding: '20px' }}>加载中...</td>
+                  </tr>
+                ) : invoiceSummaryRows.length === 0 ? (
+                  <tr>
+                    <td colSpan="21" style={{ textAlign: 'center', padding: '20px' }}>暂无匹配的开票汇总记录</td>
+                  </tr>
+                ) : (
+                  invoiceSummaryRows.map((row) => (
+                    <tr key={row.order_id}>
+                      <td className="invoice-summary-select-col">
+                        <input
+                          type="checkbox"
+                          checked={isInvoiceSummaryRowSelected(row)}
+                          onChange={(e) => handleInvoiceSummarySelect(row, e.target.checked)}
+                        />
+                      </td>
+                      <td>{row.order_month || '-'}</td>
+                      <td>{renderSummaryDetail(row.order_id, '委托单号', 12)}</td>
+                      <td>{renderSummaryDetail(row.order_customer_name, '委托单位', 14)}</td>
+                      <td>{renderSummaryDetail(row.payer_contact_name, '付款联系人', 10)}</td>
+                      <td>{renderSummaryDetail(row.assignee_name, '对接业务', 8)}</td>
+                      <td className="settlement-money-cell">{formatCurrency(row.lims_total_amount)}</td>
+                      <td>
+                        <span className={`invoice-status-pill ${row.invoice_status === '已开票' ? 'is-invoiced' : 'is-uninvoiced'}`}>
+                          {row.invoice_status || '未开票'}
+                        </span>
+                      </td>
+                      <td>{formatSummaryDate(row.invoice_deadline_date)}</td>
+                      <td>{formatSummaryDate(row.invoice_date)}</td>
+                      <td>{formatOverdueDays(row.invoice_overdue_days)}</td>
+                      <td>{renderSummaryDetail(row.invoice_number, '票号', 16)}</td>
+                      <td>{renderSummaryDetail(row.invoice_customer_name, '开票客户名称', 14)}</td>
+                      <td className="settlement-money-cell">{formatCurrency(row.invoice_amount)}</td>
+                      <td className="settlement-money-cell">{formatCurrency(row.invoice_amount_diff)}</td>
+                      <td>{renderSummaryDetail(row.invoice_remark, '开票备注', 14)}</td>
+                      <td>{row.payment_term_days ?? '-'}</td>
+                      <td>{formatSummaryDate(row.payment_deadline_date)}</td>
+                      <td>{formatSummaryDate(row.received_date)}</td>
+                      <td className="settlement-money-cell">{formatCurrency(row.received_amount)}</td>
+                      <td>{formatOverdueDays(row.payment_overdue_days)}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </>
+    );
+  };
+
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   if (!canAccessSettlement()) {
@@ -889,8 +1469,31 @@ export default function SettlementManagement() {
 
   return (
     <div>
-      <h2>费用结算</h2>
+      <div className="settlements-view-header">
+        <div className={`settlements-view-tabs active-${activeView}`} role="tablist" aria-label="费用结算视图切换">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeView === 'settlements'}
+            className={`settlements-view-tab ${activeView === 'settlements' ? 'active' : ''}`}
+            onClick={() => setActiveView('settlements')}
+          >
+            费用结算
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeView === 'invoiceSummary'}
+            className={`settlements-view-tab ${activeView === 'invoiceSummary' ? 'active' : ''}`}
+            onClick={() => setActiveView('invoiceSummary')}
+          >
+            开票汇总表
+          </button>
+        </div>
+      </div>
 
+      {activeView === 'invoiceSummary' ? renderInvoiceSummaryView() : (
+      <>
       <div className="settlements-toolbar">
         <div className="settlements-filter-group">
           <div className="settlements-filter-item settlements-search-item">
@@ -1203,7 +1806,7 @@ export default function SettlementManagement() {
 
       <div className="table-container settlements-table-container" style={{ marginTop: '20px' }}>
         <div className="settlements-table-info">
-          <span>共 {total} 条记录，每页 {pageSize} 条</span>
+          <span>共 {total} 条记录，已选 {selectedSettlementIds.length} 条</span>
           <div className="settlements-pagination">
             <button
               className="btn btn-secondary btn-sm"
@@ -1556,6 +2159,8 @@ export default function SettlementManagement() {
         </table>
         </div>
       </div>
+      </>
+      )}
     </div>
   );
 }
