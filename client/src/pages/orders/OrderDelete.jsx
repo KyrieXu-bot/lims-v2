@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { api } from '../../api';
 
 export default function OrderDelete() {
+  const currentUser = JSON.parse(localStorage.getItem('lims_user') || 'null');
   const [orderId, setOrderId] = useState('');
   const [orderInfo, setOrderInfo] = useState(null);
   const [testItems, setTestItems] = useState([]);
@@ -9,6 +10,19 @@ export default function OrderDelete() {
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+
+  if (currentUser?.role !== 'admin') {
+    return (
+      <div className="order-delete-container">
+        <h2>删除委托单</h2>
+        <div className="delete-form">
+          <div className="alert alert-danger">
+            当前账号无权删除委托单。此功能仅管理员可用。
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // 查询委托单信息
   async function fetchOrderInfo() {
@@ -461,4 +475,3 @@ export default function OrderDelete() {
     </div>
   );
 }
-

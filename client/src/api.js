@@ -282,6 +282,27 @@ export const api = {
     return { 'Authorization': `Bearer ${user.token}`, 'Content-Type': 'application/json' };
   },
 
+  // system announcements
+  async getOrderTransferReminderAnnouncement() {
+    const r = await fetch(`${API_BASE}/api/system-announcements/order-transfer-reminder`, { headers: this.authHeaders() });
+    return readApiJson(r, '获取转单提醒公告失败');
+  },
+  async enableOrderTransferReminderAnnouncement({ auto_close_at }) {
+    const r = await fetch(`${API_BASE}/api/system-announcements/order-transfer-reminder/enable`, {
+      method: 'POST',
+      headers: this.authHeaders(),
+      body: JSON.stringify({ auto_close_at })
+    });
+    return readApiJson(r, '开启转单提醒公告失败');
+  },
+  async disableOrderTransferReminderAnnouncement() {
+    const r = await fetch(`${API_BASE}/api/system-announcements/order-transfer-reminder/disable`, {
+      method: 'POST',
+      headers: this.authHeaders()
+    });
+    return readApiJson(r, '关闭转单提醒公告失败');
+  },
+
   // customers
   async listCustomers({ q = '', page = 1, pageSize = 20, is_active } = {}) {
     const params = new URLSearchParams({ q, page, pageSize });
@@ -778,13 +799,14 @@ export const api = {
   },
 
   // settlements
-  async getSettlements({ q = '', page = 1, pageSize = 100, settlement_type, payment_status, approval_status, created_start, created_end } = {}) {
+  async getSettlements({ q = '', page = 1, pageSize = 100, settlement_type, payment_status, approval_status, created_start, created_end, exclude_prepayment } = {}) {
     const params = new URLSearchParams({ q, page, pageSize });
     if (settlement_type) params.set('settlement_type', settlement_type);
     if (payment_status) params.set('payment_status', payment_status);
     if (approval_status) params.set('approval_status', approval_status);
     if (created_start) params.set('created_start', created_start);
     if (created_end) params.set('created_end', created_end);
+    if (exclude_prepayment) params.set('exclude_prepayment', '1');
     const r = await fetch(`${API_BASE}/api/settlements?${params.toString()}`, { headers: this.authHeaders() });
     return readApiJson(r, '获取结算记录失败');
   },
@@ -801,6 +823,14 @@ export const api = {
   async getSettlementInvoiceSummaryMonths() {
     const r = await fetch(`${API_BASE}/api/settlements/invoice-summary/months`, { headers: this.authHeaders() });
     return readApiJson(r, '获取开票汇总月份失败');
+  },
+  async updateSettlementInvoiceSummaryRemark(orderId, invoice_summary_remark) {
+    const r = await fetch(`${API_BASE}/api/settlements/invoice-summary/${encodeURIComponent(orderId)}/summary-remark`, {
+      method: 'PUT',
+      headers: this.authHeaders(),
+      body: JSON.stringify({ invoice_summary_remark })
+    });
+    return readApiJson(r, '保存开票汇总备注失败');
   },
   async createSettlement(data) {
     const r = await fetch(`${API_BASE}/api/settlements`, {

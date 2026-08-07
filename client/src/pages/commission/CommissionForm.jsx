@@ -341,10 +341,61 @@ const CollapsibleText = ({ text, maxLength = 50 }) => {
 
 const RETURN_STATE_STORAGE_KEY = 'commission_form_return_state';
 const RETURN_STATE_SHOULD_RESTORE_KEY = 'commission_form_should_restore';
+const ORDER_TRANSFER_REMINDER_DISMISS_KEY = 'commission_order_transfer_reminder_dismissed_run';
+
+function formatLocalDateTimeForApi(value) {
+  return String(value || '').trim().replace('T', ' ');
+}
+
+function getDefaultOrderTransferReminderCloseAt() {
+  const now = new Date();
+  let closeAt = new Date(now.getFullYear(), now.getMonth(), 6, 0, 0, 0, 0);
+  if (closeAt <= now) {
+    closeAt = new Date(now.getFullYear(), now.getMonth() + 1, 6, 0, 0, 0, 0);
+  }
+  const y = closeAt.getFullYear();
+  const m = String(closeAt.getMonth() + 1).padStart(2, '0');
+  const d = String(closeAt.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}T00:00`;
+}
+
+function formatDateTimeForInput(value) {
+  if (!value) return getDefaultOrderTransferReminderCloseAt();
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(value)) {
+    return value.slice(0, 16).replace(' ', 'T');
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return getDefaultOrderTransferReminderCloseAt();
+  const offset = parsed.getTimezoneOffset();
+  return new Date(parsed.getTime() - offset * 60000).toISOString().slice(0, 16);
+}
+
+function parseBeijingWallTimeMs(value) {
+  if (!value) return NaN;
+  const text = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(text)) {
+    return new Date(text.slice(0, 19).replace(' ', 'T')).getTime();
+  }
+  return new Date(value).getTime();
+}
+
+function formatBeijingDateTimeDisplay(value) {
+  if (!value) return '';
+  const text = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(text)) {
+    return text.slice(0, 16).replace('T', ' ');
+  }
+  return new Date(value).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
+}
 
 const CommissionForm = () => {
   const [maintenanceList, setMaintenanceList] = useState([]);
   const [isMaintenanceClosed, setIsMaintenanceClosed] = useState(false);
+  const [orderTransferNotice, setOrderTransferNotice] = useState(null);
+  const [showOrderTransferNoticeModal, setShowOrderTransferNoticeModal] = useState(false);
+  const [showOrderTransferNoticeSettings, setShowOrderTransferNoticeSettings] = useState(false);
+  const [orderTransferNoticeCloseAt, setOrderTransferNoticeCloseAt] = useState(() => getDefaultOrderTransferReminderCloseAt());
+  const [orderTransferNoticeSaving, setOrderTransferNoticeSaving] = useState(false);
 
   useEffect(() => {
     const fetchMaintenance = async () => {
@@ -366,6 +417,94 @@ const CommissionForm = () => {
 
   const handleCloseMaintenance = () => {
     setIsMaintenanceClosed(true);
+  };
+
+  const refreshOrderTransferNotice = async ({ allowAutoPopup = false } = {}) => {
+    try {
+      const notice = await api.getOrderTransferReminderAnnouncement();
+      setOrderTransferNotice(notice);
+      if (notice?.is_active) {
+        const dismissedRunId = localStorage.getItem(ORDER_TRANSFER_REMINDER_DISMISS_KEY);
+        if (allowAutoPopup && notice.run_id && dismissedRunId !== notice.run_id) {
+          setShowOrderTransferNoticeModal(true);
+        }
+      } else {
+        setShowOrderTransferNoticeModal(false);
+      }
+    } catch (err) {
+      console.error('获取转单提醒公告失败:', err);
+    }
+  };
+
+  useEffect(() => {
+    refreshOrderTransferNotice({ allowAutoPopup: true });
+  }, []);
+
+  useEffect(() => {
+    if (!orderTransferNotice?.is_active || !orderTransferNotice.auto_close_at) return;
+    const closeAt = parseBeijingWallTimeMs(orderTransferNotice.auto_close_at);
+    const delay = closeAt - Date.now();
+    if (!Number.isFinite(delay)) return;
+    if (delay <= 0) {
+      refreshOrderTransferNotice();
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      refreshOrderTransferNotice();
+    }, Math.min(delay, 2147483647));
+    return () => window.clearTimeout(timer);
+  }, [orderTransferNotice?.is_active, orderTransferNotice?.auto_close_at]);
+
+  const openOrderTransferNotice = () => {
+    if (orderTransferNotice?.is_active) {
+      setShowOrderTransferNoticeModal(true);
+      return;
+    }
+    if (user?.role === 'admin') {
+      setOrderTransferNoticeCloseAt(getDefaultOrderTransferReminderCloseAt());
+      setShowOrderTransferNoticeSettings(true);
+    }
+  };
+
+  const dismissOrderTransferNoticePopup = ({ remember = false } = {}) => {
+    if (remember && orderTransferNotice?.run_id) {
+      localStorage.setItem(ORDER_TRANSFER_REMINDER_DISMISS_KEY, orderTransferNotice.run_id);
+    }
+    setShowOrderTransferNoticeModal(false);
+  };
+
+  const handleEnableOrderTransferNotice = async () => {
+    const autoCloseAt = formatLocalDateTimeForApi(orderTransferNoticeCloseAt);
+    if (!autoCloseAt) {
+      alert('请选择自动关闭时间');
+      return;
+    }
+    setOrderTransferNoticeSaving(true);
+    try {
+      const notice = await api.enableOrderTransferReminderAnnouncement({ auto_close_at: autoCloseAt });
+      setOrderTransferNotice(notice);
+      setShowOrderTransferNoticeSettings(false);
+      setShowOrderTransferNoticeModal(true);
+    } catch (err) {
+      alert(err.message || '开启转单提醒失败');
+    } finally {
+      setOrderTransferNoticeSaving(false);
+    }
+  };
+
+  const handleDisableOrderTransferNotice = async () => {
+    if (!window.confirm('确定要关闭转单提醒公告吗？关闭后所有人都不再看到本次公告。')) return;
+    setOrderTransferNoticeSaving(true);
+    try {
+      const notice = await api.disableOrderTransferReminderAnnouncement();
+      setOrderTransferNotice(notice);
+      setShowOrderTransferNoticeModal(false);
+      setShowOrderTransferNoticeSettings(false);
+    } catch (err) {
+      alert(err.message || '关闭转单提醒失败');
+    } finally {
+      setOrderTransferNoticeSaving(false);
+    }
   };
 
   const navigate = useNavigate();
@@ -4646,7 +4785,9 @@ const CommissionForm = () => {
     showMergePriceModal ||
     showTransferChainModal ||
     showTransferModal ||
-    showCancellationModal;
+    showCancellationModal ||
+    showOrderTransferNoticeModal ||
+    showOrderTransferNoticeSettings;
 
   return (
     <div className="commission-form">
@@ -4863,7 +5004,7 @@ const CommissionForm = () => {
             </div>
           )}
           {(user?.role === 'admin' || user?.role === 'viewer' || isCrossDepartmentLeader(user)) && (
-            <div className="filter-group department-filter-group">
+            <div className="filter-group filter-stack-group department-filter-group">
               <label>部门:</label>
               <select
                 value={departmentFilter}
@@ -5078,7 +5219,7 @@ const CommissionForm = () => {
                 >
                   结算 ({selectedItems.length})
                 </button>
-                {canEditSettlement() && (
+                {false && canEditSettlement() && (
                   <button 
                     onClick={handleBatchDelete} 
                     className="btn btn-danger"
@@ -5088,13 +5229,15 @@ const CommissionForm = () => {
                     批量删除 ({selectedItems.length})
                   </button>
                 )}
-                <button 
-                  onClick={() => navigate('/orders/delete')} 
-                  className="btn btn-danger"
-                  style={{backgroundColor: '#dc3545', color: 'white'}}
-                >
-                  删除委托单
-                </button>
+                {user?.role === 'admin' && (
+                  <button 
+                    onClick={() => navigate('/orders/delete')} 
+                    className="btn btn-danger"
+                    style={{backgroundColor: '#dc3545', color: 'white'}}
+                  >
+                    删除委托单
+                  </button>
+                )}
               </>
             )}
           </div>
@@ -5122,6 +5265,32 @@ const CommissionForm = () => {
             <div className="table-info">
               <div className="table-info-left">
                 <span>共 {total} 条记录</span>
+                {(orderTransferNotice?.is_active || user?.role === 'admin') && (
+                  <div className="order-transfer-reminder-group order-transfer-reminder-table-entry">
+                    <button
+                      type="button"
+                      className={`order-transfer-reminder-entry ${orderTransferNotice?.is_active ? 'is-active' : 'is-idle'}`}
+                      onClick={openOrderTransferNotice}
+                      title={orderTransferNotice?.is_active ? '查看转单提醒公告' : '开启转单提醒公告'}
+                    >
+                      <span className="order-transfer-reminder-entry-icon">!</span>
+                      <span>{orderTransferNotice?.is_active ? '转单提醒' : '开启提醒'}</span>
+                    </button>
+                    {user?.role === 'admin' && orderTransferNotice?.is_active && (
+                      <button
+                        type="button"
+                        className="order-transfer-reminder-admin-link"
+                        onClick={() => {
+                          setOrderTransferNoticeCloseAt(formatDateTimeForInput(orderTransferNotice.auto_close_at));
+                          setShowOrderTransferNoticeSettings(true);
+                        }}
+                        title="设置或关闭转单提醒"
+                      >
+                        设置
+                      </button>
+                    )}
+                  </div>
+                )}
                 {maintenanceList.length > 0 && !isMaintenanceClosed && (
                   <div className="maintenance-notice-banner">
                     <span className="maintenance-notice-label">⚠️ 设备维护公告:</span>
@@ -5285,7 +5454,7 @@ const CommissionForm = () => {
                     {renderColumnHeader('assignment_note', '指派备注', 'lab-field note-col')}
                     {renderColumnHeader('field_test_time', '现场测试时间', 'lab-field')}
                     {renderColumnHeader('equipment_name', '检测设备', 'lab-field')}
-                    {renderColumnHeader('actual_sample_quantity', '计费数量', 'lab-field narrow-col')}
+                    {renderColumnHeader('actual_sample_quantity', '计费数量', 'lab-field quantity-with-unit-col')}
                     {renderColumnHeader('work_hours', '测试工时', 'lab-field narrow-col')}
                     {renderColumnHeader('machine_hours', '测试机时', 'lab-field narrow-col')}
                     {renderColumnHeader('test_notes', '实验备注', 'lab-field note-col')}
@@ -6201,27 +6370,35 @@ const CommissionForm = () => {
                           )}
                         </div>
                       </td>
-                      <td className={getColumnCellClass('actual_sample_quantity', 'lab-field narrow-col')} data-column-key="actual_sample_quantity">
+                      <td className={getColumnCellClass('actual_sample_quantity', 'lab-field quantity-with-unit-col')} data-column-key="actual_sample_quantity">
                         <div className="editable-field-container">
                           {canEditField('actual_sample_quantity', item) ? (
                             <>
-                              <RealtimeEditableCell
-                                value={item.actual_sample_quantity}
-                                type="number"
-                                onSave={handleSaveEdit}
-                                field="actual_sample_quantity"
-                                testItemId={item.test_item_id}
-                                placeholder="计费数量"
-                                isFieldBeingEdited={isFieldBeingEdited}
-                                getEditingUser={getEditingUser}
-                                emitUserEditing={emitUserEditing}
-                                emitUserStopEditing={emitUserStopEditing}
-                              />
+                              <div className="quantity-with-unit-editor">
+                                <RealtimeEditableCell
+                                  value={item.actual_sample_quantity}
+                                  type="number"
+                                  onSave={handleSaveEdit}
+                                  field="actual_sample_quantity"
+                                  testItemId={item.test_item_id}
+                                  placeholder="计费数量"
+                                  isFieldBeingEdited={isFieldBeingEdited}
+                                  getEditingUser={getEditingUser}
+                                  emitUserEditing={emitUserEditing}
+                                  emitUserStopEditing={emitUserStopEditing}
+                                />
+                                {String(item.unit || '').trim() && (
+                                  <span className="quantity-unit-suffix">/{String(item.unit || '').trim()}</span>
+                                )}
+                              </div>
                               <SavingIndicator testItemId={item.test_item_id} field="actual_sample_quantity" />
                             </>
                           ) : (
-                            <span {...withReadonlyFieldProps(item, 'actual_sample_quantity')}>
+                            <span {...withReadonlyFieldProps(item, 'actual_sample_quantity', 'quantity-with-unit-readonly')}>
                               {item.actual_sample_quantity ?? ''}
+                              {String(item.unit || '').trim() ? (
+                                <span className="quantity-unit-suffix">/{String(item.unit || '').trim()}</span>
+                              ) : null}
                             </span>
                           )}
                         </div>
@@ -6795,13 +6972,13 @@ const CommissionForm = () => {
                             )}
                             </>
                           )}
-                          {/* 删除按钮：管理员直接删除，组长和室主任走申请流程（组员无权限） */}
-                          {(user?.role === 'admin' || user?.role === 'leader' || user?.role === 'supervisor') && (
+                          {/* 删除按钮：仅管理员直接删除；申请删除入口暂时隐藏，函数保留 */}
+                          {user?.role === 'admin' && (
                               <button 
                                 className="btn-delete" 
                                 onClick={() => handleDeleteItem(item.test_item_id)}
                                 disabled={deletingItems.has(item.test_item_id)}
-                              title={user?.role === 'admin' ? "删除检测项目" : "申请删除检测项目"}
+                              title="删除检测项目"
                                 style={{
                                   backgroundColor: '#dc3545',
                                   color: 'white',
@@ -7738,6 +7915,158 @@ const CommissionForm = () => {
                 disabled={submittingTransfer}
               >
                 {submittingTransfer ? '提交中…' : '确认申请'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showOrderTransferNoticeModal && orderTransferNotice && (
+        <div
+          className="order-transfer-reminder-modal-backdrop"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) dismissOrderTransferNoticePopup();
+          }}
+        >
+          <div className="order-transfer-reminder-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="order-transfer-reminder-modal-header">
+              <div>
+                <div className="order-transfer-reminder-kicker">委托单登记提醒</div>
+                <h2>{orderTransferNotice.title || '转单提醒'}</h2>
+              </div>
+              <button
+                type="button"
+                className="order-transfer-reminder-modal-close"
+                onClick={() => dismissOrderTransferNoticePopup()}
+                title="关闭"
+              >
+                ×
+              </button>
+            </div>
+            <div className="order-transfer-reminder-summary">
+              {orderTransferNotice.summary}
+            </div>
+            <ol className="order-transfer-reminder-list">
+              {(orderTransferNotice.content || []).map((item, index) => (
+                <li key={index}>{item}</li>
+              ))}
+            </ol>
+            {orderTransferNotice.auto_close_at && (
+              <div className="order-transfer-reminder-meta">
+                本次公告将于 {formatBeijingDateTimeDisplay(orderTransferNotice.auto_close_at)} 自动关闭。
+              </div>
+            )}
+            <div className="order-transfer-reminder-modal-actions">
+              {user?.role === 'admin' && (
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => {
+                    setOrderTransferNoticeCloseAt(formatDateTimeForInput(orderTransferNotice.auto_close_at));
+                    setShowOrderTransferNoticeSettings(true);
+                  }}
+                >
+                  管理设置
+                </button>
+              )}
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => dismissOrderTransferNoticePopup({ remember: true })}
+              >
+                本次公告不再弹出
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => dismissOrderTransferNoticePopup()}
+              >
+                我知道了
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showOrderTransferNoticeSettings && user?.role === 'admin' && (
+        <div
+          className="order-transfer-reminder-modal-backdrop"
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !orderTransferNoticeSaving) {
+              setShowOrderTransferNoticeSettings(false);
+            }
+          }}
+        >
+          <div className="order-transfer-reminder-settings-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="order-transfer-reminder-modal-header">
+              <div>
+                <div className="order-transfer-reminder-kicker">管理员设置</div>
+                <h2>转单提醒公告</h2>
+              </div>
+              <button
+                type="button"
+                className="order-transfer-reminder-modal-close"
+                onClick={() => setShowOrderTransferNoticeSettings(false)}
+                disabled={orderTransferNoticeSaving}
+                title="关闭"
+              >
+                ×
+              </button>
+            </div>
+            <div className="order-transfer-reminder-settings-body">
+              <div className="order-transfer-reminder-status-line">
+                当前状态：
+                <strong className={orderTransferNotice?.is_active ? 'is-on' : 'is-off'}>
+                  {orderTransferNotice?.is_active ? '已开启' : '未开启'}
+                </strong>
+              </div>
+              <label className="order-transfer-reminder-field">
+                <span>自动关闭时间</span>
+                <input
+                  type="datetime-local"
+                  value={orderTransferNoticeCloseAt}
+                  onChange={(e) => setOrderTransferNoticeCloseAt(e.target.value)}
+                  disabled={orderTransferNoticeSaving}
+                />
+              </label>
+              <div className="order-transfer-reminder-settings-preview">
+                <strong>公告内容</strong>
+                <ol>
+                  {(orderTransferNotice?.content || [
+                    '即日起支持提前开具次月单号。请各位业务同事结合实验室设备排期、工程师工作安排综合评估，按需开立次月单号，杜绝月底集中切换单号导致资源浪费。',
+                    '测试项目若无法在当月完成，请相关工程师及时提交转单申请，申请截止时间为次月5日。逾期提交将影响绩效核算，请务必按期办理。'
+                  ]).map((item, index) => (
+                    <li key={index}>{item}</li>
+                  ))}
+                </ol>
+              </div>
+            </div>
+            <div className="order-transfer-reminder-modal-actions">
+              {orderTransferNotice?.is_active && (
+                <button
+                  type="button"
+                  className="btn btn-danger"
+                  onClick={handleDisableOrderTransferNotice}
+                  disabled={orderTransferNoticeSaving}
+                >
+                  手动关闭
+                </button>
+              )}
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setShowOrderTransferNoticeSettings(false)}
+                disabled={orderTransferNoticeSaving}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={handleEnableOrderTransferNotice}
+                disabled={orderTransferNoticeSaving}
+              >
+                {orderTransferNoticeSaving ? '保存中...' : (orderTransferNotice?.is_active ? '更新并开启' : '确认开启')}
               </button>
             </div>
           </div>

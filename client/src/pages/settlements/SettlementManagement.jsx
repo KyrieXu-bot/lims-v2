@@ -36,6 +36,9 @@ export default function SettlementManagement() {
   const [selectedInvoiceSummaryOrderIds, setSelectedInvoiceSummaryOrderIds] = useState([]);
   const [invoiceSummaryAllSelected, setInvoiceSummaryAllSelected] = useState(false);
   const [excludedInvoiceSummaryOrderIds, setExcludedInvoiceSummaryOrderIds] = useState([]);
+  const [editingInvoiceSummaryRemarkOrderId, setEditingInvoiceSummaryRemarkOrderId] = useState('');
+  const [invoiceSummaryRemarkDraft, setInvoiceSummaryRemarkDraft] = useState('');
+  const [savingInvoiceSummaryRemarkOrderId, setSavingInvoiceSummaryRemarkOrderId] = useState('');
   const [selectedSettlementIds, setSelectedSettlementIds] = useState([]);
   const [selectAllLoading, setSelectAllLoading] = useState(false);
   const [editingSettlement, setEditingSettlement] = useState(null);
@@ -110,7 +113,7 @@ export default function SettlementManagement() {
   }, []);
 
   useEffect(() => {
-    if (activeView === 'settlements') {
+    if (activeView === 'settlements' || activeView === 'prepayment') {
       loadSettlements();
     }
   }, [activeView, page, settlementFilters]);
@@ -216,19 +219,26 @@ export default function SettlementManagement() {
     }
   }
 
+  function getSettlementQueryParams(overrides = {}) {
+    const isPrepaymentView = activeView === 'prepayment';
+    return {
+      q: settlementFilters.keyword,
+      page,
+      pageSize,
+      settlement_type: isPrepaymentView ? 'prepayment' : settlementFilters.settlement_type,
+      payment_status: isPrepaymentView ? undefined : settlementFilters.payment_status,
+      approval_status: settlementFilters.approval_status,
+      created_start: settlementFilters.created_start,
+      created_end: settlementFilters.created_end,
+      exclude_prepayment: !isPrepaymentView,
+      ...overrides
+    };
+  }
+
   async function loadSettlements() {
     try {
       setLoading(true);
-      const data = await api.getSettlements({
-        q: settlementFilters.keyword,
-        page,
-        pageSize,
-        settlement_type: settlementFilters.settlement_type,
-        payment_status: settlementFilters.payment_status,
-        approval_status: settlementFilters.approval_status,
-        created_start: settlementFilters.created_start,
-        created_end: settlementFilters.created_end
-      });
+      const data = await api.getSettlements(getSettlementQueryParams());
       const rows = Array.isArray(data) ? data : (data.data || []);
       setSettlements(rows);
       setTotal(Array.isArray(data) ? rows.length : Number(data.total || 0));
@@ -370,6 +380,91 @@ export default function SettlementManagement() {
     return selectedInvoiceSummaryOrderIds.length;
   }
 
+  function startEditInvoiceSummaryRemark(row) {
+    const orderId = normalizeInvoiceSummaryOrderId(row?.order_id);
+    if (!orderId) return;
+    setEditingInvoiceSummaryRemarkOrderId(orderId);
+    setInvoiceSummaryRemarkDraft(row?.invoice_summary_remark || '');
+  }
+
+  function cancelEditInvoiceSummaryRemark() {
+    setEditingInvoiceSummaryRemarkOrderId('');
+    setInvoiceSummaryRemarkDraft('');
+  }
+
+  async function saveInvoiceSummaryRemark(orderId) {
+    const normalizedOrderId = normalizeInvoiceSummaryOrderId(orderId);
+    if (!normalizedOrderId || savingInvoiceSummaryRemarkOrderId) return;
+
+    try {
+      setSavingInvoiceSummaryRemarkOrderId(normalizedOrderId);
+      const result = await api.updateSettlementInvoiceSummaryRemark(
+        normalizedOrderId,
+        invoiceSummaryRemarkDraft
+      );
+      const savedRemark = result?.invoice_summary_remark ?? invoiceSummaryRemarkDraft;
+      const applySavedRemark = row => (
+        normalizeInvoiceSummaryOrderId(row?.order_id) === normalizedOrderId
+          ? { ...row, invoice_summary_remark: savedRemark }
+          : row
+      );
+      setInvoiceSummaryRows(prev => prev.map(applySavedRemark));
+      if (selectedInvoiceSummarySnapshotRef.current.has(normalizedOrderId)) {
+        const snapshot = selectedInvoiceSummarySnapshotRef.current.get(normalizedOrderId);
+        selectedInvoiceSummarySnapshotRef.current.set(normalizedOrderId, applySavedRemark(snapshot));
+      }
+      cancelEditInvoiceSummaryRemark();
+    } catch (error) {
+      alert('保存汇总备注失败: ' + error.message);
+    } finally {
+      setSavingInvoiceSummaryRemarkOrderId('');
+    }
+  }
+
+  function renderInvoiceSummaryRemark(row) {
+    const orderId = normalizeInvoiceSummaryOrderId(row?.order_id);
+    if (editingInvoiceSummaryRemarkOrderId === orderId) {
+      return (
+        <input
+          className="input invoice-summary-remark-input"
+          value={invoiceSummaryRemarkDraft}
+          autoFocus
+          disabled={savingInvoiceSummaryRemarkOrderId === orderId}
+          onChange={(e) => setInvoiceSummaryRemarkDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              saveInvoiceSummaryRemark(orderId);
+            } else if (e.key === 'Escape') {
+              cancelEditInvoiceSummaryRemark();
+            }
+          }}
+        />
+      );
+    }
+
+    return (
+      <div className="invoice-summary-remark-cell">
+        <span className="invoice-summary-remark-text">
+          {renderSummaryDetail(row?.invoice_summary_remark, '汇总备注', 12)}
+        </span>
+        <button
+          type="button"
+          className="invoice-summary-remark-edit"
+          title="编辑汇总备注"
+          aria-label="编辑汇总备注"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            startEditInvoiceSummaryRemark(row);
+          }}
+        >
+          ✎
+        </button>
+      </div>
+    );
+  }
+
   function clearSettlementSelection() {
     setSelectedSettlementIds([]);
     selectedSettlementSnapshotRef.current.clear();
@@ -387,16 +482,10 @@ export default function SettlementManagement() {
     const rows = [];
 
     while (true) {
-      const result = await api.getSettlements({
-        q: settlementFilters.keyword,
+      const result = await api.getSettlements(getSettlementQueryParams({
         page: currentPage,
-        pageSize: fetchPageSize,
-        settlement_type: settlementFilters.settlement_type,
-        payment_status: settlementFilters.payment_status,
-        approval_status: settlementFilters.approval_status,
-        created_start: settlementFilters.created_start,
-        created_end: settlementFilters.created_end
-      });
+        pageSize: fetchPageSize
+      }));
       const pageRows = Array.isArray(result) ? result : (result.data || []);
       if (expectedTotal === null) {
         expectedTotal = Array.isArray(result) ? pageRows.length : Number(result.total || 0);
@@ -488,9 +577,14 @@ export default function SettlementManagement() {
       '开票金额': formatCurrency(settlement.invoice_amount),
       '到账金额': formatCurrency(settlement.received_amount)
     };
-    DEPARTMENT_ALLOCATION_COLUMNS.forEach(col => {
-      row[col.label] = formatCurrency(settlement[col.key] || 0);
-    });
+    if (activeView === 'prepayment') {
+      row['已抵扣金额'] = formatCurrency(settlement.used_amount);
+      row['当前余额'] = formatCurrency(settlement.remaining_amount);
+    } else {
+      DEPARTMENT_ALLOCATION_COLUMNS.forEach(col => {
+        row[col.label] = formatCurrency(settlement[col.key] || 0);
+      });
+    }
     return {
       ...row,
       '到账日期': formatDate(settlement.received_date),
@@ -528,7 +622,9 @@ export default function SettlementManagement() {
         { wch: 24 },
         { wch: 14 },
         { wch: 14 },
-        ...DEPARTMENT_ALLOCATION_COLUMNS.map(() => ({ wch: 16 })),
+        ...(activeView === 'prepayment'
+          ? [{ wch: 14 }, { wch: 14 }]
+          : DEPARTMENT_ALLOCATION_COLUMNS.map(() => ({ wch: 16 }))),
         { wch: 12 },
         { wch: 28 },
         { wch: 12 },
@@ -857,6 +953,7 @@ export default function SettlementManagement() {
       '对接业务': row.assignee_name || '',
       'lims业务总价': row.lims_total_amount ?? '',
       '是否开票': row.invoice_status || '未开票',
+      '汇总备注': row.invoice_summary_remark || '',
       '截止开票日期': formatSummaryDate(row.invoice_deadline_date) === '-' ? '' : formatSummaryDate(row.invoice_deadline_date),
       '开票日期': formatSummaryDate(row.invoice_date) === '-' ? '' : formatSummaryDate(row.invoice_date),
       '开票是否逾期': formatOverdueDays(row.invoice_overdue_days),
@@ -939,6 +1036,7 @@ export default function SettlementManagement() {
         { wch: 14 },
         { wch: 10 },
         { wch: 14 },
+        { wch: 24 },
         { wch: 12 },
         { wch: 14 },
         { wch: 22 },
@@ -1385,6 +1483,7 @@ export default function SettlementManagement() {
                   <th>对接业务</th>
                   <th>lims业务总价</th>
                   <th>是否开票</th>
+                  <th>汇总备注</th>
                   <th>截止开票日期</th>
                   <th>开票日期</th>
                   <th>开票是否逾期</th>
@@ -1403,11 +1502,11 @@ export default function SettlementManagement() {
               <tbody>
                 {invoiceSummaryLoading ? (
                   <tr>
-                    <td colSpan="21" style={{ textAlign: 'center', padding: '20px' }}>加载中...</td>
+                    <td colSpan="22" style={{ textAlign: 'center', padding: '20px' }}>加载中...</td>
                   </tr>
                 ) : invoiceSummaryRows.length === 0 ? (
                   <tr>
-                    <td colSpan="21" style={{ textAlign: 'center', padding: '20px' }}>暂无匹配的开票汇总记录</td>
+                    <td colSpan="22" style={{ textAlign: 'center', padding: '20px' }}>暂无匹配的开票汇总记录</td>
                   </tr>
                 ) : (
                   invoiceSummaryRows.map((row) => (
@@ -1430,6 +1529,7 @@ export default function SettlementManagement() {
                           {row.invoice_status || '未开票'}
                         </span>
                       </td>
+                      <td>{renderInvoiceSummaryRemark(row)}</td>
                       <td>{formatSummaryDate(row.invoice_deadline_date)}</td>
                       <td>{formatSummaryDate(row.invoice_date)}</td>
                       <td>{formatOverdueDays(row.invoice_overdue_days)}</td>
@@ -1455,6 +1555,20 @@ export default function SettlementManagement() {
   };
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const isPrepaymentView = activeView === 'prepayment';
+  const settlementFilterResetVisible = settlementFilters.keyword ||
+    settlementFilters.approval_status ||
+    settlementFilters.created_start ||
+    settlementFilters.created_end ||
+    (!isPrepaymentView && (settlementFilters.settlement_type || settlementFilters.payment_status));
+  const visibleDepartmentColumns = isPrepaymentView ? [] : DEPARTMENT_ALLOCATION_COLUMNS;
+  const settlementTableColumnCount = isPrepaymentView ? 19 : 23;
+
+  function switchSettlementView(view) {
+    setActiveView(view);
+    setPage(1);
+    clearSettlementSelection();
+  }
 
   if (!canAccessSettlement()) {
     return (
@@ -1476,16 +1590,25 @@ export default function SettlementManagement() {
             role="tab"
             aria-selected={activeView === 'settlements'}
             className={`settlements-view-tab ${activeView === 'settlements' ? 'active' : ''}`}
-            onClick={() => setActiveView('settlements')}
+            onClick={() => switchSettlementView('settlements')}
           >
             费用结算
           </button>
           <button
             type="button"
             role="tab"
+            aria-selected={activeView === 'prepayment'}
+            className={`settlements-view-tab ${activeView === 'prepayment' ? 'active' : ''}`}
+            onClick={() => switchSettlementView('prepayment')}
+          >
+            预存充值
+          </button>
+          <button
+            type="button"
+            role="tab"
             aria-selected={activeView === 'invoiceSummary'}
             className={`settlements-view-tab ${activeView === 'invoiceSummary' ? 'active' : ''}`}
-            onClick={() => setActiveView('invoiceSummary')}
+            onClick={() => switchSettlementView('invoiceSummary')}
           >
             开票汇总表
           </button>
@@ -1526,32 +1649,35 @@ export default function SettlementManagement() {
               搜索
             </button>
           </div>
-          <div className="settlements-filter-item">
-            <label>开票类型:</label>
-            <select
-              className="input settlements-filter-select"
-              value={settlementFilters.settlement_type}
-              onChange={(e) => updateSettlementFilter('settlement_type', e.target.value)}
-            >
-              <option value="">全部类型</option>
-              <option value="invoice">开票结算</option>
-              <option value="prepaid">预存抵扣</option>
-              <option value="prepayment">预存充值</option>
-            </select>
-          </div>
-          <div className="settlements-filter-item">
-            <label>到款情况:</label>
-            <select
-              className="input settlements-filter-select"
-              value={settlementFilters.payment_status}
-              onChange={(e) => updateSettlementFilter('payment_status', e.target.value)}
-            >
-              <option value="">全部到款</option>
-              <option value="未到款">未到款</option>
-              <option value="部分到款">部分到款</option>
-              <option value="已到款">已到款</option>
-            </select>
-          </div>
+          {!isPrepaymentView && (
+            <>
+              <div className="settlements-filter-item">
+                <label>开票类型:</label>
+                <select
+                  className="input settlements-filter-select"
+                  value={settlementFilters.settlement_type}
+                  onChange={(e) => updateSettlementFilter('settlement_type', e.target.value)}
+                >
+                  <option value="">全部类型</option>
+                  <option value="invoice">开票结算</option>
+                  <option value="prepaid">预存抵扣</option>
+                </select>
+              </div>
+              <div className="settlements-filter-item">
+                <label>到款情况:</label>
+                <select
+                  className="input settlements-filter-select"
+                  value={settlementFilters.payment_status}
+                  onChange={(e) => updateSettlementFilter('payment_status', e.target.value)}
+                >
+                  <option value="">全部到款</option>
+                  <option value="未到款">未到款</option>
+                  <option value="部分到款">部分到款</option>
+                  <option value="已到款">已到款</option>
+                </select>
+              </div>
+            </>
+          )}
           <div className="settlements-filter-item">
             <label>审批情况:</label>
             <select
@@ -1581,7 +1707,7 @@ export default function SettlementManagement() {
               onChange={(e) => updateSettlementFilter('created_end', e.target.value)}
             />
           </div>
-          {(settlementFilters.keyword || settlementFilters.settlement_type || settlementFilters.payment_status || settlementFilters.approval_status || settlementFilters.created_start || settlementFilters.created_end) && (
+          {settlementFilterResetVisible && (
             <button
               className="btn btn-secondary settlements-filter-reset"
               onClick={() => {
@@ -1842,7 +1968,7 @@ export default function SettlementManagement() {
           </div>
         </div>
         <div className="settlements-table-scroll">
-        <table className={`table settlements-table ${editingSettlement ? 'settlements-table-editing' : ''}`}>
+        <table className={`table settlements-table ${editingSettlement ? 'settlements-table-editing' : ''} ${isPrepaymentView ? 'settlements-table-prepayment' : ''}`}>
           <thead>
             <tr>
               <th className="settlements-select-col">
@@ -1865,7 +1991,9 @@ export default function SettlementManagement() {
               <th>客户名称</th>
               <th>开票金额</th>
               <th>到账金额</th>
-              {DEPARTMENT_ALLOCATION_COLUMNS.map((col) => (
+              {isPrepaymentView && <th>已抵扣金额</th>}
+              {isPrepaymentView && <th>当前余额</th>}
+              {visibleDepartmentColumns.map((col) => (
                 <th key={col.key} className="settlements-dept-col">{col.label}</th>
               ))}
               <th>到账日期</th>
@@ -1880,13 +2008,13 @@ export default function SettlementManagement() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan="23" style={{ textAlign: 'center', padding: '20px' }}>
+                <td colSpan={settlementTableColumnCount} style={{ textAlign: 'center', padding: '20px' }}>
                   加载中...
                 </td>
               </tr>
             ) : settlements.length === 0 ? (
               <tr>
-                <td colSpan="23" style={{ textAlign: 'center', padding: '20px' }}>
+                <td colSpan={settlementTableColumnCount} style={{ textAlign: 'center', padding: '20px' }}>
                   暂无匹配的结算记录
                 </td>
               </tr>
@@ -1993,7 +2121,13 @@ export default function SettlementManagement() {
                           style={{ width: '120px', padding: '4px' }}
                         />
                       </td>
-                      {DEPARTMENT_ALLOCATION_COLUMNS.map((col) => (
+                      {isPrepaymentView && (
+                        <td className="settlement-money-cell">{formatCurrency(settlement.used_amount)}</td>
+                      )}
+                      {isPrepaymentView && (
+                        <td className="settlement-money-cell">{formatCurrency(settlement.remaining_amount)}</td>
+                      )}
+                      {visibleDepartmentColumns.map((col) => (
                         <td key={col.key} className="settlement-money-cell settlements-dept-col">
                           {formatCurrency(settlement[col.key] || 0)}
                         </td>
@@ -2106,7 +2240,13 @@ export default function SettlementManagement() {
                       </td>
                       <td className="settlement-money-cell">{formatCurrency(settlement.invoice_amount)}</td>
                       <td className="settlement-money-cell">{formatCurrency(settlement.received_amount)}</td>
-                      {DEPARTMENT_ALLOCATION_COLUMNS.map((col) => (
+                      {isPrepaymentView && (
+                        <td className="settlement-money-cell">{formatCurrency(settlement.used_amount)}</td>
+                      )}
+                      {isPrepaymentView && (
+                        <td className="settlement-money-cell">{formatCurrency(settlement.remaining_amount)}</td>
+                      )}
+                      {visibleDepartmentColumns.map((col) => (
                         <td key={col.key} className="settlement-money-cell settlements-dept-col">
                           {formatCurrency(settlement[col.key] || 0)}
                         </td>

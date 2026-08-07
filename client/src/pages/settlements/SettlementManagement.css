@@ -12,7 +12,7 @@
   align-items: center;
   gap: 0;
   overflow: hidden;
-  width: 280px;
+  width: 420px;
   height: 46px;
   border: 0;
   border-radius: 18px 18px 0 0;
@@ -26,7 +26,7 @@
   bottom: 0;
   left: 0;
   z-index: 0;
-  width: calc(50% + 26px);
+  width: calc(33.333% + 34px);
   border-radius: 18px 24px 0 0;
   background: #fff;
   content: '';
@@ -47,14 +47,24 @@
   transition: transform 0.24s ease;
 }
 
+.settlements-view-tabs.active-prepayment::before {
+  transform: translateX(calc(100% - 34px));
+  border-radius: 24px 24px 0 0;
+  clip-path: path('M 34 0 H 140 C 155 2 156 15 160 24 C 164 34 171 41 174 46 H 0 C 5 41 12 34 16 24 C 20 15 21 2 34 0 Z');
+}
+
 .settlements-view-tabs.active-invoiceSummary::before {
-  transform: translateX(calc(100% - 52px));
+  transform: translateX(calc(200% - 68px));
   border-radius: 24px 18px 0 0;
   clip-path: path('M 36 0 H 166 V 46 H 0 C 5 41 12 34 16 24 C 20 15 21 2 36 0 Z');
 }
 
-.settlements-view-tabs.active-invoiceSummary::after {
+.settlements-view-tabs.active-prepayment::after {
   transform: translateX(140px);
+}
+
+.settlements-view-tabs.active-invoiceSummary::after {
+  transform: translateX(280px);
 }
 
 .settlements-view-tab {
@@ -68,7 +78,7 @@
   background: transparent;
   color: #8b95a1;
   cursor: pointer;
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 700;
   line-height: 1;
   transition: color 0.22s ease;
@@ -275,13 +285,18 @@
   box-shadow: none;
 }
 
+.settlements-table-prepayment {
+  width: 2388px;
+  min-width: 2388px;
+}
+
 .invoice-summary-table-container {
   --settlement-row-height: 54px;
 }
 
 .invoice-summary-table {
-  width: 2948px;
-  min-width: 2948px;
+  width: 3118px;
+  min-width: 3118px;
   max-width: none;
   table-layout: fixed;
   border-collapse: separate;
@@ -328,8 +343,8 @@
 
 .invoice-summary-table th:nth-child(4),
 .invoice-summary-table td:nth-child(4),
-.invoice-summary-table th:nth-child(13),
-.invoice-summary-table td:nth-child(13) {
+.invoice-summary-table th:nth-child(14),
+.invoice-summary-table td:nth-child(14) {
   width: 190px;
 }
 
@@ -342,44 +357,49 @@
 
 .invoice-summary-table th:nth-child(7),
 .invoice-summary-table td:nth-child(7),
-.invoice-summary-table th:nth-child(14),
-.invoice-summary-table td:nth-child(14),
 .invoice-summary-table th:nth-child(15),
 .invoice-summary-table td:nth-child(15),
-.invoice-summary-table th:nth-child(20),
-.invoice-summary-table td:nth-child(20) {
+.invoice-summary-table th:nth-child(16),
+.invoice-summary-table td:nth-child(16),
+.invoice-summary-table th:nth-child(21),
+.invoice-summary-table td:nth-child(21) {
   width: 130px;
 }
 
 .invoice-summary-table th:nth-child(8),
 .invoice-summary-table td:nth-child(8),
-.invoice-summary-table th:nth-child(11),
-.invoice-summary-table td:nth-child(11),
-.invoice-summary-table th:nth-child(17),
-.invoice-summary-table td:nth-child(17),
-.invoice-summary-table th:nth-child(21),
-.invoice-summary-table td:nth-child(21) {
+.invoice-summary-table th:nth-child(12),
+.invoice-summary-table td:nth-child(12),
+.invoice-summary-table th:nth-child(18),
+.invoice-summary-table td:nth-child(18),
+.invoice-summary-table th:nth-child(22),
+.invoice-summary-table td:nth-child(22) {
   width: 120px;
 }
 
 .invoice-summary-table th:nth-child(9),
-.invoice-summary-table td:nth-child(9),
+.invoice-summary-table td:nth-child(9) {
+  width: 170px;
+}
+
 .invoice-summary-table th:nth-child(10),
 .invoice-summary-table td:nth-child(10),
-.invoice-summary-table th:nth-child(18),
-.invoice-summary-table td:nth-child(18),
+.invoice-summary-table th:nth-child(11),
+.invoice-summary-table td:nth-child(11),
 .invoice-summary-table th:nth-child(19),
-.invoice-summary-table td:nth-child(19) {
+.invoice-summary-table td:nth-child(19),
+.invoice-summary-table th:nth-child(20),
+.invoice-summary-table td:nth-child(20) {
   width: 135px;
 }
 
-.invoice-summary-table th:nth-child(12),
-.invoice-summary-table td:nth-child(12) {
+.invoice-summary-table th:nth-child(13),
+.invoice-summary-table td:nth-child(13) {
   width: 175px;
 }
 
-.invoice-summary-table th:nth-child(16),
-.invoice-summary-table td:nth-child(16) {
+.invoice-summary-table th:nth-child(17),
+.invoice-summary-table td:nth-child(17) {
   width: 210px;
 }
 
@@ -403,6 +423,45 @@
 .invoice-status-pill.is-uninvoiced {
   background: #f3f4f6;
   color: #4b5563;
+}
+
+.invoice-summary-remark-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.invoice-summary-remark-text {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.invoice-summary-remark-edit {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid #d6e2f3;
+  border-radius: 4px;
+  background: #f8fbff;
+  color: #2c5594;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.invoice-summary-remark-edit:hover {
+  border-color: #2c5594;
+  background: #eef5ff;
+}
+
+.invoice-summary-remark-input {
+  width: 100%;
+  height: 30px;
+  padding: 4px 8px;
 }
 
 .settlements-payer-search {
@@ -535,6 +594,43 @@
 .settlements-table th:nth-child(10),
 .settlements-table td:nth-child(10) {
   width: 115px;
+}
+
+.settlements-table-prepayment th:nth-child(11),
+.settlements-table-prepayment td:nth-child(11),
+.settlements-table-prepayment th:nth-child(12),
+.settlements-table-prepayment td:nth-child(12) {
+  width: 130px;
+}
+
+.settlements-table-prepayment th:nth-child(13),
+.settlements-table-prepayment td:nth-child(13) {
+  width: 125px;
+}
+
+.settlements-table-prepayment th:nth-child(14),
+.settlements-table-prepayment td:nth-child(14) {
+  width: 230px;
+}
+
+.settlements-table-prepayment th:nth-child(15),
+.settlements-table-prepayment td:nth-child(15) {
+  width: 110px;
+}
+
+.settlements-table-prepayment th:nth-child(16),
+.settlements-table-prepayment td:nth-child(16) {
+  width: 115px;
+}
+
+.settlements-table-prepayment th:nth-child(17),
+.settlements-table-prepayment td:nth-child(17) {
+  width: 105px;
+}
+
+.settlements-table-prepayment th:nth-child(18),
+.settlements-table-prepayment td:nth-child(18) {
+  width: 110px;
 }
 
 .settlements-table th:nth-child(17),
