@@ -46,6 +46,9 @@ export default function SettlementManagement() {
     invoice_number: '',
     invoice_date: '',
     invoice_amount: '',
+    gift_amount: '',
+    prepayment_total_amount: '',
+    prepayment_type: 'normal',
     received_amount: '',
     received_date: '',
     payment_status: '未到款',
@@ -59,6 +62,7 @@ export default function SettlementManagement() {
   const [showPrepaymentModal, setShowPrepaymentModal] = useState(false);
   const [prepaymentForm, setPrepaymentForm] = useState({
     payer_id: '',
+    assignee_id: '',
     prepayment_type: 'normal',
     invoice_number: '',
     invoice_date: '',
@@ -88,14 +92,16 @@ export default function SettlementManagement() {
   });
   const [invoiceSummaryFilters, setInvoiceSummaryFilters] = useState({
     keyword: '',
-    order_month: '',
+    order_months: [],
     invoice_status: '',
     invoice_overdue: '',
     payment_overdue: ''
   });
+  const [showInvoiceSummaryMonthDropdown, setShowInvoiceSummaryMonthDropdown] = useState(false);
   const [invoiceSummaryKeywordInput, setInvoiceSummaryKeywordInput] = useState('');
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
   const customerInputRef = useRef(null);
+  const invoiceSummaryMonthFilterRef = useRef(null);
   const selectedSettlementSnapshotRef = useRef(new Map());
   const selectedInvoiceSummarySnapshotRef = useRef(new Map());
   const fullSelectionCacheRef = useRef(null);
@@ -129,6 +135,17 @@ export default function SettlementManagement() {
       loadInvoiceSummaryMonths();
     }
   }, [activeView, invoiceSummaryMonths.length]);
+
+  useEffect(() => {
+    if (!showInvoiceSummaryMonthDropdown) return undefined;
+    const handleClickOutside = (event) => {
+      if (!invoiceSummaryMonthFilterRef.current?.contains(event.target)) {
+        setShowInvoiceSummaryMonthDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showInvoiceSummaryMonthDropdown]);
 
   useEffect(() => {
     if (!settlements?.length) return;
@@ -190,13 +207,21 @@ export default function SettlementManagement() {
 
   function handlePrepaymentPayerInput(value) {
     setPrepaymentPayerQuery(value);
-    setPrepaymentForm({ ...prepaymentForm, payer_id: '' });
+    setPrepaymentForm((current) => ({
+      ...current,
+      payer_id: '',
+      assignee_id: ''
+    }));
     searchPrepaymentPayers(value);
   }
 
   function handleSelectPrepaymentPayer(payer) {
     setPrepaymentPayerQuery(formatPayerLabel(payer));
-    setPrepaymentForm({ ...prepaymentForm, payer_id: payer.payer_id });
+    setPrepaymentForm((current) => ({
+      ...current,
+      payer_id: payer.payer_id,
+      assignee_id: payer.owner_user_id || ''
+    }));
     setPrepaymentPayerResults([]);
     setShowPrepaymentPayerDropdown(false);
   }
@@ -260,7 +285,7 @@ export default function SettlementManagement() {
         q: invoiceSummaryFilters.keyword,
         page: invoiceSummaryPage,
         pageSize,
-        order_month: invoiceSummaryFilters.order_month,
+        order_months: invoiceSummaryFilters.order_months,
         invoice_status: invoiceSummaryFilters.invoice_status,
         invoice_overdue: invoiceSummaryFilters.invoice_overdue,
         payment_overdue: invoiceSummaryFilters.payment_overdue,
@@ -301,6 +326,33 @@ export default function SettlementManagement() {
     setInvoiceSummaryPage(1);
     clearInvoiceSummarySelection();
     setInvoiceSummaryFilters(prev => ({ ...prev, [key]: value }));
+  }
+
+  function toggleInvoiceSummaryMonth(month) {
+    setInvoiceSummaryPage(1);
+    clearInvoiceSummarySelection();
+    setInvoiceSummaryFilters(prev => {
+      const currentMonths = Array.isArray(prev.order_months) ? prev.order_months : [];
+      const nextMonths = currentMonths.includes(month)
+        ? currentMonths.filter(item => item !== month)
+        : [...currentMonths, month];
+      return { ...prev, order_months: nextMonths };
+    });
+  }
+
+  function clearInvoiceSummaryMonthsFilter() {
+    setInvoiceSummaryPage(1);
+    clearInvoiceSummarySelection();
+    setInvoiceSummaryFilters(prev => ({ ...prev, order_months: [] }));
+  }
+
+  function getInvoiceSummaryMonthFilterLabel() {
+    const selectedMonths = Array.isArray(invoiceSummaryFilters.order_months)
+      ? invoiceSummaryFilters.order_months
+      : [];
+    if (selectedMonths.length === 0) return '全部月份';
+    if (selectedMonths.length === 1) return selectedMonths[0];
+    return `已选 ${selectedMonths.length} 个`;
   }
 
   function applyInvoiceSummarySearch() {
@@ -578,9 +630,20 @@ export default function SettlementManagement() {
       '到账金额': formatCurrency(settlement.received_amount)
     };
     if (activeView === 'prepayment') {
+      row['赠送金额'] = formatCurrency(settlement.gift_amount || 0);
+      row['预存总额'] = formatCurrency(
+        settlement.prepayment_total_amount ??
+        (Number(settlement.invoice_amount || 0) + Number(settlement.gift_amount || 0))
+      );
       row['已抵扣金额'] = formatCurrency(settlement.used_amount);
       row['当前余额'] = formatCurrency(settlement.remaining_amount);
     } else {
+      row['预存抵扣金额'] = formatCurrency(settlement.prepaid_used_amount || 0);
+      row['新开票金额'] = formatCurrency(
+        settlement.settlement_method === 'invoice'
+          ? settlement.invoice_amount
+          : (settlement.new_invoice_amount || 0)
+      );
       DEPARTMENT_ALLOCATION_COLUMNS.forEach(col => {
         row[col.label] = formatCurrency(settlement[col.key] || 0);
       });
@@ -656,6 +719,9 @@ export default function SettlementManagement() {
       invoice_number: settlement.invoice_number || '',
       invoice_date: formatDateForInput(settlement.invoice_date),
       invoice_amount: settlement.invoice_amount || '',
+      gift_amount: settlement.gift_amount ?? '',
+      prepayment_total_amount: settlement.prepayment_total_amount ?? '',
+      prepayment_type: settlement.prepayment_type || 'normal',
       received_amount: settlement.received_amount || '',
       received_date: formatDateForInput(settlement.received_date),
       payment_status: settlement.payment_status || '未到款',
@@ -677,6 +743,9 @@ export default function SettlementManagement() {
       invoice_number: '',
       invoice_date: '',
       invoice_amount: '',
+      gift_amount: '',
+      prepayment_total_amount: '',
+      prepayment_type: 'normal',
       received_amount: '',
       received_date: '',
       payment_status: '未到款',
@@ -794,6 +863,22 @@ export default function SettlementManagement() {
       if (editForm.invoice_amount !== undefined && editForm.invoice_amount !== '') {
         updateData.invoice_amount = parseFloat(editForm.invoice_amount);
       }
+      if (editingSettlement?.settlement_type === 'prepayment') {
+        const invoiceAmount = Number(editForm.invoice_amount);
+        const giftAmount = Number(editForm.gift_amount || 0);
+        if (!Number.isFinite(invoiceAmount) || invoiceAmount < 0) {
+          alert('请填写有效的预存开票金额');
+          return;
+        }
+        if (!Number.isFinite(giftAmount) || giftAmount < 0) {
+          alert('请检查预存赠送金额');
+          return;
+        }
+        updateData.invoice_amount = invoiceAmount;
+        updateData.gift_amount = giftAmount;
+        updateData.prepayment_total_amount = Number((invoiceAmount + giftAmount).toFixed(2));
+        updateData.prepayment_type = editForm.prepayment_type || editingSettlement.prepayment_type || 'normal';
+      }
       if (editForm.received_amount !== '') {
         updateData.received_amount = parseFloat(editForm.received_amount);
       }
@@ -865,6 +950,7 @@ export default function SettlementManagement() {
   function getSettlementTypeText(settlement) {
     if (settlement?.settlement_type === 'prepayment') return '预存充值';
     if (settlement?.settlement_type === 'invoice' && settlement?.settlement_method === 'prepaid') return '预存抵扣';
+    if (settlement?.settlement_type === 'invoice' && settlement?.settlement_method === 'mixed') return '组合支付';
     return '开票结算';
   }
 
@@ -994,7 +1080,7 @@ export default function SettlementManagement() {
           q: invoiceSummaryFilters.keyword,
           page: 1,
           pageSize,
-          order_month: invoiceSummaryFilters.order_month,
+          order_months: invoiceSummaryFilters.order_months,
           invoice_status: invoiceSummaryFilters.invoice_status,
           invoice_overdue: invoiceSummaryFilters.invoice_overdue,
           payment_overdue: invoiceSummaryFilters.payment_overdue,
@@ -1114,6 +1200,10 @@ export default function SettlementManagement() {
       alert('请选择付款方');
       return;
     }
+    if (!prepaymentForm.assignee_id) {
+      alert('请选择绑定业务员');
+      return;
+    }
     if (!prepaymentForm.invoice_number) {
       alert('预存充值必须先填写发票票号');
       return;
@@ -1137,6 +1227,7 @@ export default function SettlementManagement() {
       await api.createSettlement({
         settlement_type: 'prepayment',
         payer_id: prepaymentForm.payer_id,
+        assignee_id: prepaymentForm.assignee_id,
         prepayment_type: prepaymentForm.prepayment_type || 'normal',
         customer_id: selectedPayer.customer_id || null,
         customer_name: selectedPayer.customer_name || null,
@@ -1154,6 +1245,7 @@ export default function SettlementManagement() {
       setShowPrepaymentModal(false);
       setPrepaymentForm({
         payer_id: '',
+        assignee_id: '',
         prepayment_type: 'normal',
         invoice_number: '',
         invoice_date: '',
@@ -1332,18 +1424,48 @@ export default function SettlementManagement() {
                 搜索
               </button>
             </div>
-            <div className="settlements-filter-item">
+            <div className="settlements-filter-item invoice-summary-month-filter" ref={invoiceSummaryMonthFilterRef}>
               <label>月份:</label>
-              <select
-                className="input settlements-filter-select"
-                value={invoiceSummaryFilters.order_month}
-                onChange={(e) => updateInvoiceSummaryFilter('order_month', e.target.value)}
+              <button
+                type="button"
+                className={`input settlements-filter-select invoice-summary-month-filter-button ${
+                  Array.isArray(invoiceSummaryFilters.order_months) && invoiceSummaryFilters.order_months.length > 0
+                    ? 'has-value'
+                    : ''
+                }`}
+                onClick={() => setShowInvoiceSummaryMonthDropdown(prev => !prev)}
               >
-                <option value="">全部月份</option>
-                {invoiceSummaryMonths.map(month => (
-                  <option key={month} value={month}>{month}</option>
-                ))}
-              </select>
+                <span>{getInvoiceSummaryMonthFilterLabel()}</span>
+                <span className="invoice-summary-month-filter-caret">▾</span>
+              </button>
+              {showInvoiceSummaryMonthDropdown && (
+                <div className="invoice-summary-month-dropdown">
+                  <div className="invoice-summary-month-dropdown-head">
+                    <span>选择月份</span>
+                    <button
+                      type="button"
+                      onClick={clearInvoiceSummaryMonthsFilter}
+                      disabled={!Array.isArray(invoiceSummaryFilters.order_months) || invoiceSummaryFilters.order_months.length === 0}
+                    >
+                      清空
+                    </button>
+                  </div>
+                  <div className="invoice-summary-month-options">
+                    {invoiceSummaryMonths.length === 0 ? (
+                      <div className="invoice-summary-month-empty">暂无月份</div>
+                    ) : invoiceSummaryMonths.map(month => (
+                      <label key={month} className="invoice-summary-month-option">
+                        <input
+                          type="checkbox"
+                          checked={Array.isArray(invoiceSummaryFilters.order_months) && invoiceSummaryFilters.order_months.includes(month)}
+                          onChange={() => toggleInvoiceSummaryMonth(month)}
+                        />
+                        <span>{month}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
             <div className="settlements-filter-item">
               <label>是否开票:</label>
@@ -1381,7 +1503,7 @@ export default function SettlementManagement() {
                 <option value="not_overdue">未逾期</option>
               </select>
             </div>
-            {(invoiceSummaryFilters.keyword || invoiceSummaryFilters.order_month || invoiceSummaryFilters.invoice_status || invoiceSummaryFilters.invoice_overdue || invoiceSummaryFilters.payment_overdue) && (
+            {(invoiceSummaryFilters.keyword || (Array.isArray(invoiceSummaryFilters.order_months) && invoiceSummaryFilters.order_months.length > 0) || invoiceSummaryFilters.invoice_status || invoiceSummaryFilters.invoice_overdue || invoiceSummaryFilters.payment_overdue) && (
               <button
                 className="btn btn-secondary settlements-filter-reset"
                 onClick={() => {
@@ -1390,7 +1512,7 @@ export default function SettlementManagement() {
                   setInvoiceSummaryKeywordInput('');
                   setInvoiceSummaryFilters({
                     keyword: '',
-                    order_month: '',
+                    order_months: [],
                     invoice_status: '',
                     invoice_overdue: '',
                     payment_overdue: ''
@@ -1562,7 +1684,7 @@ export default function SettlementManagement() {
     settlementFilters.created_end ||
     (!isPrepaymentView && (settlementFilters.settlement_type || settlementFilters.payment_status));
   const visibleDepartmentColumns = isPrepaymentView ? [] : DEPARTMENT_ALLOCATION_COLUMNS;
-  const settlementTableColumnCount = isPrepaymentView ? 19 : 23;
+  const settlementTableColumnCount = isPrepaymentView ? 21 : 25;
 
   function switchSettlementView(view) {
     setActiveView(view);
@@ -1661,6 +1783,7 @@ export default function SettlementManagement() {
                   <option value="">全部类型</option>
                   <option value="invoice">开票结算</option>
                   <option value="prepaid">预存抵扣</option>
+                  <option value="mixed">组合支付</option>
                 </select>
               </div>
               <div className="settlements-filter-item">
@@ -1820,6 +1943,20 @@ export default function SettlementManagement() {
                   </div>
                 )}
               </div>
+
+              <label>绑定业务员</label>
+              <select
+                className="input"
+                value={prepaymentForm.assignee_id}
+                onChange={(e) => setPrepaymentForm({ ...prepaymentForm, assignee_id: e.target.value })}
+              >
+                <option value="">请选择业务员</option>
+                {assigneeOptions.map((assignee) => (
+                  <option key={assignee.user_id} value={assignee.user_id}>
+                    {assignee.name}（{assignee.user_id}）
+                  </option>
+                ))}
+              </select>
 
               <label>预存类型</label>
               <select
@@ -1990,6 +2127,10 @@ export default function SettlementManagement() {
               <th>付款方</th>
               <th>客户名称</th>
               <th>开票金额</th>
+              {isPrepaymentView && <th>赠送金额</th>}
+              {isPrepaymentView && <th>预存总额</th>}
+              {!isPrepaymentView && <th className="settlements-payment-split-col">预存抵扣金额</th>}
+              {!isPrepaymentView && <th className="settlements-payment-split-col">新开票金额</th>}
               <th>到账金额</th>
               {isPrepaymentView && <th>已抵扣金额</th>}
               {isPrepaymentView && <th>当前余额</th>}
@@ -2102,13 +2243,66 @@ export default function SettlementManagement() {
                           type="number"
                           className="input"
                           value={editForm.invoice_amount}
-                          onChange={(e) => setEditForm({ ...editForm, invoice_amount: e.target.value })}
+                          onChange={(e) => {
+                            const invoiceAmount = e.target.value;
+                            setEditForm({
+                              ...editForm,
+                              invoice_amount: invoiceAmount,
+                              ...(isPrepaymentView ? {
+                                prepayment_total_amount: Number(
+                                  (Number(invoiceAmount || 0) + Number(editForm.gift_amount || 0)).toFixed(2)
+                                )
+                              } : {})
+                            });
+                          }}
                           placeholder="开票金额"
                           step="0.01"
                           min="0"
                           style={{ width: '120px', padding: '4px' }}
                         />
                       </td>
+                      {isPrepaymentView && (
+                        <td>
+                          <input
+                            type="number"
+                            className="input"
+                            value={editForm.gift_amount}
+                            onChange={(e) => {
+                              const giftAmount = e.target.value;
+                              setEditForm({
+                                ...editForm,
+                                gift_amount: giftAmount,
+                                prepayment_total_amount: Number(
+                                  (Number(editForm.invoice_amount || 0) + Number(giftAmount || 0)).toFixed(2)
+                                )
+                              });
+                            }}
+                            placeholder="赠送金额"
+                            step="0.01"
+                            min="0"
+                            style={{ width: '120px', padding: '4px' }}
+                          />
+                        </td>
+                      )}
+                      {isPrepaymentView && (
+                        <td className="settlement-money-cell">
+                          {formatCurrency(editForm.prepayment_total_amount)}
+                        </td>
+                      )}
+                      {!isPrepaymentView && (
+                        <td className="settlement-money-cell settlements-payment-split-col">
+                          {formatCurrency(settlement.prepaid_used_amount || 0)}
+                        </td>
+                      )}
+                      {!isPrepaymentView && (
+                        <td className="settlement-money-cell settlements-payment-split-col">
+                          {formatCurrency(
+                            settlement.settlement_method === 'invoice'
+                              ? settlement.invoice_amount
+                              : (settlement.new_invoice_amount || 0)
+                          )}
+                        </td>
+                      )}
                       <td>
                         <input
                           type="number"
@@ -2239,6 +2433,31 @@ export default function SettlementManagement() {
                         />
                       </td>
                       <td className="settlement-money-cell">{formatCurrency(settlement.invoice_amount)}</td>
+                      {isPrepaymentView && (
+                        <td className="settlement-money-cell">{formatCurrency(settlement.gift_amount || 0)}</td>
+                      )}
+                      {isPrepaymentView && (
+                        <td className="settlement-money-cell">
+                          {formatCurrency(
+                            settlement.prepayment_total_amount ??
+                            (Number(settlement.invoice_amount || 0) + Number(settlement.gift_amount || 0))
+                          )}
+                        </td>
+                      )}
+                      {!isPrepaymentView && (
+                        <td className="settlement-money-cell settlements-payment-split-col">
+                          {formatCurrency(settlement.prepaid_used_amount || 0)}
+                        </td>
+                      )}
+                      {!isPrepaymentView && (
+                        <td className="settlement-money-cell settlements-payment-split-col">
+                          {formatCurrency(
+                            settlement.settlement_method === 'invoice'
+                              ? settlement.invoice_amount
+                              : (settlement.new_invoice_amount || 0)
+                          )}
+                        </td>
+                      )}
                       <td className="settlement-money-cell">{formatCurrency(settlement.received_amount)}</td>
                       {isPrepaymentView && (
                         <td className="settlement-money-cell">{formatCurrency(settlement.used_amount)}</td>

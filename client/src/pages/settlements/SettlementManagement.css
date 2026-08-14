@@ -146,6 +146,104 @@
   height: 34px;
 }
 
+.invoice-summary-month-filter {
+  position: relative;
+}
+
+.invoice-summary-month-filter-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px;
+  border: 1px solid #d1d5db;
+  background: #fff;
+  color: #374151;
+  cursor: pointer;
+  text-align: left;
+}
+
+.invoice-summary-month-filter-button.has-value {
+  border-color: #2c5594;
+  color: #2c5594;
+  font-weight: 600;
+}
+
+.invoice-summary-month-filter-caret {
+  margin-left: 8px;
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.invoice-summary-month-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 42px;
+  z-index: 30;
+  width: 170px;
+  max-height: 320px;
+  overflow: hidden;
+  border: 1px solid #d8e2f0;
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.16);
+}
+
+.invoice-summary-month-dropdown-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-bottom: 1px solid #eef2f7;
+  color: #374151;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.invoice-summary-month-dropdown-head button {
+  border: 0;
+  background: transparent;
+  color: #2c5594;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.invoice-summary-month-dropdown-head button:disabled {
+  color: #9ca3af;
+  cursor: not-allowed;
+}
+
+.invoice-summary-month-options {
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 6px 0;
+}
+
+.invoice-summary-month-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  color: #1f2937;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.invoice-summary-month-option:hover {
+  background: #f3f6fb;
+}
+
+.invoice-summary-month-option input {
+  width: 14px;
+  height: 14px;
+}
+
+.invoice-summary-month-empty {
+  padding: 16px 10px;
+  color: #9ca3af;
+  font-size: 13px;
+  text-align: center;
+}
+
 .settlements-filter-date {
   width: 132px;
   height: 34px;
@@ -275,8 +373,8 @@
 }
 
 .settlements-table {
-  width: 3088px;
-  min-width: 3088px;
+  width: 3328px;
+  min-width: 3328px;
   max-width: none;
   table-layout: fixed;
   border-collapse: separate;
@@ -286,8 +384,8 @@
 }
 
 .settlements-table-prepayment {
-  width: 2388px;
-  min-width: 2388px;
+  width: 2628px;
+  min-width: 2628px;
 }
 
 .invoice-summary-table-container {
@@ -516,8 +614,8 @@
 }
 
 .settlements-table-editing {
-  width: 3568px;
-  min-width: 3568px;
+  width: 3808px;
+  min-width: 3808px;
 }
 
 .table.settlements-table {
@@ -725,6 +823,59 @@
 .settlements-table-editing td:nth-child(23) {
   width: 190px;
   min-width: 190px;
+}
+
+.settlements-table th.settlements-payment-split-col,
+.settlements-table td.settlements-payment-split-col {
+  width: 120px;
+  min-width: 120px;
+  text-align: right;
+}
+
+.settlements-table-prepayment th:nth-child(10),
+.settlements-table-prepayment td:nth-child(10),
+.settlements-table-prepayment th:nth-child(11),
+.settlements-table-prepayment td:nth-child(11),
+.settlements-table-prepayment th:nth-child(12),
+.settlements-table-prepayment td:nth-child(12) {
+  width: 115px;
+}
+
+.settlements-table-prepayment th:nth-child(13),
+.settlements-table-prepayment td:nth-child(13),
+.settlements-table-prepayment th:nth-child(14),
+.settlements-table-prepayment td:nth-child(14) {
+  width: 130px;
+}
+
+.settlements-table-prepayment th:nth-child(15),
+.settlements-table-prepayment td:nth-child(15) {
+  width: 125px;
+}
+
+.settlements-table-prepayment th:nth-child(16),
+.settlements-table-prepayment td:nth-child(16) {
+  width: 230px;
+}
+
+.settlements-table-prepayment th:nth-child(17),
+.settlements-table-prepayment td:nth-child(17) {
+  width: 110px;
+}
+
+.settlements-table-prepayment th:nth-child(18),
+.settlements-table-prepayment td:nth-child(18) {
+  width: 115px;
+}
+
+.settlements-table-prepayment th:nth-child(19),
+.settlements-table-prepayment td:nth-child(19) {
+  width: 105px;
+}
+
+.settlements-table-prepayment th:nth-child(20),
+.settlements-table-prepayment td:nth-child(20) {
+  width: 110px;
 }
 
 .settlements-table th {

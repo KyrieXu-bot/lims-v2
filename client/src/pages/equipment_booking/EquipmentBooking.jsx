@@ -666,20 +666,31 @@ export default function EquipmentBooking() {
                       const right = clamp((end - windowRange.start) / (DAY_HOURS * 60 * MS_PER_MINUTE) * 100, 0, 100);
                       const isMine = String(booking.booker_id) === String(user?.user_id);
                       const status = getBookingStatus(booking, now);
+                      const bookingUser = booking.reserved_user_name || booking.booker_name || booking.booker_id;
+                      const bookingNote = booking.note?.trim() || '无备注';
+                      const bookingSummary = [
+                        booking.order_id?.trim(),
+                        booking.category_name?.trim(),
+                        bookingNote
+                      ].filter(Boolean).join(' ');
+                      const needsApproval = booking.approval_status === 'pending';
                       return (
                         <div
                           key={booking.booking_id}
                           className={['booking-event', 'viewable', isMine ? 'mine' : '', status.className].filter(Boolean).join(' ')}
                           style={{ left: `${left}%`, width: `${Math.max(2, right - left)}%` }}
-                          title={`${status.text} ${booking.booker_name || booking.booker_id} ${formatDateTime(booking.start_time)} - ${formatDateTime(booking.end_time)}${booking.note ? ` ${booking.note}` : ''}`}
+                          title={`${status.text} ${bookingUser} ${formatDateTime(booking.start_time)} - ${formatDateTime(booking.end_time)} ${bookingSummary}`}
                           onClick={(e) => {
                             e.stopPropagation();
                             handleTimelineBookingClick(booking);
                           }}
                           onDoubleClick={(e) => e.stopPropagation()}
                         >
-                          <strong>{booking.reserved_user_name || booking.booker_name || booking.booker_id}</strong>
-                          <span>{booking.detail_name || booking.order_id || '设备预约'}</span>
+                          <div className="booking-event-main">
+                            <strong>{bookingSummary}</strong>
+                            {needsApproval && <span className="booking-event-approval">需审批</span>}
+                          </div>
+                          <span className="booking-event-user">{bookingUser}</span>
                         </div>
                       );
                     })}

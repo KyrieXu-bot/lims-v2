@@ -152,7 +152,7 @@
 }
 
 .booking-timeline-row {
-  min-height: 68px;
+  min-height: 78px;
   border-bottom: 1px solid #e5e7eb;
 }
 
@@ -181,7 +181,7 @@
 
 .booking-row-track {
   position: relative;
-  min-height: 68px;
+  min-height: 78px;
   cursor: crosshair;
   background-image: linear-gradient(to right, #e5e7eb 1px, transparent 1px);
   background-size: calc(100% / 16) 100%;
@@ -198,8 +198,8 @@
 .booking-event,
 .booking-draft {
   position: absolute;
-  top: 12px;
-  bottom: 12px;
+  top: 10px;
+  bottom: 10px;
   border-radius: 6px;
 }
 
@@ -207,7 +207,7 @@
   background: #dbeafe;
   border: 1px solid #93c5fd;
   color: #1e3a8a;
-  padding: 6px 8px;
+  padding: 8px 10px;
   overflow: hidden;
   cursor: default;
   box-shadow: 0 2px 5px rgba(30, 64, 175, 0.12);
@@ -249,18 +249,43 @@
 
 .booking-event strong,
 .booking-event span {
-  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.booking-event strong {
-  font-size: 12px;
+.booking-event-main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
 }
 
-.booking-event span {
+.booking-event strong {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+}
+
+.booking-event-user {
+  display: block;
+  margin-top: 4px;
+  font-size: 13px;
+}
+
+.booking-event-approval {
+  flex: 0 0 auto;
+  max-width: 54px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: #fee2e2;
+  color: #b91c1c;
   font-size: 11px;
+  font-weight: 700;
+  line-height: 1.4;
 }
 
 .booking-draft {

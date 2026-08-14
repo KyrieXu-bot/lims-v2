@@ -450,12 +450,15 @@ async function replaceItemPaymentAllocations(executor, settlement, paymentAlloca
     );
   }
 
-  const totals = new Map();
-  for (const row of itemRows) {
-    const key = Number(row.test_item_id);
-    totals.set(key, normalizeAmount((totals.get(key) || 0) + row.amount) || 0);
-  }
-  for (const [testItemId, amount] of totals.entries()) {
+  const affectedTestItemIds = [...new Set(itemRows.map(row => Number(row.test_item_id)).filter(Number.isFinite))];
+  for (const testItemId of affectedTestItemIds) {
+    const [totalRows] = await executor.query(
+      `SELECT COALESCE(SUM(amount), 0) AS total_amount
+       FROM settlement_item_payment_allocations
+       WHERE test_item_id = ?`,
+      [testItemId]
+    );
+    const amount = normalizeAmount(totalRows[0]?.total_amount) || 0;
     await executor.query(
       'UPDATE test_items SET unpaid_amount = ? WHERE test_item_id = ?',
       [amount, testItemId]
@@ -673,13 +676,8 @@ async function syncInvoiceStatusForSettlement(executor, settlementId) {
 
   const {
     order_ids: orderIdsStr,
-    test_item_ids: testItemIdsStr,
-    invoice_number: invoiceNumber,
-    payment_status: paymentStatus
+    test_item_ids: testItemIdsStr
   } = settlementRows[0];
-  const targetInvoiceStatus = (paymentStatus === '已到款' || paymentStatus === '部分到款')
-    ? '已到账'
-    : (invoiceNumber ? '已开票' : '已申请');
 
   let testItemIds = [];
   if (testItemIdsStr) {
@@ -706,15 +704,38 @@ async function syncInvoiceStatusForSettlement(executor, settlementId) {
   if (!testItemIds || testItemIds.length === 0) return;
 
   const uniqueIds = Array.from(new Set(testItemIds));
-  const placeholders = uniqueIds.map(() => '?').join(',');
-  await executor.query(
-    `UPDATE test_items
-     SET invoice_status = ?
-     WHERE test_item_id IN (${placeholders})
-       AND status != 'cancelled'
-       AND invoice_status IN ('已申请','已开票','已到账')`,
-    [targetInvoiceStatus, ...uniqueIds]
-  );
+  for (const testItemId of uniqueIds) {
+    const [relatedRows] = await executor.query(
+      `SELECT invoice_number, payment_status, approval_status
+       FROM settlements
+       WHERE settlement_type = 'invoice'
+         AND approval_status <> 'rejected'
+         AND test_item_ids IS NOT NULL
+         AND JSON_VALID(test_item_ids) = 1
+         AND JSON_CONTAINS(test_item_ids, CAST(? AS JSON), '$')`,
+      [testItemId]
+    );
+    if (relatedRows.length === 0) continue;
+
+    let targetInvoiceStatus = '已申请';
+    const hasPending = relatedRows.some(row => row.approval_status === 'pending');
+    const allReceived = relatedRows.every(row => PAYMENT_STATUS_RECEIVED.has(row.payment_status));
+    const hasInvoice = relatedRows.some(row => Boolean(row.invoice_number));
+    if (!hasPending && allReceived) {
+      targetInvoiceStatus = '已到账';
+    } else if (!hasPending && hasInvoice) {
+      targetInvoiceStatus = '已开票';
+    }
+
+    await executor.query(
+      `UPDATE test_items
+       SET invoice_status = ?
+       WHERE test_item_id = ?
+         AND status != 'cancelled'
+         AND invoice_status IN ('已申请','已开票','已到账')`,
+      [targetInvoiceStatus, testItemId]
+    );
+  }
 }
 
 router.get('/', requireAuth, async (req, res) => {
@@ -756,8 +777,9 @@ router.get('/', requireAuth, async (req, res) => {
     }
 
     if (settlement_type) {
-      if (settlement_type === 'prepaid') {
-        filters.push(`s.settlement_type = 'invoice' AND s.settlement_method = 'prepaid'`);
+      if (['invoice', 'prepaid', 'mixed'].includes(settlement_type)) {
+        filters.push(`s.settlement_type = 'invoice' AND s.settlement_method = ?`);
+        params.push(settlement_type);
       } else {
         filters.push('s.settlement_type = ?');
         params.push(settlement_type);
@@ -816,6 +838,7 @@ router.get('/', requireAuth, async (req, res) => {
         s.gift_amount,
         s.prepayment_total_amount,
         s.new_invoice_amount,
+        COALESCE(payment_summary.prepaid_amount, 0) AS prepaid_used_amount,
         s.received_amount,
         s.received_date,
         s.remarks,
@@ -859,6 +882,12 @@ router.get('/', requireAuth, async (req, res) => {
         WHERE payment_source_type = 'prepayment'
         GROUP BY source_settlement_id
       ) prepay_used ON prepay_used.source_settlement_id = s.settlement_id
+      LEFT JOIN (
+        SELECT settlement_id,
+               SUM(CASE WHEN payment_source_type = 'prepayment' THEN amount ELSE 0 END) AS prepaid_amount
+        FROM settlement_payment_allocations
+        GROUP BY settlement_id
+      ) payment_summary ON payment_summary.settlement_id = s.settlement_id
       ${whereSql}
       ORDER BY s.invoice_date DESC, s.created_at DESC
       LIMIT ? OFFSET ?
@@ -884,6 +913,7 @@ router.get('/invoice-summary', requireAuth, async (req, res) => {
       page = 1,
       pageSize = 100,
       order_month,
+      order_months,
       invoice_status,
       invoice_overdue,
       payment_overdue,
@@ -916,6 +946,17 @@ router.get('/invoice-summary', requireAuth, async (req, res) => {
       }
       orderFilters.push(`o.order_id IN (${ids.map(() => '?').join(',')})`);
       orderParams.push(...ids);
+    }
+
+    function parseOrderMonths(value) {
+      const values = Array.isArray(value)
+        ? value
+        : String(value || '').split(',');
+      return Array.from(new Set(
+        values
+          .map(item => String(item || '').trim())
+          .filter(item => /^\d{6}$/.test(item))
+      ));
     }
 
     function toDateOnly(value) {
@@ -957,6 +998,7 @@ router.get('/invoice-summary', requireAuth, async (req, res) => {
              FROM test_items active_ti
              WHERE active_ti.order_id = o.order_id
                AND active_ti.status != 'cancelled'
+               AND (active_ti.business_confirmed = 1 OR active_ti.business_confirmed = '1')
            )`
         );
         const [settlementRows] = await pool.query(
@@ -1057,9 +1099,10 @@ router.get('/invoice-summary', requireAuth, async (req, res) => {
       matchingOrdersParams.push(like, like, like, like, like, like, like);
     }
 
-    if (order_month && /^\d{6}$/.test(String(order_month))) {
-      orderFilters.push('CONCAT(\'20\', SUBSTRING(o.order_id, 3, 2), SUBSTRING(o.order_id, 5, 2)) = ?');
-      orderParams.push(String(order_month));
+    const selectedOrderMonths = parseOrderMonths(order_months || order_month);
+    if (selectedOrderMonths.length > 0) {
+      orderFilters.push(`CONCAT('20', SUBSTRING(o.order_id, 3, 2), SUBSTRING(o.order_id, 5, 2)) IN (${selectedOrderMonths.map(() => '?').join(',')})`);
+      orderParams.push(...selectedOrderMonths);
     }
 
     orderFilters.push(`CONCAT('20', SUBSTRING(o.order_id, 3, 2), SUBSTRING(o.order_id, 5, 2)) >= '202601'`);
@@ -1069,6 +1112,7 @@ router.get('/invoice-summary', requireAuth, async (req, res) => {
       FROM test_items active_ti
       WHERE active_ti.order_id = o.order_id
         AND active_ti.status != 'cancelled'
+        AND (active_ti.business_confirmed = 1 OR active_ti.business_confirmed = '1')
     )`);
 
     if (invoice_status === 'invoiced' || invoice_status === 'uninvoiced') {
@@ -1513,6 +1557,7 @@ router.get('/invoice-summary/months', requireAuth, async (req, res) => {
            FROM test_items active_ti
            WHERE active_ti.order_id = o.order_id
              AND active_ti.status != 'cancelled'
+             AND (active_ti.business_confirmed = 1 OR active_ti.business_confirmed = '1')
          )
        ORDER BY order_month DESC`
     );
@@ -1622,6 +1667,9 @@ router.post('/', requireAuth, async (req, res) => {
   if (settlementType === 'prepayment' && !payer_id) {
     return res.status(400).json({ error: '预存充值必须选择付款方' });
   }
+  if (settlementType === 'prepayment' && !assignee_id) {
+    return res.status(400).json({ error: '预存充值必须绑定业务员' });
+  }
   if (settlementType === 'prepayment' && prepaymentTotalAmountNum < invoiceAmountNum) {
     return res.status(400).json({ error: 'Prepayment total amount cannot be less than invoice amount' });
   }
@@ -1668,7 +1716,33 @@ router.post('/', requireAuth, async (req, res) => {
       );
       final_customer_nature = payerNatureRows[0]?.nature || null;
     }
-    const settlementSerialNumber = settlementType === 'invoice' ? await generateDailySerial(connection, 'settlement') : null;
+    let settlementSerialNumbers = [];
+    let mixedSplit = null;
+    if (settlementType === 'invoice' && settlementMethod === 'mixed') {
+      const lots = await getPrepaymentLots(connection, final_payer_id);
+      const fifo = buildFifoPrepaymentAllocations(lots, invoiceAmountNum);
+      if (fifo.prepaidAmount <= 0) {
+        await connection.rollback();
+        return res.status(400).json({ error: '当前付款方没有可用于组合支付的预存余额' });
+      }
+      if (fifo.deficitAmount <= 0) {
+        await connection.rollback();
+        return res.status(400).json({ error: '预存余额足够，请选择余额支付，无需组合支付' });
+      }
+      settlementSerialNumbers = [
+        await generateDailySerial(connection, 'settlement'),
+        await generateDailySerial(connection, 'settlement')
+      ];
+      mixedSplit = {
+        prepaidAmount: fifo.prepaidAmount,
+        invoiceAmount: fifo.deficitAmount
+      };
+    } else if (settlementType === 'invoice') {
+      settlementSerialNumbers = [await generateDailySerial(connection, 'settlement')];
+    }
+    const settlementSerialNumber = settlementSerialNumbers.length > 0
+      ? settlementSerialNumbers.join(',')
+      : null;
     const prepaymentSerialNumber = settlementType === 'prepayment' ? await generateDailySerial(connection, 'prepayment') : null;
 
     // 如果有test_item_ids，需要进行验证和处理
@@ -1714,12 +1788,10 @@ router.post('/', requireAuth, async (req, res) => {
     }
     
     // 插入结算记录，包含test_item_ids
-    const [result] = await connection.query(
-      `INSERT INTO settlements 
+    const insertSettlementSql = `INSERT INTO settlements
        (settlement_serial_number, prepayment_serial_number, settlement_type, settlement_method, prepayment_type, invoice_number, new_invoice_number, invoice_date, order_ids, test_item_ids, invoice_amount, gift_amount, prepayment_total_amount, new_invoice_amount, received_amount, received_date, remarks, customer_id, customer_name, assignee_id, customer_nature, payer_id, payment_status, approval_status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
-      [
-        settlementSerialNumber,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`;
+    const baseInsertValues = [
         prepaymentSerialNumber,
         settlementType,
         settlementType === 'prepayment' ? 'invoice' : settlementMethod,
@@ -1742,8 +1814,63 @@ router.post('/', requireAuth, async (req, res) => {
         final_customer_nature,
         final_payer_id || null,
         effectivePaymentStatus
-      ]
-    );
+    ];
+    const insertedSettlementIds = [];
+    if (mixedSplit) {
+      const splitRows = [
+        {
+          serial: settlementSerialNumbers[0],
+          method: 'prepaid',
+          amount: mixedSplit.prepaidAmount,
+          receivedAmount: mixedSplit.prepaidAmount,
+          paymentStatus: '已到款',
+          remarks: remarks || null
+        },
+        {
+          serial: settlementSerialNumbers[1],
+          method: 'invoice',
+          amount: mixedSplit.invoiceAmount,
+          receivedAmount: null,
+          paymentStatus: '未到款',
+          remarks: remarks || null
+        }
+      ];
+      for (const splitRow of splitRows) {
+        const values = [
+          splitRow.serial,
+          null,
+          'invoice',
+          splitRow.method,
+          null,
+          null,
+          null,
+          null,
+          order_ids,
+          test_item_ids_json,
+          splitRow.amount,
+          0,
+          null,
+          null,
+          splitRow.receivedAmount,
+          null,
+          splitRow.remarks,
+          final_customer_id,
+          final_customer_name,
+          assignee_id || null,
+          final_customer_nature,
+          final_payer_id || null,
+          splitRow.paymentStatus
+        ];
+        const [splitResult] = await connection.query(insertSettlementSql, values);
+        insertedSettlementIds.push(splitResult.insertId);
+      }
+    } else {
+      const [result] = await connection.query(insertSettlementSql, [
+        settlementSerialNumber,
+        ...baseInsertValues
+      ]);
+      insertedSettlementIds.push(result.insertId);
+    }
     
     // 如果有test_item_ids，按开票预填价比例分配开票金额，并更新开票状态
     if (settlementType === 'invoice' && test_item_ids && Array.isArray(test_item_ids) && test_item_ids.length > 0) {
@@ -1848,12 +1975,19 @@ router.post('/', requireAuth, async (req, res) => {
       LEFT JOIN users u ON s.assignee_id = u.user_id
       LEFT JOIN payers p ON s.payer_id = p.payer_id
       LEFT JOIN customers pc ON p.customer_id = pc.customer_id
-      WHERE s.settlement_id = ?`,
-      [result.insertId]
+      WHERE s.settlement_id IN (${insertedSettlementIds.map(() => '?').join(',')})
+      ORDER BY s.settlement_id ASC`,
+      insertedSettlementIds
     );
     
     await connection.commit();
-    res.status(201).json(newRecord[0]);
+    const responseRecord = newRecord.find(row => row.settlement_method === 'invoice') || newRecord[0];
+    res.status(201).json({
+      ...responseRecord,
+      settlement_serial_number: settlementSerialNumber,
+      settlement_serial_numbers: settlementSerialNumbers,
+      split_settlements: newRecord
+    });
   } catch (e) {
     await connection.rollback();
     return res.status(500).json({ error: e.message });
@@ -2128,7 +2262,7 @@ router.put('/:id', requireAuth, async (req, res) => {
         );
 
         // 联动：更新到款情况时，同步更新关联 test_items 的开票状态
-        await syncTestItemsInvoiceStatusForSettlement(connection, req.params.id);
+        await syncInvoiceStatusForSettlement(connection, req.params.id);
         await syncSettlementDebit(connection, req.params.id, user.user_id);
         await syncReceiptCredit(connection, req.params.id, user.user_id);
         await syncPrepaymentCredit(connection, req.params.id, user.user_id);
@@ -2226,7 +2360,7 @@ router.put('/:id', requireAuth, async (req, res) => {
       );
 
       // 联动：更新到款情况时，同步更新关联 test_items 的开票状态
-      await syncTestItemsInvoiceStatusForSettlement(pool, req.params.id);
+      await syncInvoiceStatusForSettlement(pool, req.params.id);
       await syncSettlementDebit(pool, req.params.id, user.user_id);
       await syncReceiptCredit(pool, req.params.id, user.user_id);
       await syncPrepaymentCredit(pool, req.params.id, user.user_id);
@@ -2349,7 +2483,14 @@ router.post('/:id/approval', requireAuth, async (req, res) => {
 
     if (action === 'approved') {
       if (settlement.settlement_type === 'invoice') {
-        await syncSettlementDebit(connection, settlement.settlement_id, user.user_id);
+        const debitResult = await syncSettlementDebit(connection, settlement.settlement_id, user.user_id);
+        if (
+          settlement.settlement_method === 'prepaid' &&
+          Number(settlement.invoice_amount) > 0 &&
+          !debitResult.synced
+        ) {
+          throw new Error('预存抵扣及支付分配未生成，审批已取消，请检查付款方预存余额');
+        }
         await syncReceiptCredit(connection, settlement.settlement_id, user.user_id);
         await syncInvoiceStatusForSettlement(connection, settlement.settlement_id);
       } else if (settlement.settlement_type === 'prepayment') {
@@ -2470,20 +2611,6 @@ router.delete('/:id', requireAuth, async (req, res) => {
       }
     }
 
-    if (testItemIds.length > 0) {
-      const uniqueIds = Array.from(new Set(testItemIds));
-      const ph = uniqueIds.map(() => '?').join(',');
-      await connection.query(
-        `UPDATE test_items 
-         SET unpaid_amount = 0,
-             settlement_serial_number = NULL,
-             invoice_status = '未结算',
-             invoice_prefill_confirmed = 0
-         WHERE test_item_id IN (${ph})`,
-        uniqueIds
-      );
-    }
-    
     await connection.query(
       'DELETE FROM payer_balance_transactions WHERE settlement_id = ?',
       [req.params.id]
@@ -2508,6 +2635,61 @@ router.delete('/:id', requireAuth, async (req, res) => {
     if (result.affectedRows === 0) {
       await connection.rollback();
       return res.status(404).json({ error: '结算记录不存在' });
+    }
+
+    if (testItemIds.length > 0) {
+      const uniqueIds = Array.from(new Set(testItemIds.map(Number).filter(Number.isFinite)));
+      const [remainingRows] = await connection.query(
+        `SELECT settlement_id, settlement_serial_number, invoice_amount
+         FROM settlements
+         WHERE settlement_type = 'invoice'
+           AND approval_status <> 'rejected'
+           AND test_item_ids IS NOT NULL
+           AND JSON_VALID(test_item_ids) = 1
+           AND JSON_CONTAINS(test_item_ids, CAST(? AS JSON), '$')
+         ORDER BY settlement_id ASC`,
+        [uniqueIds[0]]
+      );
+
+      if (remainingRows.length === 0) {
+        const ph = uniqueIds.map(() => '?').join(',');
+        await connection.query(
+          `UPDATE test_items
+           SET unpaid_amount = 0,
+               settlement_serial_number = NULL,
+               invoice_status = '未结算',
+               invoice_prefill_confirmed = 0
+           WHERE test_item_id IN (${ph})`,
+          uniqueIds
+        );
+      } else {
+        const serialNumbers = remainingRows.map(row => row.settlement_serial_number).filter(Boolean).join(',');
+        const totalRemainingAmount = normalizeAmount(
+          remainingRows.reduce((sum, row) => sum + (Number(row.invoice_amount) || 0), 0)
+        ) || 0;
+        const ph = uniqueIds.map(() => '?').join(',');
+        const [items] = await connection.query(
+          `SELECT test_item_id, invoice_prefill_price, final_unit_price
+           FROM test_items
+           WHERE test_item_id IN (${ph})`,
+          uniqueIds
+        );
+        const weightedRows = items.map(item => ({
+          ...item,
+          weight: getSettlementItemBasis(item, ['final_unit_price'])
+        }));
+        const allocations = allocateAmountByWeight(weightedRows, totalRemainingAmount, 'weight');
+        const amountByItem = new Map(allocations.map(row => [Number(row.test_item_id), row.amount]));
+        for (const item of items) {
+          await connection.query(
+            `UPDATE test_items
+             SET unpaid_amount = ?, settlement_serial_number = ?
+             WHERE test_item_id = ?`,
+            [amountByItem.get(Number(item.test_item_id)) || 0, serialNumbers, item.test_item_id]
+          );
+        }
+        await syncInvoiceStatusForSettlement(connection, remainingRows[0].settlement_id);
+      }
     }
     
     await connection.commit();

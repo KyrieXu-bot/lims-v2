@@ -9,9 +9,11 @@ router.use(requireAuth);
 router.get('/options', async (req, res) => {
   const pool = await getPool();
   const [rows] = await pool.query(
-    `SELECT p.payer_id, p.customer_id, p.contact_name, c.customer_name
+    `SELECT p.payer_id, p.customer_id, p.contact_name, p.owner_user_id,
+            c.customer_name, u.name AS owner_name
      FROM payers p
      JOIN customers c ON c.customer_id = p.customer_id
+     LEFT JOIN users u ON u.user_id = p.owner_user_id
      WHERE p.is_active = 1 AND c.is_active = 1
      ORDER BY c.customer_name, p.contact_name`
   );
@@ -20,6 +22,8 @@ router.get('/options', async (req, res) => {
     customer_id: r.customer_id,
     contact_name: r.contact_name,
     customer_name: r.customer_name,
+    owner_user_id: r.owner_user_id,
+    owner_name: r.owner_name,
     label: `${r.contact_name} (${r.customer_name})`
   })));
 });

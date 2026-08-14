@@ -3699,6 +3699,9 @@ const CommissionForm = () => {
         test_item_ids: test_item_ids,
         test_item_amounts: test_item_amounts
       });
+      const createdSettlementSerials = Array.isArray(createdSettlement?.settlement_serial_numbers)
+        ? createdSettlement.settlement_serial_numbers.filter(Boolean)
+        : [createdSettlement?.settlement_serial_number].filter(Boolean);
       let excelExportError = null;
       try {
         await downloadBillsExcelTemplate(
@@ -3734,9 +3737,9 @@ const CommissionForm = () => {
       
       // 显示成功消息
       if (excelExportError) {
-        alert('\u7ed3\u7b97\u8bb0\u5f55\u521b\u5efa\u6210\u529f\uff0c\u4f46Excel\u8d26\u5355\u751f\u6210\u5931\u8d25\uff1a' + excelExportError.message);
+        alert(`结算记录创建成功（${createdSettlementSerials.join('、')}），但Excel账单生成失败：${excelExportError.message}`);
       } else {
-        alert('\u7ed3\u7b97\u8bb0\u5f55\u521b\u5efa\u6210\u529f\uff0cExcel\u8d26\u5355\u5df2\u751f\u6210');
+        alert(`结算记录创建成功（${createdSettlementSerials.join('、')}），Excel账单已生成`);
       }
       
       // 刷新数据（即使失败也不影响成功消息）

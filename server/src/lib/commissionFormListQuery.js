@@ -120,7 +120,7 @@ export const COMMISSION_FORM_LIST_SELECT_JOINS = `
         s.invoice_amount AS __settlement_invoice_amount,
         s.test_item_ids AS __settlement_test_item_ids,
         sia_sum.allocated_amount AS __settlement_item_allocated_amount,
-        s.invoice_number,
+        COALESCE(sia_sum.invoice_numbers, s.invoice_number) AS invoice_number,
         s.invoice_date as settlement_invoice_date,
         COALESCE(s.customer_name, c_settlement.customer_name) as settlement_customer_name
       FROM test_items ti
@@ -147,12 +147,14 @@ export const COMMISSION_FORM_LIST_SELECT_JOINS = `
         GROUP BY test_item_id
       ) pf ON pf.test_item_id = ti.test_item_id
       LEFT JOIN settlements s ON s.settlement_type = 'invoice'
-        AND s.settlement_serial_number = ti.settlement_serial_number
+        AND s.settlement_serial_number = TRIM(SUBSTRING_INDEX(ti.settlement_serial_number, ',', -1))
       LEFT JOIN (
-        SELECT settlement_id, test_item_id, SUM(amount) AS allocated_amount
+        SELECT test_item_id,
+               SUM(amount) AS allocated_amount,
+               GROUP_CONCAT(DISTINCT invoice_number ORDER BY invoice_date, invoice_number SEPARATOR '-') AS invoice_numbers
         FROM settlement_item_payment_allocations
-        GROUP BY settlement_id, test_item_id
-      ) sia_sum ON sia_sum.settlement_id = s.settlement_id AND sia_sum.test_item_id = ti.test_item_id
+        GROUP BY test_item_id
+      ) sia_sum ON sia_sum.test_item_id = ti.test_item_id
       LEFT JOIN customers c_settlement ON c_settlement.customer_id = s.customer_id`;
 
 /**

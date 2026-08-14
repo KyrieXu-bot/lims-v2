@@ -810,9 +810,16 @@ export const api = {
     const r = await fetch(`${API_BASE}/api/settlements?${params.toString()}`, { headers: this.authHeaders() });
     return readApiJson(r, '获取结算记录失败');
   },
-  async getSettlementInvoiceSummary({ q = '', page = 1, pageSize = 100, order_month, invoice_status, invoice_overdue, payment_overdue, exportAll = false, signal } = {}) {
+  async getSettlementInvoiceSummary({ q = '', page = 1, pageSize = 100, order_month, order_months, invoice_status, invoice_overdue, payment_overdue, exportAll = false, signal } = {}) {
     const params = new URLSearchParams({ q, page, pageSize });
-    if (order_month) params.set('order_month', order_month);
+    const selectedMonths = Array.isArray(order_months)
+      ? order_months.filter(Boolean)
+      : [];
+    if (selectedMonths.length > 0) {
+      params.set('order_months', selectedMonths.join(','));
+    } else if (order_month) {
+      params.set('order_month', order_month);
+    }
     if (invoice_status) params.set('invoice_status', invoice_status);
     if (invoice_overdue) params.set('invoice_overdue', invoice_overdue);
     if (payment_overdue) params.set('payment_overdue', payment_overdue);
