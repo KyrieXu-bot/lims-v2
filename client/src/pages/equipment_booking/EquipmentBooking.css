@@ -156,6 +156,17 @@
   border-bottom: 1px solid #e5e7eb;
 }
 
+.booking-access-denied {
+  margin: 24px auto;
+  max-width: 680px;
+  padding: 28px;
+  border: 1px solid #dbe3ef;
+  border-radius: 8px;
+  background: #fff;
+  color: #64748b;
+  text-align: center;
+}
+
 .booking-equipment-cell {
   padding: 10px 14px;
   display: flex;

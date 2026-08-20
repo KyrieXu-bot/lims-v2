@@ -997,33 +997,67 @@ const CommissionForm = () => {
       return [];
     }
     const uniqueSelected = [...new Set(selectedItems.map(normalizeTestItemId))];
-    const currentPageSelected = data.filter(item =>
-      uniqueSelected.includes(normalizeTestItemId(item.test_item_id))
-    );
-    if (currentPageSelected.length === uniqueSelected.length) {
-      return uniqueSelected
-        .map((id) => currentPageSelected.find((it) => normalizeTestItemId(it.test_item_id) === id))
-        .filter(Boolean);
+    const selectedIdSet = new Set(uniqueSelected);
+    const cachedById = new Map();
+    const addCachedRows = (rows) => {
+      if (!Array.isArray(rows)) return;
+      rows.forEach((item) => {
+        const id = normalizeTestItemId(item?.test_item_id);
+        if (selectedIdSet.has(id)) cachedById.set(id, item);
+      });
+    };
+
+    // “全选”本身已经拉取过全部匹配行；跨页手动选择也会保存行快照。
+    // 导出时优先复用这些数据，避免把上万个 ID 再放进一个 POST 请求体。
+    addCachedRows(fullSelectionCacheRef.current);
+    addCachedRows([...selectedItemSnapshotRef.current.values()]);
+    addCachedRows(data);
+
+    const missingIds = uniqueSelected.filter((id) => !cachedById.has(id));
+    if (missingIds.length === 0) {
+      return uniqueSelected.map((id) => cachedById.get(id)).filter(Boolean);
     }
+
     const storedUser = JSON.parse(localStorage.getItem('lims_user') || 'null');
-    const byIdRes = await fetch('/api/commission-form/commission-form/by-test-item-ids', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${storedUser?.token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ test_item_ids: uniqueSelected })
-    });
-    if (!byIdRes.ok) {
-      throw new Error(`按选中项拉取数据失败: HTTP ${byIdRes.status}`);
+    const batchSize = 500;
+    const batches = [];
+    for (let i = 0; i < missingIds.length; i += batchSize) {
+      batches.push(missingIds.slice(i, i + batchSize));
     }
-    const byIdJson = await byIdRes.json();
-    const rawRows = Array.isArray(byIdJson.data) ? byIdJson.data : [];
+
+    const rawRows = [];
+    // 限制并发，既规避请求体 413，也避免大量补拉请求同时压到数据库。
+    const concurrency = 4;
+    for (let i = 0; i < batches.length; i += concurrency) {
+      const batchRows = await Promise.all(
+        batches.slice(i, i + concurrency).map(async (testItemIds) => {
+          const byIdRes = await fetch('/api/commission-form/commission-form/by-test-item-ids', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${storedUser?.token}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ test_item_ids: testItemIds })
+          });
+          if (!byIdRes.ok) {
+            throw new Error(`按选中项拉取数据失败: HTTP ${byIdRes.status}`);
+          }
+          const byIdJson = await byIdRes.json();
+          return Array.isArray(byIdJson.data) ? byIdJson.data : [];
+        })
+      );
+      batchRows.forEach((rows) => rawRows.push(...rows));
+    }
+
     const processed = enrichCommissionListRows(rawRows);
     const eligible =
       user?.role === 'leader' ? processed.filter((it) => canLeaderEditItem(it)) : processed;
-    const byId = new Map(eligible.map((it) => [normalizeTestItemId(it.test_item_id), it]));
-    return uniqueSelected.map((id) => byId.get(id)).filter(Boolean);
+    eligible.forEach((item) => {
+      const id = normalizeTestItemId(item.test_item_id);
+      cachedById.set(id, item);
+      selectedItemSnapshotRef.current.set(id, item);
+    });
+    return uniqueSelected.map((id) => cachedById.get(id)).filter(Boolean);
   };
 
   const formatTestItemName = (item) => {

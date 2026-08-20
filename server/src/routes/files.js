@@ -538,8 +538,25 @@ router.delete('/:id', requireAnyRole(['admin', 'leader', 'supervisor', 'employee
       }
     }
     
-    // 删除数据库记录
-    await connection.query('DELETE FROM project_files WHERE file_id = ?', [req.params.id]);
+    // 委托单附件会按检测项目建立多条关联；删除时需要一次清理同一正式单号下
+    // 指向同一物理文件的全部记录，避免剩余记录继续展示已不存在的文件。
+    if (file.category === 'order_attachment') {
+      await connection.query(
+        `DELETE FROM project_files
+         WHERE category = 'order_attachment'
+           AND order_id <=> ?
+           AND filepath = ?`,
+        [file.order_id, file.filepath]
+      );
+      await connection.query(
+        `DELETE FROM order_request_files
+         WHERE file_type = 'user_upload'
+           AND REPLACE(?, CHAR(92), '/') LIKE CONCAT('%/', REPLACE(stored_path, CHAR(92), '/'))`,
+        [file.filepath]
+      );
+    } else {
+      await connection.query('DELETE FROM project_files WHERE file_id = ?', [req.params.id]);
+    }
     await connection.commit();
     transactionStarted = false;
     connection.release();

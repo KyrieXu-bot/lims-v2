@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../api.js';
 import { useSocket } from '../../hooks/useSocket.js';
+import { canOperateEquipmentBooking, canViewEquipmentBooking } from '../../utils/equipmentBookingPermissions.js';
+import EquipmentBookingSchedule from './EquipmentBookingSchedule.jsx';
 import './EquipmentBooking.css';
 
 const DAY_START_HOUR = 8;
@@ -174,7 +176,7 @@ function UserPicker({ label, value, displayName, equipmentId, onChange, onInputT
   );
 }
 
-function BookingModal({ initial, equipmentOptions, onClose, onSaved, onCancelBooking }) {
+export function BookingModal({ initial, equipmentOptions, onClose, onSaved, onCancelBooking }) {
   const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
   const isEdit = Boolean(initial?.booking_id);
   const isReadOnly = Boolean(initial?.read_only);
@@ -402,7 +404,7 @@ function BookingModal({ initial, equipmentOptions, onClose, onSaved, onCancelBoo
   );
 }
 
-export default function EquipmentBooking() {
+function EquipmentBookingWorkspace() {
   const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
   const { socket, isConnected } = useSocket('equipment-booking');
   const [viewMode, setViewMode] = useState(getInitialViewMode);
@@ -763,6 +765,17 @@ export default function EquipmentBooking() {
       )}
     </div>
   );
+}
+
+export default function EquipmentBooking() {
+  const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
+  if (!canViewEquipmentBooking(user)) {
+    return <div className="booking-access-denied">当前账号没有设备预约查看权限</div>;
+  }
+  if (!canOperateEquipmentBooking(user)) {
+    return <EquipmentBookingSchedule />;
+  }
+  return <EquipmentBookingWorkspace />;
 }
 
 function MyBookingCards({ openData, historyCount, now, equipmentFilter, departmentFilter, onCancel, onEdit }) {

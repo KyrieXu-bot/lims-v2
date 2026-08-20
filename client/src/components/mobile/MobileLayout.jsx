@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate, useLocation, NavLink } from 'react-router-dom';
 import MobileScanSearchModal from './MobileScanSearchModal.jsx';
+import { canViewEquipmentBooking } from '../../utils/equipmentBookingPermissions.js';
 import './MobileLayout.css';
 
 const ClipboardIcon = () => (
@@ -27,6 +28,12 @@ const ChartIcon = () => (
   </svg>
 );
 
+const CalendarClockIcon = () => (
+  <svg viewBox="0 0 24 24" aria-hidden className="mobile-bottom-nav-svg">
+    <path d="M7 2h2v2h6V2h2v2h1a3 3 0 0 1 3 3v12a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3h1V2Zm11 7H6v10a1 1 0 0 0 1 1h5.1A6 6 0 0 1 18 12.7V9Zm0-3H6a1 1 0 0 0-1 1h14a1 1 0 0 0-1-1Zm0 8a4 4 0 1 1 0 8 4 4 0 0 1 0-8Zm-.7 1.8v2.8l2 1.2.8-1.3-1.3-.8v-1.9h-1.5Z" />
+  </svg>
+);
+
 const STATS_TAB_ROLES = new Set(['leader', 'supervisor', 'employee']);
 
 const MobileLayout = ({ children }) => {
@@ -37,6 +44,7 @@ const MobileLayout = ({ children }) => {
   const [showScanSearch, setShowScanSearch] = useState(false);
 
   const showStatisticsTab = STATS_TAB_ROLES.has(user?.role);
+  const showEquipmentBookingTab = canViewEquipmentBooking(user);
 
   const logout = () => {
     localStorage.removeItem('lims_user');
@@ -56,6 +64,15 @@ const MobileLayout = ({ children }) => {
             path: '/mobile/statistics',
             label: '数据统计',
             icon: <ChartIcon />
+          }
+        ]
+       : []),
+    ...(showEquipmentBookingTab
+      ? [
+          {
+            path: '/mobile/equipment-booking',
+            label: '预约',
+            icon: <CalendarClockIcon />
           }
         ]
       : []),
@@ -175,6 +192,16 @@ const MobileLayout = ({ children }) => {
                   <span>数据统计</span>
                 </NavLink>
               )}
+              {showEquipmentBookingTab && (
+                <NavLink
+                  to="/mobile/equipment-booking"
+                  className="mobile-menu-item"
+                  onClick={() => setShowMenu(false)}
+                >
+                  <span className="mobile-menu-icon"><CalendarClockIcon /></span>
+                  <span>设备预约</span>
+                </NavLink>
+              )}
               <NavLink 
                 to="/mobile/notifications"
                 className="mobile-menu-item"
@@ -211,7 +238,7 @@ const MobileLayout = ({ children }) => {
 
       {/* 底部导航栏 */}
       <nav className="mobile-bottom-nav">
-        <div className={`mobile-bottom-nav-shell${showStatisticsTab ? ' mobile-bottom-nav-shell--four' : ''}`}>
+        <div className={`mobile-bottom-nav-shell${bottomNavItems.length >= 4 ? ' mobile-bottom-nav-shell--dense' : ''}`}>
           {bottomNavItems.map(item => {
             const isActive = location.pathname === item.path;
             return (
@@ -237,7 +264,6 @@ const MobileLayout = ({ children }) => {
 };
 
 export default MobileLayout;
-
 
 
 

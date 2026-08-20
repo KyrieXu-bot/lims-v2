@@ -279,6 +279,7 @@ async function getPrepaymentLots(executor, payerId, excludeSettlementId = null) 
        s.settlement_id,
        s.invoice_number,
        s.invoice_date,
+       s.received_date,
        s.invoice_amount,
        s.received_amount,
        COALESCE(s.gift_amount, 0) AS gift_amount,
@@ -325,6 +326,7 @@ function buildFifoPrepaymentAllocations(lots, amountNeeded) {
       source_settlement_id: lot.settlement_id,
       invoice_number: lot.invoice_number,
       invoice_date: lot.invoice_date,
+      received_date: lot.received_date,
       amount
     });
     remaining = normalizeAmount(remaining - amount);
@@ -541,18 +543,29 @@ async function replacePaymentAllocations(executor, {
   }
 
   const displayInvoiceNumber = [...new Set(allocationRows.map(row => row.invoice_number).filter(Boolean))].join('-');
+  const firstPrepaymentAllocation = allocationRows.find(row => row.payment_source_type === 'prepayment');
+  const inheritedInvoiceDate = settlementMethod === 'prepaid'
+    ? (firstPrepaymentAllocation?.invoice_date || null)
+    : null;
+  const inheritedReceivedDate = settlementMethod === 'prepaid'
+    ? (firstPrepaymentAllocation?.received_date || null)
+    : null;
 
   await executor.query(
     `UPDATE settlements
      SET invoice_number = ?,
          new_invoice_number = ?,
          new_invoice_amount = ?,
+         invoice_date = CASE WHEN settlement_method = 'prepaid' THEN ? ELSE invoice_date END,
+         received_date = CASE WHEN settlement_method = 'prepaid' THEN ? ELSE received_date END,
          updated_at = NOW(3)
      WHERE settlement_id = ?`,
     [
       displayInvoiceNumber || newInvoiceNumber || null,
       settlementMethod === 'prepaid' ? null : newInvoiceNumber || null,
       newInvoiceAmount > 0 ? newInvoiceAmount : null,
+      inheritedInvoiceDate,
+      inheritedReceivedDate,
       settlementId
     ]
   );
@@ -1215,24 +1228,36 @@ router.get('/invoice-summary', requireAuth, async (req, res) => {
             SUM(CASE
               WHEN ti.unpaid_amount IS NULL OR ti.unpaid_amount = '' THEN 0
               ELSE 1
-            END) AS order_invoice_amount_count,
-            SUM(CASE
-              WHEN ti.invoice_status = '已到账'
-                AND ti.unpaid_amount IS NOT NULL
-                AND ti.unpaid_amount <> ''
-              THEN ti.unpaid_amount
-              ELSE 0
-            END) AS order_received_amount,
-            SUM(CASE
-              WHEN ti.invoice_status = '已到账'
-                AND ti.unpaid_amount IS NOT NULL
-                AND ti.unpaid_amount <> ''
-              THEN 1
-              ELSE 0
-            END) AS order_received_amount_count
+            END) AS order_invoice_amount_count
           FROM test_items ti
           JOIN page_orders po ON ti.order_id = po.order_id
           WHERE ti.status != 'cancelled'
+          GROUP BY ti.order_id
+        ),
+        receipt_totals AS (
+          SELECT
+            ti.order_id,
+            ROUND(SUM(
+              CASE
+                WHEN s.received_amount IS NOT NULL
+                  AND COALESCE(s.invoice_amount, 0) > 0
+                THEN sipa.amount * s.received_amount / s.invoice_amount
+                ELSE 0
+              END
+            ), 2) AS order_received_amount,
+            SUM(CASE
+              WHEN s.received_amount IS NOT NULL
+                AND COALESCE(s.invoice_amount, 0) > 0
+              THEN 1
+              ELSE 0
+            END) AS order_received_amount_count
+          FROM settlement_item_payment_allocations sipa
+          JOIN settlements s ON s.settlement_id = sipa.settlement_id
+          JOIN test_items ti ON ti.test_item_id = sipa.test_item_id
+          JOIN page_orders po ON po.order_id = ti.order_id
+          WHERE s.settlement_type = 'invoice'
+            AND s.approval_status = 'approved'
+            AND ti.status != 'cancelled'
           GROUP BY ti.order_id
         ),
         settlement_ranked AS (
@@ -1276,8 +1301,8 @@ router.get('/invoice-summary', requireAuth, async (req, res) => {
             s.remarks AS invoice_remark,
             s.received_date,
             CASE
-              WHEN COALESCE(ti.order_received_amount_count, 0) = 0 THEN NULL
-              ELSE COALESCE(ti.order_received_amount, 0)
+              WHEN COALESCE(rt.order_received_amount_count, 0) = 0 THEN NULL
+              ELSE COALESCE(rt.order_received_amount, 0)
             END AS received_amount,
             LAST_DAY(DATE_ADD(
               STR_TO_DATE(CONCAT(po.order_month, '01'), '%Y%m%d'),
@@ -1309,6 +1334,7 @@ router.get('/invoice-summary', requireAuth, async (req, res) => {
             END AS payment_overdue_days
           FROM page_orders po
           LEFT JOIN item_totals ti ON ti.order_id = po.order_id
+          LEFT JOIN receipt_totals rt ON rt.order_id = po.order_id
           LEFT JOIN settlement_ranked s ON s.matched_order_id = po.order_id AND s.rn = 1
         ) base
         ORDER BY base.order_id DESC`,
@@ -1438,24 +1464,36 @@ router.get('/invoice-summary', requireAuth, async (req, res) => {
           SUM(CASE
             WHEN ti.unpaid_amount IS NULL OR ti.unpaid_amount = '' THEN 0
             ELSE 1
-          END) AS order_invoice_amount_count,
-          SUM(CASE
-            WHEN ti.invoice_status = '已到账'
-              AND ti.unpaid_amount IS NOT NULL
-              AND ti.unpaid_amount <> ''
-            THEN ti.unpaid_amount
-            ELSE 0
-          END) AS order_received_amount,
-          SUM(CASE
-            WHEN ti.invoice_status = '已到账'
-              AND ti.unpaid_amount IS NOT NULL
-              AND ti.unpaid_amount <> ''
-            THEN 1
-            ELSE 0
-          END) AS order_received_amount_count
+          END) AS order_invoice_amount_count
         FROM test_items ti
         JOIN page_orders po ON ti.order_id = po.order_id
         WHERE ti.status != 'cancelled'
+        GROUP BY ti.order_id
+      ),
+      receipt_totals AS (
+        SELECT
+          ti.order_id,
+          ROUND(SUM(
+            CASE
+              WHEN s.received_amount IS NOT NULL
+                AND COALESCE(s.invoice_amount, 0) > 0
+              THEN sipa.amount * s.received_amount / s.invoice_amount
+              ELSE 0
+            END
+          ), 2) AS order_received_amount,
+          SUM(CASE
+            WHEN s.received_amount IS NOT NULL
+              AND COALESCE(s.invoice_amount, 0) > 0
+            THEN 1
+            ELSE 0
+          END) AS order_received_amount_count
+        FROM settlement_item_payment_allocations sipa
+        JOIN settlements s ON s.settlement_id = sipa.settlement_id
+        JOIN test_items ti ON ti.test_item_id = sipa.test_item_id
+        JOIN page_orders po ON po.order_id = ti.order_id
+        WHERE s.settlement_type = 'invoice'
+          AND s.approval_status = 'approved'
+          AND ti.status != 'cancelled'
         GROUP BY ti.order_id
       )
       SELECT
@@ -1486,8 +1524,8 @@ router.get('/invoice-summary', requireAuth, async (req, res) => {
           po.invoice_remark,
           po.received_date,
           CASE
-            WHEN COALESCE(ti.order_received_amount_count, 0) = 0 THEN NULL
-            ELSE COALESCE(ti.order_received_amount, 0)
+            WHEN COALESCE(rt.order_received_amount_count, 0) = 0 THEN NULL
+            ELSE COALESCE(rt.order_received_amount, 0)
           END AS received_amount,
           po.invoice_deadline_date,
           po.payment_deadline_date,
@@ -1495,6 +1533,7 @@ router.get('/invoice-summary', requireAuth, async (req, res) => {
           po.payment_overdue_days
         FROM page_orders po
         LEFT JOIN item_totals ti ON ti.order_id = po.order_id
+        LEFT JOIN receipt_totals rt ON rt.order_id = po.order_id
       ) base
       ORDER BY base.order_id DESC`,
       rowParams

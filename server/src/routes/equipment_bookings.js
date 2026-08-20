@@ -9,6 +9,7 @@ const ALL_ROLES = ['admin', 'leader', 'supervisor', 'employee', 'sales', 'viewer
 const MICRO_LABELS = ['FIBTEM', 'SEMXRD'];
 const MECHANICS_DEPARTMENT_ID = 3;
 const MECHANICS_USER_IDS = ['JC0023', 'JC0101', 'JC0011', 'JC0019', 'JC005'];
+const BOOKING_VIEWER_DEPARTMENT_IDS = new Set([1, 3]);
 
 router.use(requireAuth, requireAnyRole(ALL_ROLES));
 
@@ -46,8 +47,16 @@ function isMechanicsUser(user) {
   return MECHANICS_USER_IDS.includes(String(user?.user_id || ''));
 }
 
+function isBookingDepartmentMember(user) {
+  return BOOKING_VIEWER_DEPARTMENT_IDS.has(Number(user?.department_id));
+}
+
 function canUseBookingModule(user) {
   return isAdmin(user) || isSalesUser(user) || isMicroscopeSupervisor(user) || isMicroscopeLeader(user) || isMechanicsUser(user);
+}
+
+function canViewBookingModule(user) {
+  return canUseBookingModule(user) || isBookingDepartmentMember(user);
 }
 
 function normalizeLabel(value) {
@@ -111,6 +120,16 @@ function buildEquipmentScope(user, alias = 'e') {
   if (isMechanicsUser(user)) {
     parts.push(`${alias}.department_id = ?`);
     params.push(MECHANICS_DEPARTMENT_ID);
+  }
+
+  if (isBookingDepartmentMember(user)) {
+    if (Number(user.department_id) === 1) {
+      parts.push(`UPPER(${alias}.equipment_label) IN (?, ?)`);
+      params.push(...MICRO_LABELS);
+    } else {
+      parts.push(`${alias}.department_id = ?`);
+      params.push(MECHANICS_DEPARTMENT_ID);
+    }
   }
 
   if (parts.length === 0) return null;
@@ -248,7 +267,7 @@ function decorateBookingRows(rows, user) {
 }
 
 router.get('/equipment', async (req, res) => {
-  if (!canUseBookingModule(req.user)) {
+  if (!canViewBookingModule(req.user)) {
     return res.status(403).json({ error: '当前账号无权使用设备预约' });
   }
 
@@ -295,7 +314,7 @@ router.get('/equipment', async (req, res) => {
 });
 
 router.get('/departments', async (req, res) => {
-  if (!canUseBookingModule(req.user)) {
+  if (!canViewBookingModule(req.user)) {
     return res.status(403).json({ error: '当前账号无权使用设备预约' });
   }
 
@@ -376,6 +395,10 @@ router.get('/assignees', async (req, res) => {
 });
 
 router.get('/order/:orderId/test-items', async (req, res) => {
+  if (!canUseBookingModule(req.user)) {
+    return res.status(403).json({ error: '当前账号无权填写设备预约' });
+  }
+
   const { orderId } = req.params;
   if (!orderId) return res.status(400).json({ error: 'orderId is required' });
 
@@ -404,7 +427,7 @@ router.get('/order/:orderId/test-items', async (req, res) => {
 });
 
 router.get('/', async (req, res) => {
-  if (!canUseBookingModule(req.user)) {
+  if (!canViewBookingModule(req.user)) {
     return res.status(403).json({ error: '当前账号无权使用设备预约' });
   }
 
@@ -630,7 +653,8 @@ router.put('/:id', async (req, res) => {
       }
 
       let nextApprovalStatus = booking.approval_status;
-      if (!isAdmin(req.user) && isApplicant && requiresApproval(req.user, validation.equipment)) {
+      const hasAlreadyBeenApproved = booking.approval_status === 'approved';
+      if (!isAdmin(req.user) && isApplicant && !hasAlreadyBeenApproved && requiresApproval(req.user, validation.equipment)) {
         nextApprovalStatus = 'pending';
       }
       if (isAdmin(req.user)) {

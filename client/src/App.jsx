@@ -33,20 +33,15 @@ import MobileCommissionForm from './pages/mobile/MobileCommissionForm.jsx';
 import MobileNotifications from './pages/mobile/MobileNotifications.jsx';
 import MobileProfile from './pages/mobile/MobileProfile.jsx';
 import MobileStatistics from './pages/mobile/MobileStatistics.jsx';
+import MobileEquipmentBooking from './pages/mobile/MobileEquipmentBooking.jsx';
 import { isMobile, isCapacitorNative } from './utils/isMobile.js';
+import { canViewEquipmentBooking } from './utils/equipmentBookingPermissions.js';
 import './app.css';
 
 function Layout({ children }) {
   const navigate = useNavigate();
   const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
-  const userRoles = Array.isArray(user?.roles) ? user.roles : [user?.role].filter(Boolean);
-  const hasRole = (role) => userRoles.includes(role);
-  const canUseEquipmentBooking = Boolean(user?.token) && (
-    hasRole('admin') ||
-    (hasRole('sales') && Number(user.department_id) === 4) ||
-    ((hasRole('supervisor') || hasRole('leader')) && Number(user.department_id) === 1) ||
-    ['JC0023', 'JC0101', 'JC0011', 'JC0019', 'JC005'].includes(String(user.user_id || ''))
-  );
+  const canUseEquipmentBooking = canViewEquipmentBooking(user);
   function logout() {
     localStorage.removeItem('lims_user');
     navigate('/login');
@@ -138,6 +133,7 @@ const PC_TO_MOBILE_ROUTE_MAP = {
   '/notifications': '/mobile/notifications',
   '/profile': '/mobile/profile',
   '/statistics': '/mobile/statistics',
+  '/equipment-booking': '/mobile/equipment-booking',
 };
 
 // PC端路由包装组件 - 在Capacitor原生环境中自动重定向到移动端
@@ -201,6 +197,7 @@ export default function App() {
       <Route path="/mobile/notifications" element={<MobileLayout><MobileNotifications/></MobileLayout>} />
       <Route path="/mobile/profile" element={<MobileLayout><MobileProfile/></MobileLayout>} />
       <Route path="/mobile/statistics" element={<MobileLayout><MobileStatistics/></MobileLayout>} />
+      <Route path="/mobile/equipment-booking" element={<MobileLayout><MobileEquipmentBooking/></MobileLayout>} />
       
       {/* PC端路由 - 在原生环境中会自动重定向到移动端 */}
       <Route path="/login" element={<PCRouteWrapper><Layout><Login/></Layout></PCRouteWrapper>} />
