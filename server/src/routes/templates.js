@@ -460,6 +460,20 @@ router.post('/generate-process-template', requireAnyRole(['admin']), async (req,
       console.log('流转单文档渲染成功');
     } catch (renderError) {
       console.error('流转单文档渲染失败:', renderError);
+      const renderErrorDetails = renderError.properties?.errors?.map((innerError, index) => ({
+        index,
+        name: innerError.name,
+        message: innerError.message,
+        id: innerError.properties?.id,
+        tag: innerError.properties?.xtag,
+        explanation: innerError.properties?.explanation,
+        value: innerError.properties?.value,
+        file: innerError.properties?.file,
+        offset: innerError.properties?.offset
+      }));
+      if (renderErrorDetails?.length) {
+        console.error('流转单渲染内部错误:', JSON.stringify(renderErrorDetails, null, 2));
+      }
       throw new Error(`流转单文档渲染失败: ${renderError.message}`);
     }
     

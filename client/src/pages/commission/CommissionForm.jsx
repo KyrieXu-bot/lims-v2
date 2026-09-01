@@ -872,7 +872,7 @@ const CommissionForm = () => {
   /** 跨页多选：当前列表中不可见行的最新行快照（key 为 normalizeTestItemId） */
   const selectedItemSnapshotRef = useRef(new Map());
 
-  /** 与列表/全量拉取一致：补算 final_unit_price、line_total、lab_price */
+  /** 与列表/全量拉取一致：未确认时补算价格；确认后保留后台 lab_price */
   const enrichCommissionListRows = (items) =>
     items.map((item) => {
       const isBusinessConfirmed =
@@ -890,12 +890,14 @@ const CommissionForm = () => {
         item.service_urgency
       );
       const lineTotal = resolveStandardLineTotal(item, calculatedLineTotal);
-      const calculatedLabPrice = calculateLabPrice(finalUnitPrice, lineTotal, item.group_id);
+      const labPrice = isBusinessConfirmed
+        ? item.lab_price
+        : calculateLabPrice(finalUnitPrice, lineTotal, item.group_id);
       return {
         ...item,
         final_unit_price: finalUnitPrice,
         line_total: lineTotal,
-        lab_price: calculatedLabPrice !== null ? calculatedLabPrice : item.lab_price
+        lab_price: labPrice !== null ? labPrice : item.lab_price
       };
     });
 
@@ -4455,13 +4457,16 @@ const CommissionForm = () => {
             // 重新计算实验室报价（当final_unit_price或line_total变化时，或影响它们的字段变化时）
             // 确保使用最新的merged值进行计算
             if (
-              field === 'final_unit_price' ||
-              field === 'line_total' ||
-              field === 'unit_price' ||
-              field === 'actual_sample_quantity' ||
-              field === 'service_urgency' ||
-              field === 'price_note' ||
-              field === 'discount_rate'
+              !isBusinessConfirmedForMerged &&
+              (
+                field === 'final_unit_price' ||
+                field === 'line_total' ||
+                field === 'unit_price' ||
+                field === 'actual_sample_quantity' ||
+                field === 'service_urgency' ||
+                field === 'price_note' ||
+                field === 'discount_rate'
+              )
             ) {
               // 使用merged中已更新的最新值
               const finalPrice =
@@ -4831,7 +4836,7 @@ const CommissionForm = () => {
       {/* 搜索和筛选区域 - 首行 */}
       <div className={`filters ${isAnyOverlayModalOpen ? 'filters-behind-modal' : ''}`}>
         <div className="filter-row">
-          <div className="filter-group search-group">
+          <div className="filter-group filter-stack-group search-group">
             <label>搜索:</label>
             <div className="search-input-container">
               <input
@@ -4868,7 +4873,6 @@ const CommissionForm = () => {
                   padding: '6px 10px',
                   border: '1px solid #ddd',
                   borderRadius: '4px',
-                  fontSize: '13px',
                   backgroundColor: '#fff',
                   cursor: 'pointer',
                   display: 'flex',
@@ -5068,7 +5072,6 @@ const CommissionForm = () => {
                   padding: '6px 10px',
                   border: '1px solid #ddd',
                   borderRadius: '4px',
-                  fontSize: '13px',
                   backgroundColor: '#fff',
                   cursor: 'pointer',
                   display: 'flex',
@@ -5196,7 +5199,7 @@ const CommissionForm = () => {
               )}
             </div>
           </div>
-          <div className="filter-group billing-date-filter-group">
+          <div className="filter-group filter-stack-group billing-date-filter-group">
             <label>开单日期:</label>
             <input
               type="date"

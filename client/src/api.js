@@ -1,9 +1,9 @@
 // 统一的后端 API 根地址
 // 优先级：环境变量 > 原生环境检测 > 根据当前页面协议 > 默认值
 
-import { readApiJson, throwIfErrorOrReturnBlob, consumeLoginNotice, shouldReauthOn401, redirectToLoginAfter401 } from './utils/sessionReauth.js';
+import { readApiJson, throwIfErrorOrReturnBlob, consumeLoginNotice, consumeLoginReturnTo, shouldReauthOn401, redirectToLoginAfter401 } from './utils/sessionReauth.js';
 
-export { consumeLoginNotice };
+export { consumeLoginNotice, consumeLoginReturnTo };
 
 export function getApiBase() {
   // 1. 优先使用环境变量（支持 VITE_API_BASE 和 VITE_API_BASE_URL）
@@ -278,7 +278,10 @@ export const api = {
   // helper
   authHeaders() {
     const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
-    if (!user) throw new Error('Not logged in');
+    if (!user?.token) {
+      redirectToLoginAfter401('请先登录后继续操作');
+      throw new Error('请先登录后继续操作');
+    }
     return { 'Authorization': `Bearer ${user.token}`, 'Content-Type': 'application/json' };
   },
 
@@ -390,6 +393,26 @@ export const api = {
   async deleteCommissioner(id) {
     const r = await fetch(`${API_BASE}/api/commissioners/${id}`, { method:'DELETE', headers: this.authHeaders() });
     return readApiJson(r, 'Delete failed');
+  },
+  async getCommissionerSignature(id) {
+    const params = new URLSearchParams({ refresh: String(Date.now()) });
+    const r = await fetch(
+      `${API_BASE}/api/commissioners/${encodeURIComponent(id)}/signature?${params.toString()}`,
+      { headers: this.authHeaders(), cache: 'no-store' }
+    );
+    return throwIfErrorOrReturnBlob(r, '电子签名加载失败');
+  },
+  async uploadCommissionerSignature(id, file) {
+    const form = new FormData();
+    form.append('signature', file);
+    const headers = this.authHeaders();
+    delete headers['Content-Type'];
+    const r = await fetch(`${API_BASE}/api/commissioners/${encodeURIComponent(id)}/signature`, {
+      method: 'POST',
+      headers,
+      body: form
+    });
+    return readApiJson(r, '电子签名上传失败');
   }
   ,
   // test items (检测项目处理)
@@ -626,6 +649,25 @@ export const api = {
   async getSampleTracking(id) {
     const r = await fetch(`${API_BASE}/api/sample-tracking/${id}`, { headers: this.authHeaders() });
     return readApiJson(r, 'Fetch failed');
+  },
+
+  // token-based sample custody flow
+  async listSampleFlows({ q = '', status = '', page = 1, pageSize = 30 } = {}) {
+    const params = new URLSearchParams({ q, status, page: String(page), pageSize: String(pageSize) });
+    const r = await fetch(`${API_BASE}/api/sample-flow?${params.toString()}`, { headers: this.authHeaders() });
+    return readApiJson(r, '获取样品流转列表失败');
+  },
+  async getSampleFlow(token) {
+    const r = await fetch(`${API_BASE}/api/sample-flow/${encodeURIComponent(token)}`, { headers: this.authHeaders() });
+    return readApiJson(r, '获取样品流转信息失败');
+  },
+  async addSampleFlowEvent(token, payload) {
+    const r = await fetch(`${API_BASE}/api/sample-flow/${encodeURIComponent(token)}/events`, {
+      method: 'POST',
+      headers: this.authHeaders(),
+      body: JSON.stringify(payload),
+    });
+    return readApiJson(r, '登记样品流转失败');
   },
 
   // 委外管理API

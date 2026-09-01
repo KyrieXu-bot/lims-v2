@@ -15,6 +15,7 @@ import TestItems from './pages/test_items/TestItems.jsx';
 import TestItemEdit from './pages/test_items/TestItemEdit.jsx';
 import SampleManagement from './pages/sample_management/SampleManagement.jsx';
 import SampleDetail from './pages/sample_management/SampleDetail.jsx';
+import SampleFlowScan from './pages/sample_management/SampleFlowScan.jsx';
 import OutsourceManagement from './pages/outsource/OutsourceManagement.jsx';
 import OrderManagement from './pages/orders/OrderManagement.jsx';
 import OrderDelete from './pages/orders/OrderDelete.jsx';
@@ -65,7 +66,7 @@ function Layout({ children }) {
               {/* <NavLink to="/test-items" className={({isActive})=>isActive?'active':''}>检测项目处理</NavLink> */}
               {/* 样品管理 - 实验室相关人员可以看到 */}
               {(user.role === 'admin' || user.role === 'leader' || user.role === 'supervisor' || user.role === 'employee') && (
-                <NavLink to="/sample-management" className={({isActive})=>isActive?'active':''}>样品管理</NavLink>
+                <NavLink to="/sample-management" className={({isActive})=>isActive?'active':''}>样品流转</NavLink>
               )}
               {/* 委外管理 - 只有管理员和YWQXM可以看到 */}
               {/* {(user.role === 'admin' || user.user_id === 'YWQXM') && (
@@ -159,6 +160,12 @@ function PCRouteWrapper({ children }) {
   return <>{children}</>;
 }
 
+function SampleFlowRouteWrapper({ children }) {
+  return isMobile() || isCapacitorNative()
+    ? <MobileLayout>{children}</MobileLayout>
+    : <Layout>{children}</Layout>;
+}
+
 // 根路径重定向组件 - 根据设备类型重定向
 function RootRedirect() {
   // 优先检测是否是原生平台
@@ -214,6 +221,7 @@ export default function App() {
       <Route path="/test-items" element={<PCRouteWrapper><Layout><TestItems/></Layout></PCRouteWrapper>} />
       <Route path="/test-items/:id" element={<PCRouteWrapper><Layout><TestItemEdit/></Layout></PCRouteWrapper>} />
       <Route path="/sample-management" element={<PCRouteWrapper><Layout><SampleManagement/></Layout></PCRouteWrapper>} />
+      <Route path="/sample-flow/scan" element={<SampleFlowRouteWrapper><SampleFlowScan/></SampleFlowRouteWrapper>} />
       <Route path="/sample-tracking/:id" element={<PCRouteWrapper><Layout><SampleDetail/></Layout></PCRouteWrapper>} />
       <Route path="/outsource" element={<PCRouteWrapper><Layout><OutsourceManagement/></Layout></PCRouteWrapper>} />
       <Route path="/orders" element={<PCRouteWrapper><Layout><OrderManagement/></Layout></PCRouteWrapper>} />

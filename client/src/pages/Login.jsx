@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { api, consumeLoginNotice } from '../api.js';
+import { api, consumeLoginNotice, consumeLoginReturnTo } from '../api.js';
 import { isMobile } from '../utils/isMobile.js';
 
 export default function Login() {
@@ -22,6 +22,11 @@ export default function Login() {
     try {
       const res = await api.login(username, password);
       localStorage.setItem('lims_user', JSON.stringify(res));
+      const returnTo = consumeLoginReturnTo();
+      if (returnTo) {
+        navigate(returnTo, { replace: true });
+        return;
+      }
       
       // 根据路径判断跳转方向
       const isMobileDevice = isMobile();

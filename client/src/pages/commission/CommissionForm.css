@@ -76,7 +76,7 @@
   display: flex;
   gap: 12px;
   row-gap: 10px;
-  align-items: center;
+  align-items: flex-end;
   flex-wrap: wrap;
   position: relative;
   z-index: 1;
@@ -98,14 +98,18 @@
 
 .filter-group.filter-stack-group {
   display: grid !important;
-  grid-template-rows: auto 32px;
+  grid-template-rows: 16px 32px;
   align-items: start !important;
   justify-items: start;
-  gap: 6px;
+  gap: 4px;
 }
 
 .filter-group.filter-stack-group label {
-  line-height: 1.2;
+  display: flex;
+  align-items: center;
+  min-height: 16px;
+  margin: 0;
+  line-height: 16px;
 }
 
 .invoice-status-filter-group select {
@@ -200,12 +204,14 @@
   gap: 8px;
   align-items: center;
   width: 100%;
+  height: 32px;
   min-width: 0; /* 允许收缩 */
 }
 
 .search-input-container input {
   flex: 1 1 auto; /* 允许收缩和增长 */
   min-width: 150px; /* 最小宽度 */
+  height: 32px;
   padding: 6px 10px;
   border: 1px solid #ddd;
   border-radius: 4px;
@@ -253,6 +259,7 @@
   font-weight: 500;
   color: #333;
   font-size: 13px;
+  line-height: 16px;
   white-space: nowrap;
   flex-shrink: 0;
   min-width: fit-content;
@@ -260,6 +267,7 @@
 
 .filter-group input,
 .filter-group select {
+  height: 32px;
   padding: 6px 10px;
   border: 1px solid #ddd;
   border-radius: 4px;
@@ -275,6 +283,7 @@
 
 .status-multiselect-input {
   position: relative;
+  font-size: 13px;
 }
 
 .status-multiselect-input:hover {
@@ -358,6 +367,26 @@
   font-size: 12px !important;
 }
 
+/* 筛选工具条统一控件高度和文字垂直位置 */
+.filter-row .status-multiselect-input,
+.filter-row .search-buttons .btn {
+  height: 32px;
+  min-height: 32px !important;
+  box-sizing: border-box;
+}
+
+.filter-row .status-multiselect-input {
+  line-height: 18px;
+  overflow: hidden;
+}
+
+.filter-row .search-buttons .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
 /* 桌面端：筛选区压缩成单行工具条，给表格留高度 */
 @media (min-width: 1281px) {
   .filters {
@@ -403,6 +432,10 @@
 
   .filter-group input,
   .filter-group select {
+    font-size: 12px;
+  }
+
+  .status-multiselect-input {
     font-size: 12px;
   }
 

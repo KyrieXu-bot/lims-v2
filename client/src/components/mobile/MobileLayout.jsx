@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate, useLocation, NavLink } from 'react-router-dom';
 import MobileScanSearchModal from './MobileScanSearchModal.jsx';
 import { canViewEquipmentBooking } from '../../utils/equipmentBookingPermissions.js';
+import { buildSampleFlowPath, extractSampleFlowToken } from '../../utils/sampleFlowToken.js';
 import './MobileLayout.css';
 
 const ClipboardIcon = () => (
@@ -149,6 +150,11 @@ const MobileLayout = ({ children }) => {
           const q = (text || '').trim();
           setShowScanSearch(false);
           if (!q) return;
+          const sampleFlowToken = extractSampleFlowToken(q);
+          if (sampleFlowToken) {
+            navigate(buildSampleFlowPath(sampleFlowToken));
+            return;
+          }
           navigate(`/mobile/commission-form?q=${encodeURIComponent(q)}`, { replace: true });
         }}
       />
@@ -264,7 +270,6 @@ const MobileLayout = ({ children }) => {
 };
 
 export default MobileLayout;
-
 
 
 

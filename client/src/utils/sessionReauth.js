@@ -1,4 +1,5 @@
 const LOGIN_NOTICE_KEY = 'lims_login_notice';
+const LOGIN_RETURN_TO_KEY = 'lims_login_return_to';
 
 export function shouldReauthOn401(data) {
   if (!data || typeof data !== 'object') return false;
@@ -16,6 +17,8 @@ export function redirectToLoginAfter401(message) {
   const text = (message && String(message).trim()) ? String(message).trim() : '登录已失效，请重新登录';
   try {
     sessionStorage.setItem(LOGIN_NOTICE_KEY, text);
+    const currentPath = `${window.location?.pathname || ''}${window.location?.search || ''}`;
+    if (currentPath && !currentPath.includes('/login')) sessionStorage.setItem(LOGIN_RETURN_TO_KEY, currentPath);
   } catch (_) {}
   const isMobileCtx =
     (typeof window.Capacitor !== 'undefined' && window.Capacitor.isNativePlatform?.()) ||
@@ -31,6 +34,17 @@ export function consumeLoginNotice() {
     const v = sessionStorage.getItem(LOGIN_NOTICE_KEY);
     if (v) sessionStorage.removeItem(LOGIN_NOTICE_KEY);
     return v || '';
+  } catch {
+    return '';
+  }
+}
+
+export function consumeLoginReturnTo() {
+  if (typeof window === 'undefined') return '';
+  try {
+    const value = sessionStorage.getItem(LOGIN_RETURN_TO_KEY) || '';
+    if (value) sessionStorage.removeItem(LOGIN_RETURN_TO_KEY);
+    return value.startsWith('/') && !value.startsWith('//') ? value : '';
   } catch {
     return '';
   }

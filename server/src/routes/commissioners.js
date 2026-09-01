@@ -1,9 +1,42 @@
 import { Router } from 'express';
+import fs from 'fs/promises';
+import multer from 'multer';
 import { getPool } from '../db.js';
 import { requireAuth, requireAnyRole } from '../middleware/auth.js';
+import {
+  commissionerSignaturesDirectory,
+  commissionerSignatureExists,
+  commissionerSignaturePath,
+  isPngBuffer,
+  normalizeCommissionerId
+} from '../services/commissionerSignature.js';
 
 const router = Router();
 router.use(requireAuth);
+const signatureRoles = requireAnyRole(['admin', 'sales']);
+const MAX_SIGNATURE_SIZE = 5 * 1024 * 1024;
+const signatureUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_SIGNATURE_SIZE, files: 1 }
+}).single('signature');
+
+function receiveSignature(req, res, next) {
+  signatureUpload(req, res, (error) => {
+    if (!error) return next();
+    if (error.code === 'LIMIT_FILE_SIZE') {
+      return res.status(413).json({ error: '委托人电子签名图片不能超过 5MB' });
+    }
+    return res.status(400).json({ error: '电子签名图片上传失败，请检查文件后重试' });
+  });
+}
+
+async function commissionerExists(pool, commissionerId) {
+  const [rows] = await pool.query(
+    'SELECT commissioner_id FROM commissioners WHERE commissioner_id = ?',
+    [commissionerId]
+  );
+  return rows.length > 0;
+}
 
 // list with joins (payer + customer)
 router.get('/', async (req, res) => {
@@ -38,7 +71,11 @@ router.get('/', async (req, res) => {
      JOIN customers c ON c.customer_id = p.customer_id
      ${where}`, params
   );
-  res.json({ data: rows, total: cnt[0].cnt });
+  const data = await Promise.all(rows.map(async (row) => ({
+    ...row,
+    signature_available: await commissionerSignatureExists(row.commissioner_id)
+  })));
+  res.json({ data, total: cnt[0].cnt });
 });
 
 router.post('/', requireAnyRole(['admin', 'sales']), async (req, res) => {
@@ -61,6 +98,51 @@ router.post('/', requireAnyRole(['admin', 'sales']), async (req, res) => {
     res.status(201).json(rows[0]);
   } catch (e) {
     return res.status(500).json({ error: e.message });
+  }
+});
+
+router.get('/:id/signature', signatureRoles, async (req, res) => {
+  try {
+    res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+    const commissionerId = normalizeCommissionerId(req.params.id);
+    if (!commissionerId) return res.status(400).json({ error: '委托人 ID 不正确' });
+    const pool = await getPool();
+    if (!(await commissionerExists(pool, commissionerId))) {
+      return res.status(404).json({ error: '委托人不存在' });
+    }
+    if (!(await commissionerSignatureExists(commissionerId))) {
+      return res.status(404).json({ error: '该委托人尚未上传电子签名' });
+    }
+    return res.type('png').sendFile(commissionerSignaturePath(commissionerId));
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/:id/signature', signatureRoles, receiveSignature, async (req, res) => {
+  try {
+    const commissionerId = normalizeCommissionerId(req.params.id);
+    if (!commissionerId) return res.status(400).json({ error: '委托人 ID 不正确' });
+    if (!req.file) return res.status(400).json({ error: '请选择 PNG 格式的电子签名图片' });
+    if (!isPngBuffer(req.file.buffer)) {
+      return res.status(400).json({ error: '委托人电子签名必须是有效的 PNG 图片' });
+    }
+    const pool = await getPool();
+    if (!(await commissionerExists(pool, commissionerId))) {
+      return res.status(404).json({ error: '委托人不存在' });
+    }
+
+    await fs.mkdir(commissionerSignaturesDirectory, { recursive: true });
+    const replaced = await commissionerSignatureExists(commissionerId);
+    await fs.writeFile(commissionerSignaturePath(commissionerId), req.file.buffer);
+    return res.status(201).json({
+      ok: true,
+      commissioner_id: Number(commissionerId),
+      filename: `${commissionerId}.png`,
+      replaced
+    });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
   }
 });
 

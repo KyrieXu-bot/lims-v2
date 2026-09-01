@@ -14,6 +14,7 @@ import usersRouter from './src/routes/users.js';
 import equipmentRouter from './src/routes/equipment.js';
 import equipmentBookingsRouter from './src/routes/equipment_bookings.js';
 import sampleTrackingRouter from './src/routes/sample_tracking.js';
+import sampleFlowRouter from './src/routes/sample_flow.js';
 import filesRouter from './src/routes/files.js';
 import commissionFormRouter from './src/routes/commission_form.js';
 import departmentsRouter from './src/routes/departments.js';
@@ -39,6 +40,18 @@ const PORT = process.env.PORT || 3001;
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 
+// 委托单 PDF 的二维码固定指向后端端口；开发环境再转到 Vite 页面。
+app.get('/sample-flow/scan', (req, res) => {
+  const webBase = String(process.env.SAMPLE_FLOW_WEB_URL || 'http://localhost:5174').trim();
+  try {
+    const target = new URL('/sample-flow/scan', webBase);
+    if (req.query.token) target.searchParams.set('token', String(req.query.token));
+    res.redirect(302, target.toString());
+  } catch {
+    res.status(500).json({ error: '样品流转页面地址配置不正确' });
+  }
+});
+
 app.get('/api/health', async (req, res) => {
   try {
     const pool = await getPool();
@@ -61,6 +74,7 @@ app.use('/api/users', usersRouter);
 app.use('/api/equipment', equipmentRouter);
 app.use('/api/equipment-bookings', equipmentBookingsRouter);
 app.use('/api/sample-tracking', sampleTrackingRouter);
+app.use('/api/sample-flow', sampleFlowRouter);
 app.use('/api/files', filesRouter);
 app.use('/api/commission-form', commissionFormRouter);
 app.use('/api/departments', departmentsRouter);
