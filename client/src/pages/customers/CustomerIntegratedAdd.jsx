@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api.js';
 import { regions } from '../../utils/china_regions.js';
@@ -194,6 +194,9 @@ function AutocompleteField({label, value, onChange, options, onCreate, required=
 
 export default function CustomerIntegratedAdd() {
   const navigate = useNavigate();
+  const [signatureFile, setSignatureFile] = useState(null);
+  const [signaturePreview, setSignaturePreview] = useState('');
+  const signaturePreviewRef = useRef('');
   
   // 客户信息
   const [customer, setCustomer] = useState({
@@ -245,8 +248,37 @@ export default function CustomerIntegratedAdd() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
+    const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
+    if (user?.role !== 'admin' && user?.user_id !== 'JC0089') {
+      navigate('/customers', { replace: true });
+      return;
+    }
     loadSales();
+  }, [navigate]);
+
+  useEffect(() => () => {
+    if (signaturePreviewRef.current) URL.revokeObjectURL(signaturePreviewRef.current);
   }, []);
+
+  const handleSignatureChange = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) return alert('委托人电子签名图片不能超过 5MB');
+    if (file.type !== 'image/png' && !file.name.toLowerCase().endsWith('.png')) return alert('请选择 PNG 格式的电子签名图片');
+    if (signaturePreviewRef.current) URL.revokeObjectURL(signaturePreviewRef.current);
+    const url = URL.createObjectURL(file);
+    signaturePreviewRef.current = url;
+    setSignaturePreview(url);
+    setSignatureFile(file);
+  };
+
+  const handleSignatureDelete = () => {
+    if (!signaturePreview) return;
+    if (signaturePreviewRef.current) URL.revokeObjectURL(signaturePreviewRef.current);
+    signaturePreviewRef.current = '';
+    setSignaturePreview('');
+    setSignatureFile(null);
+  };
 
   useEffect(() => {
     const query = (customer.customer_name || '').trim();
@@ -510,6 +542,10 @@ export default function CustomerIntegratedAdd() {
       alert('请输入税号');
       return;
     }
+    if (signaturePreview && !commissioner.contact_name) {
+      alert('上传电子签名前请先填写委托人');
+      return;
+    }
     
     // 验证折扣率
     if (payer.discount_rate !== undefined && payer.discount_rate !== null && payer.discount_rate !== '') {
@@ -529,7 +565,9 @@ export default function CustomerIntegratedAdd() {
     try {
       // 1. 创建或更新客户
       // 确保提交时税号去除前后空格
-      const customerData = { ...customer, tax_id: customer.tax_id.trim() };
+      const customerData = { ...customer, tax_id: customer.tax_id.trim(), is_active: 1 };
+      const payerData = { ...payer, is_active: 1 };
+      const commissionerData = { ...commissioner, is_active: 1 };
       let customerId;
       if (customerData.customer_id) {
         await api.updateCustomer(customerData.customer_id, customerData);
@@ -541,7 +579,7 @@ export default function CustomerIntegratedAdd() {
 
       // 2. 创建或更新付款人
       let payerId;
-      if (!payer.contact_name) {
+      if (!payerData.contact_name) {
         // 如果没有输入付款人，创建默认的
         const defaultPayer = await api.createPayer({
           customer_id: customerId,
@@ -550,21 +588,27 @@ export default function CustomerIntegratedAdd() {
           is_active: 1
         });
         payerId = defaultPayer.payer_id;
-      } else if (payer.payer_id) {
-        await api.updatePayer(payer.payer_id, { ...payer, customer_id: customerId });
-        payerId = payer.payer_id;
+      } else if (payerData.payer_id) {
+        await api.updatePayer(payerData.payer_id, { ...payerData, customer_id: customerId });
+        payerId = payerData.payer_id;
       } else {
-        const newPayer = await api.createPayer({ ...payer, customer_id: customerId });
+        const newPayer = await api.createPayer({ ...payerData, customer_id: customerId });
         payerId = newPayer.payer_id;
       }
 
       // 3. 创建或更新委托人
-      if (commissioner.contact_name) {
-        if (commissioner.commissioner_id) {
-          await api.updateCommissioner(commissioner.commissioner_id, { ...commissioner, payer_id: payerId });
+      let commissionerId = commissionerData.commissioner_id || null;
+      if (commissionerData.contact_name) {
+        if (commissionerData.commissioner_id) {
+          await api.updateCommissioner(commissionerData.commissioner_id, { ...commissionerData, payer_id: payerId });
         } else {
-          await api.createCommissioner({ ...commissioner, payer_id: payerId });
+          const newCommissioner = await api.createCommissioner({ ...commissionerData, payer_id: payerId });
+          commissionerId = newCommissioner.commissioner_id;
         }
+      }
+
+      if (signatureFile && commissionerId) {
+        await api.uploadCommissionerSignature(commissionerId, signatureFile);
       }
 
       alert('保存成功！');
@@ -699,15 +743,6 @@ export default function CustomerIntegratedAdd() {
               />
             </div>
             
-            <SelectField
-              label="状态"
-              value={customer.is_active}
-              onChange={(val) => setCustomer({...customer, is_active: Number(val)})}
-              options={[
-                { value: 1, label: '启用' },
-                { value: 0, label: '禁用' }
-              ]}
-            />
           </div>
         </div>
 
@@ -742,15 +777,6 @@ export default function CustomerIntegratedAdd() {
               placeholder="选择业务负责人"
             />
             
-            <SelectField
-              label="状态"
-              value={payer.is_active}
-              onChange={(val) => setPayer({...payer, is_active: Number(val)})}
-              options={[
-                { value: 1, label: '启用' },
-                { value: 0, label: '禁用' }
-              ]}
-            />
           </div>
         </div>
 
@@ -778,23 +804,27 @@ export default function CustomerIntegratedAdd() {
             <Field label="联系电话" value={commissioner.contact_phone} onChange={(val) => setCommissioner({...commissioner, contact_phone: val})} placeholder="输入联系电话" />
             <Field label="邮箱" type="email" value={commissioner.email} onChange={(val) => setCommissioner({...commissioner, email: val})} placeholder="输入邮箱地址" />
             <Field label="地址" value={commissioner.address} onChange={(val) => setCommissioner({...commissioner, address: val})} placeholder="输入地址" />
+
+            <div className="form-field integrated-signature-field">
+              <label>电子签名</label>
+              <div className="integrated-signature-control">
+                {signaturePreview ? <img src={signaturePreview} alt="委托人电子签名预览" /> : <span>（空）</span>}
+                <label className="btn integrated-signature-upload-btn">
+                  {signaturePreview ? '重传' : '上传'}
+                  <input type="file" accept="image/png,.png" onChange={handleSignatureChange} hidden />
+                </label>
+                <button className="btn integrated-signature-upload-btn" type="button" disabled={!signaturePreview} onClick={handleSignatureDelete}>删除</button>
+              </div>
+              <small>仅支持 PNG，最大 5MB</small>
+            </div>
             
-            <SelectField
-              label="状态"
-              value={commissioner.is_active}
-              onChange={(val) => setCommissioner({...commissioner, is_active: Number(val)})}
-              options={[
-                { value: 1, label: '启用' },
-                { value: 0, label: '禁用' }
-              ]}
-            />
           </div>
         </div>
 
         {/* 提交按钮 */}
         <div className="form-actions">
           <button className="btn btn-primary" type="submit" disabled={loading}>
-            {loading ? '保存中...' : '保存'}
+            {loading ? '处理中...' : '保存'}
           </button>
           <button className="btn" type="button" onClick={() => navigate('/customers')} disabled={loading}>
             取消

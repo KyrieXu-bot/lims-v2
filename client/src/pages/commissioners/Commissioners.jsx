@@ -2,10 +2,13 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api.js';
 import './Commissioners.css';
+import '../PartyManagement.css';
 
 const MAX_SIGNATURE_SIZE = 5 * 1024 * 1024;
 
 export default function Commissioners() {
+  const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
+  const canManage = user?.role === 'admin';
   const [items, setItems] = useState([]);
   const [signatureUrls, setSignatureUrls] = useState({});
   const [total, setTotal] = useState(0);
@@ -24,7 +27,7 @@ export default function Commissioners() {
 
   useEffect(() => {
     const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
-    if (!user || (user.role !== 'admin' && user.role !== 'sales')) {
+    if (!user || (user.role !== 'admin' && user.role !== 'sales' && user.user_id !== 'JC0089')) {
       navigate('/test-items');
     }
   }, [navigate]);
@@ -133,12 +136,23 @@ export default function Commissioners() {
     }
   }
 
+  async function deleteSignature(item) {
+    if (!item.signature_available || !confirm(`确认删除“${item.contact_name}”的电子签名吗？`)) return;
+    try {
+      await api.deleteCommissionerSignature(item.commissioner_id);
+      if (previewItem?.commissioner_id === item.commissioner_id) setPreviewItem(null);
+      await load();
+    } catch (error) {
+      alert(error.message);
+    }
+  }
+
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   return (
-    <div className="commissioners-page">
-      <h2>委托人</h2>
-      <div className="toolbar">
+    <div className="commissioners-page party-management-page">
+      <h2 className="party-page-title">委托人</h2>
+      <div className="toolbar party-toolbar">
         <input
           className="input"
           placeholder="搜索（委托方名称、委托人、付款人、客户、电话号码）..."
@@ -155,7 +169,7 @@ export default function Commissioners() {
           <option value="1">启用</option>
           <option value="0">禁用</option>
         </select>
-        <button className="btn btn-primary" onClick={() => navigate('/commissioners/new')}>+ 新增</button>
+        {canManage && <button className="btn party-button party-button-primary" onClick={() => navigate('/commissioners/new')}>+ 新增</button>}
       </div>
 
       <input
@@ -166,8 +180,8 @@ export default function Commissioners() {
         onChange={handleSignatureFile}
       />
 
-      <div className="commissioners-table-wrap">
-        <table className="table">
+      <div className="commissioners-table-wrap party-table-wrap">
+        <table className="table party-table">
           <thead>
             <tr>
               <th>ID</th>
@@ -179,15 +193,15 @@ export default function Commissioners() {
               <th>Email</th>
               <th>地址</th>
               <th>电子签名</th>
-              <th>操作</th>
+              {canManage && <th>操作</th>}
             </tr>
           </thead>
           <tbody>
             {loading && items.length === 0 && (
-              <tr><td className="text-center text-muted" colSpan="10">加载中...</td></tr>
+              <tr><td className="text-center text-muted" colSpan={canManage ? 10 : 9}>加载中...</td></tr>
             )}
             {!loading && items.length === 0 && (
-              <tr><td className="text-center text-muted" colSpan="10">暂无委托人数据</td></tr>
+              <tr><td className="text-center text-muted" colSpan={canManage ? 10 : 9}>暂无委托人数据</td></tr>
             )}
             {items.map((item) => {
               const signatureUrl = signatureUrls[String(item.commissioner_id)];
@@ -203,8 +217,8 @@ export default function Commissioners() {
                   <td>{item.email || '-'}</td>
                   <td>{item.address || '-'}</td>
                   <td className="commissioner-signature-cell">
-                    {signatureUrl ? (
-                      <div className="commissioner-signature-content">
+                    <div className="commissioner-signature-content">
+                      {signatureUrl ? (
                         <button
                           type="button"
                           className="commissioner-signature-thumbnail-button"
@@ -213,23 +227,21 @@ export default function Commissioners() {
                         >
                           <img src={signatureUrl} alt={`${item.contact_name}的电子签名`} />
                         </button>
-                        <div className="commissioner-signature-actions">
-                          <button className="btn btn-secondary btn-sm" onClick={() => setPreviewItem(item)}>查看</button>
-                          <button className="btn btn-sm commissioner-signature-upload-btn" disabled={uploading} onClick={() => chooseSignature(item)}>
-                            {uploading ? '上传中...' : '重新上传'}
-                          </button>
-                        </div>
+                      ) : (
+                        <span className="commissioner-signature-empty">（空）</span>
+                      )}
+                      <div className="commissioner-signature-actions">
+                        <button className="btn party-button btn-sm commissioner-signature-upload-btn" disabled={uploading} onClick={() => chooseSignature(item)}>
+                          {uploading ? '上传中...' : item.signature_available ? '重传' : '上传'}
+                        </button>
+                        <button className="btn party-button btn-sm commissioner-signature-upload-btn" disabled={!item.signature_available} onClick={() => deleteSignature(item)}>删除</button>
                       </div>
-                    ) : (
-                      <button className="btn btn-sm commissioner-signature-upload-btn" disabled={uploading} onClick={() => chooseSignature(item)}>
-                        {uploading ? '上传中...' : '点击上传'}
-                      </button>
-                    )}
+                    </div>
                   </td>
-                  <td className="actions">
-                    <button className="btn btn-secondary btn-sm" onClick={() => navigate(`/commissioners/${item.commissioner_id}`)}>编辑</button>
-                    <button className="btn btn-danger btn-sm" onClick={() => deleteCommissioner(item)}>删除</button>
-                  </td>
+                  {canManage && <td className="actions party-actions">
+                    <button className="btn party-button btn-sm" onClick={() => navigate(`/commissioners/${item.commissioner_id}`)}>编辑</button>
+                    <button className="btn party-button btn-sm" onClick={() => deleteCommissioner(item)}>删除委托人</button>
+                  </td>}
                 </tr>
               );
             })}
@@ -237,10 +249,10 @@ export default function Commissioners() {
         </table>
       </div>
 
-      <div className="commissioners-pagination">
-        <button className="btn btn-secondary" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>上一页</button>
+      <div className="commissioners-pagination party-pagination">
+        <button className="btn party-button" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>上一页</button>
         <div>第 {page} / {totalPages} 页</div>
-        <button className="btn btn-secondary" disabled={page >= totalPages} onClick={() => setPage((value) => value + 1)}>下一页</button>
+        <button className="btn party-button" disabled={page >= totalPages} onClick={() => setPage((value) => value + 1)}>下一页</button>
       </div>
 
       {previewItem && signatureUrls[String(previewItem.commissioner_id)] && (
@@ -267,7 +279,6 @@ export default function Commissioners() {
             </div>
             <div className="commissioner-signature-modal-footer">
               <button className="btn btn-secondary" onClick={() => setPreviewItem(null)}>关闭</button>
-              <button className="btn commissioner-signature-upload-btn" onClick={() => { setPreviewItem(null); chooseSignature(previewItem); }}>重新上传</button>
             </div>
           </div>
         </div>

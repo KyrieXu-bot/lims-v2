@@ -4,6 +4,10 @@ import { requireAuth, requireAnyRole } from '../middleware/auth.js';
 
 const router = Router();
 router.use(requireAuth);
+const requireDirectCreateRole = (req, res, next) => {
+  if (req.user?.role === 'admin' || String(req.user?.user_id) === 'JC0089') return next();
+  return res.status(403).json({ error: '业务员新增客户需提交审批申请' });
+};
 
 // options for selects
 router.get('/options', async (req, res) => {
@@ -65,7 +69,7 @@ router.get('/', async (req, res) => {
   res.json({ data: rows, total: cnt[0].cnt });
 });
 
-router.post('/', requireAnyRole(['admin', 'sales']), async (req, res) => {
+router.post('/', requireDirectCreateRole, async (req, res) => {
   const { customer_name, address, phone, bank_name, tax_id, bank_account,
           province, nature, scale, cooperation_time, is_active = 1 } = req.body || {};
   if (!customer_name || !tax_id) return res.status(400).json({ error: 'customer_name and tax_id are required' });
@@ -91,7 +95,7 @@ router.get('/:id', async (req, res) => {
   res.json(rows[0]);
 });
 
-router.put('/:id', requireAnyRole(['admin', 'sales']), async (req, res) => {
+router.put('/:id', requireAnyRole(['admin']), async (req, res) => {
   const { customer_name, address, phone, bank_name, tax_id, bank_account,
           province, nature, scale, cooperation_time, is_active } = req.body || {};
   const pool = await getPool();
@@ -122,7 +126,7 @@ router.put('/:id', requireAnyRole(['admin', 'sales']), async (req, res) => {
   }
 });
 
-router.delete('/:id', requireAnyRole(['admin', 'sales']), async (req, res) => {
+router.delete('/:id', requireAnyRole(['admin']), async (req, res) => {
   const pool = await getPool();
   try {
     const [r0] = await pool.query('SELECT customer_id FROM customers WHERE customer_id = ?', [req.params.id]);

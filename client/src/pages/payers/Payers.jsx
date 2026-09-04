@@ -2,8 +2,11 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import { api } from '../../api.js';
+import '../PartyManagement.css';
 
 export default function Payers() {
+  const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
+  const canManage = user?.role === 'admin';
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(0);
   const [q, setQ] = useState('');
@@ -18,7 +21,7 @@ export default function Payers() {
   // 检查用户权限
   useEffect(() => {
     const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
-    if (!user || (user.role !== 'admin' && user.role !== 'sales')) {
+    if (!user || (user.role !== 'admin' && user.role !== 'sales' && user.user_id !== 'JC0089')) {
       navigate('/test-items');
       return;
     }
@@ -152,18 +155,18 @@ export default function Payers() {
   }
 
   return (
-    <div>
-      <h2>付款人</h2>
-      <div className="toolbar">
+    <div className="party-management-page payers-page">
+      <h2 className="party-page-title">付款人</h2>
+      <div className="toolbar party-toolbar">
         <input className="input" placeholder="搜索（付款人、客户、电话号码）..." value={q} onChange={e=>{setPage(1);setQ(e.target.value)}}/>
         <select className="input" style={{maxWidth:160}} value={isActiveFilter} onChange={e=>{setPage(1);setIsActiveFilter(e.target.value)}}>
           <option value="">所有</option>
           <option value="1">启用</option>
           <option value="0">禁用</option>
         </select>
-        <button className="btn" onClick={()=>navigate('/payers/new')}>+ 新增</button>
+        {canManage && <button className="btn party-button party-button-primary" onClick={()=>navigate('/payers/new')}>+ 新增</button>}
         <button
-          className="btn btn-success"
+          className="btn party-button"
           style={{ marginLeft: 'auto' }}
           onClick={handleExportExcel}
           disabled={exporting || selectedPayerIds.length === 0}
@@ -171,7 +174,8 @@ export default function Payers() {
           {exporting ? '导出中...' : `导出Excel${selectedPayerIds.length ? `（${selectedPayerIds.length}）` : ''}`}
         </button>
       </div>
-      <table className="table">
+      <div className="party-table-wrap">
+      <table className="table party-table" style={{minWidth: 1760}}>
         <thead>
           <tr>
             <th>
@@ -183,7 +187,7 @@ export default function Payers() {
                 title="全选当前页"
               />
             </th>
-            <th>ID</th><th>付款人</th><th>客户</th><th>电话号码</th><th>预存余额</th><th>未结算汇总</th><th>已申请汇总</th><th>已开票汇总</th><th>已到账汇总</th><th>当前余额</th><th>付款期限 (天)</th><th>折扣 (%)</th><th>业务员</th><th>状态</th><th>操作</th>
+            <th>ID</th><th>付款人</th><th>客户</th><th>电话号码</th><th>预存余额</th><th>未结算汇总</th><th>已申请汇总</th><th>已开票汇总</th><th>已到账汇总</th><th>当前余额</th><th>付款期限 (天)</th><th>折扣 (%)</th><th>业务员</th><th>状态</th>{canManage && <th>操作</th>}
           </tr>
         </thead>
         <tbody>
@@ -205,26 +209,27 @@ export default function Payers() {
               <td>{formatCurrency(it.applied_amount)}</td>
               <td>{formatCurrency(it.invoiced_amount)}</td>
               <td>{formatCurrency(it.received_amount)}</td>
-              <td style={{ color: Number(it.current_balance || 0) < 0 ? '#dc3545' : '#28a745', fontWeight: 600 }}>
+              <td className={Number(it.current_balance || 0) < 0 ? 'party-balance-negative' : 'party-balance-normal'}>
                 {formatCurrency(it.current_balance)}
               </td>
               <td>{it.payment_term_days}</td>
               <td>{it.discount_rate !== null && it.discount_rate !== undefined ? `${it.discount_rate}%` : ''}</td>
               <td>{it.owner_user_id ? `${it.owner_name||''}（${it.owner_user_id}）` : ''}</td>
-              <td>{it.is_active ? <span className="badge">启用</span> : <span className="badge">禁用</span>}</td>
-              <td className="actions">
-                <button className="btn" onClick={()=>navigate(`/payers/${it.payer_id}/ledger`)}>查看流水</button>
-                <button className="btn" onClick={()=>navigate(`/payers/${it.payer_id}`)}>编辑</button>
-                <button className="btn" onClick={async ()=>{ if (confirm('Delete?')) { await api.deletePayer(it.payer_id); load(); }}}>删除</button>
-              </td>
+              <td>{it.is_active ? <span className="party-status">启用</span> : <span className="party-status party-status-inactive">禁用</span>}</td>
+              {canManage && <td className="party-actions">
+                <button className="btn party-button btn-sm" onClick={()=>navigate(`/payers/${it.payer_id}/ledger`)}>查看流水</button>
+                <button className="btn party-button btn-sm" onClick={()=>navigate(`/payers/${it.payer_id}`)}>编辑</button>
+                <button className="btn party-button btn-sm" onClick={async ()=>{ if (confirm('确认删除该付款人吗？')) { await api.deletePayer(it.payer_id); load(); }}}>删除</button>
+              </td>}
             </tr>
           ))}
         </tbody>
       </table>
-      <div style={{marginTop:12, display:'flex', gap:8}}>
-        <button className="btn" disabled={page<=1} onClick={()=>setPage(p=>p-1)}>上一页</button>
+      </div>
+      <div className="party-pagination">
+        <button className="btn party-button" disabled={page<=1} onClick={()=>setPage(p=>p-1)}>上一页</button>
         <div>页 {page} / {totalPages}</div>
-        <button className="btn" disabled={page>=totalPages} onClick={()=>setPage(p=>p+1)}>下一页</button>
+        <button className="btn party-button" disabled={page>=totalPages} onClick={()=>setPage(p=>p+1)}>下一页</button>
       </div>
     </div>
   )

@@ -29,6 +29,7 @@ import orderTransfersRouter from './src/routes/order_transfers.js';
 import orderTransferRequestsRouter from './src/routes/order_transfer_requests.js';
 import reportsManagementRouter from './src/routes/reports_management.js';
 import systemAnnouncementsRouter from './src/routes/system_announcements.js';
+import customerRequestsRouter from './src/routes/customer_requests.js';
 import { setupSocket } from './src/socket.js';
 import { getPool } from './src/db.js';
 
@@ -89,6 +90,7 @@ app.use('/api/order-transfers', orderTransfersRouter);
 app.use('/api/order-transfer-requests', orderTransferRequestsRouter);
 app.use('/api/reports-management', reportsManagementRouter);
 app.use('/api/system-announcements', systemAnnouncementsRouter);
+app.use('/api/customer-requests', customerRequestsRouter);
 
 // 设置WebSocket
 const io = setupSocket(server);

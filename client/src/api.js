@@ -413,8 +413,29 @@ export const api = {
       body: form
     });
     return readApiJson(r, '电子签名上传失败');
-  }
-  ,
+  },
+  async deleteCommissionerSignature(id) {
+    const r = await fetch(`${API_BASE}/api/commissioners/${encodeURIComponent(id)}/signature`, {
+      method: 'DELETE', headers: this.authHeaders()
+    });
+    return readApiJson(r, '电子签名删除失败');
+  },
+  async createCustomerRequest(payload) {
+    const r = await fetch(`${API_BASE}/api/customer-requests`, {
+      method: 'POST', headers: this.authHeaders(), body: JSON.stringify({ payload })
+    });
+    return readApiJson(r, '客户申请提交失败');
+  },
+  async getCustomerRequest(id) {
+    const r = await fetch(`${API_BASE}/api/customer-requests/${encodeURIComponent(id)}`, { headers: this.authHeaders() });
+    return readApiJson(r, '客户申请加载失败');
+  },
+  async completeCustomerRequest(id) {
+    const r = await fetch(`${API_BASE}/api/customer-requests/${encodeURIComponent(id)}/complete`, {
+      method: 'PUT', headers: this.authHeaders()
+    });
+    return readApiJson(r, '客户新增确认失败');
+  },
   // test items (检测项目处理)
   async listTestItems({ q = '', page = 1, pageSize = 20, status, order_id } = {}) {
     const params = new URLSearchParams({ q, page, pageSize });

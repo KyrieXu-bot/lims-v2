@@ -24,6 +24,11 @@ export default function CustomerEdit() {
 
   useEffect(()=>{
     if (!isNew) {
+      const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
+      if (user?.role !== 'admin') {
+        navigate('/customers');
+        return;
+      }
       api.getCustomer(id).then(customerData => {
         setIt(customerData);
         // 解析省份地区

@@ -147,7 +147,7 @@
   margin-top: 20px;
 }
 
-.btn {
+.integrated-add-container .btn {
   padding: 8px 16px;
   border-radius: 4px;
   font-size: 14px;
@@ -157,27 +157,27 @@
   border: none;
 }
 
-.btn-primary {
+.integrated-add-container .btn.btn-primary {
   background-color: #3498db;
   color: white;
 }
 
-.btn-primary:hover:not(:disabled) {
+.integrated-add-container .btn.btn-primary:hover:not(:disabled) {
   background-color: #2980b9;
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(52, 152, 219, 0.3);
 }
 
-.btn {
+.integrated-add-container .btn {
   background-color: #95a5a6;
   color: white;
 }
 
-.btn:hover:not(:disabled) {
+.integrated-add-container .btn:hover:not(:disabled) {
   background-color: #7f8c8d;
 }
 
-.btn:disabled {
+.integrated-add-container .btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
@@ -196,7 +196,7 @@
     flex-direction: column;
   }
   
-  .btn {
+  .integrated-add-container .btn {
     width: 100%;
   }
 }
@@ -220,3 +220,31 @@
   background: #95a5a6;
 }
 
+.integrated-signature-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 54px;
+}
+
+.integrated-signature-control img {
+  width: 94px;
+  height: 54px;
+  padding: 3px;
+  object-fit: contain;
+  border: 1px solid #d7dce1;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.integrated-signature-upload-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: auto;
+  margin: 0;
+}
+
+.integrated-signature-field small {
+  color: #7f8c8d;
+}

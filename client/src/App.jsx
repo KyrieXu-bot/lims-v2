@@ -55,7 +55,7 @@ function Layout({ children }) {
           <nav>
             {user?.token ? (<>
               {/* 管理员和业务员可以看到客户管理 */}
-              {(user.role === 'admin' || user.role === 'sales') && (
+              {(user.role === 'admin' || user.role === 'sales' || user.user_id === 'JC0089') && (
                 <>
                   <NavLink to="/customers" className={({isActive})=>isActive?'active':''}>客户管理</NavLink>
                   <NavLink to="/payers" className={({isActive})=>isActive?'active':''}>付款人</NavLink>

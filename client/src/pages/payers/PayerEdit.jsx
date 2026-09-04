@@ -14,6 +14,7 @@ function Field({label, value, onChange, type='text'}) {
 export default function PayerEdit() {
   const { id } = useParams();
   const isNew = id === 'new';
+  const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
   const [it, setIt] = useState({ is_active: 1 });
   const [customerOptions, setCustomerOptions] = useState([]);
   const [customerQuery, setCustomerQuery] = useState('');
@@ -21,6 +22,10 @@ export default function PayerEdit() {
   const navigate = useNavigate();
 
   useEffect(()=>{
+    if (user?.role !== 'admin') {
+      navigate('/payers');
+      return;
+    }
     api.salesOptions().then(setSales).catch(e=>alert(e.message));
     if (!isNew) {
       api.getPayer(id).then(payer => {

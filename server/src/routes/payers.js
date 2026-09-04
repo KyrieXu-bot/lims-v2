@@ -277,7 +277,7 @@ router.get('/:id/ledger', async (req, res) => {
   });
 });
 
-router.post('/', requireAnyRole(['admin', 'sales']), async (req, res) => {
+router.post('/', requireAnyRole(['admin']), async (req, res) => {
   const { customer_id, contact_name, contact_phone, payment_term_days,
           discount_rate, owner_user_id, is_active = 1 } = req.body || {};
   if (!customer_id || !contact_name) return res.status(400).json({ error: 'customer_id and contact_name are required' });
@@ -313,7 +313,7 @@ router.get('/:id', async (req, res) => {
   res.json(rows[0]);
 });
 
-router.put('/:id', requireAnyRole(['admin', 'sales']), async (req, res) => {
+router.put('/:id', requireAnyRole(['admin']), async (req, res) => {
   const { customer_id, contact_name, contact_phone, payment_term_days,
           discount_rate, owner_user_id, is_active } = req.body || {};
   const pool = await getPool();
@@ -339,7 +339,7 @@ router.put('/:id', requireAnyRole(['admin', 'sales']), async (req, res) => {
   res.json(rows[0]);
 });
 
-router.delete('/:id', requireAnyRole(['admin', 'sales']), async (req, res) => {
+router.delete('/:id', requireAnyRole(['admin']), async (req, res) => {
   const pool = await getPool();
   try {
     const [chk] = await pool.query('SELECT payer_id FROM payers WHERE payer_id = ?', [req.params.id]);

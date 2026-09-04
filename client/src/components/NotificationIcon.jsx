@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { useSocket } from '../hooks/useSocket.js';
 import AddonRequestModal from './AddonRequestModal.jsx';
 import OrderTransferRequestDetailModal from './OrderTransferRequestDetailModal.jsx';
+import CustomerRequestModal from './CustomerRequestModal.jsx';
+import { api } from '../api.js';
 import './NotificationIcon.css';
 
 const NotificationIcon = () => {
@@ -12,6 +14,7 @@ const NotificationIcon = () => {
   const [loading, setLoading] = useState(false);
   const [selectedAddonRequestId, setSelectedAddonRequestId] = useState(null);
   const [selectedOrderTransferRequestId, setSelectedOrderTransferRequestId] = useState(null);
+  const [selectedCustomerRequestId, setSelectedCustomerRequestId] = useState(null);
   const dropdownRef = useRef(null);
   const navigate = useNavigate();
   const { socket } = useSocket(null);
@@ -192,12 +195,20 @@ const NotificationIcon = () => {
       setShowDropdown(false);
       return;
     }
+    if (notification.type === 'customer_request') {
+      const requestId = getRequestId(notification, ['related_customer_request_id']);
+      if (!requestId) return alert('无法获取客户申请ID，请刷新后重试');
+      setSelectedCustomerRequestId(requestId);
+      setShowDropdown(false);
+      return;
+    }
     handleNotificationClick(notification);
   };
 
   const hasDetailAction = (notification) =>
     notification.type === 'addon_request' ||
     notification.type === 'order_transfer_request' ||
+    notification.type === 'customer_request' ||
     Boolean(notification.related_order_id);
 
   const canReviewOrderTransfer = (notification) => {
@@ -257,6 +268,24 @@ const NotificationIcon = () => {
     }
   };
 
+  const canCompleteCustomerRequest = (notification) =>
+    notification.type === 'customer_request' &&
+    notification.customer_request_status === 'pending' &&
+    (currentUser?.user_id === 'JC0089' || currentUser?.role === 'admin');
+
+  const completeCustomerRequest = async (notification) => {
+    if (!window.confirm('确认已在客户管理中完成新增吗？')) return;
+    const requestId = getRequestId(notification, ['related_customer_request_id']);
+    if (!requestId) return alert('无法获取客户申请ID，请刷新后重试');
+    try {
+      const result = await api.completeCustomerRequest(requestId);
+      alert(result.message);
+      await Promise.all([loadRecentNotifications(), loadUnreadCount()]);
+    } catch (error) {
+      alert(error.message);
+    }
+  };
+
   // 处理通知点击
   const handleNotificationClick = (notification) => {
     // 标记为已读
@@ -268,7 +297,11 @@ const NotificationIcon = () => {
     setShowDropdown(false);
 
     // 根据通知类型跳转
-    if (notification.related_order_id) {
+    if (notification.type === 'customer_request') {
+      const requestId = getRequestId(notification, ['related_customer_request_id']);
+      if (!requestId) return alert('无法获取客户申请ID，请刷新后重试');
+      setSelectedCustomerRequestId(requestId);
+    } else if (notification.related_order_id) {
       navigate('/commission-form', { 
         state: { 
           highlightOrderId: notification.related_order_id,
@@ -362,7 +395,10 @@ const NotificationIcon = () => {
                       <div className="notification-title">{notification.title}</div>
                       <div className="notification-quick-actions" onClick={(e) => e.stopPropagation()}>
                         {hasDetailAction(notification) && (
-                          <button onClick={() => handleViewDetail(notification)}>详情</button>
+                          <button onClick={() => handleViewDetail(notification)}>{notification.type === 'customer_request' ? '查看详情' : '详情'}</button>
+                        )}
+                        {canCompleteCustomerRequest(notification) && (
+                          <button className="approve" onClick={() => completeCustomerRequest(notification)}>已新增</button>
                         )}
                         {canReviewOrderTransfer(notification) && (
                           <>
@@ -376,7 +412,7 @@ const NotificationIcon = () => {
                             <button className="danger" onClick={() => reviewCancellation(notification, 'reject')}>驳回</button>
                           </>
                         )}
-                        {!notification.is_read && (
+                        {!notification.is_read && notification.type !== 'customer_request' && (
                           <button onClick={() => markAsRead(notification.notification_id)}>已读</button>
                         )}
                         <button className="danger" onClick={() => deleteNotification(notification.notification_id)}>删除</button>
@@ -417,6 +453,12 @@ const NotificationIcon = () => {
         <OrderTransferRequestDetailModal
           requestId={selectedOrderTransferRequestId}
           onClose={() => setSelectedOrderTransferRequestId(null)}
+        />
+      )}
+      {selectedCustomerRequestId && (
+        <CustomerRequestModal
+          requestId={selectedCustomerRequestId}
+          onClose={() => setSelectedCustomerRequestId(null)}
         />
       )}
     </div>

@@ -14,13 +14,20 @@ function Field({label, value, onChange, type='text'}) {
 export default function CommissionerEdit() {
   const { id } = useParams();
   const isNew = id === 'new';
+  const user = JSON.parse(localStorage.getItem('lims_user') || 'null');
   const [it, setIt] = useState({ is_active: 1 });
   const [payerOptions, setPayerOptions] = useState([]);
   const navigate = useNavigate();
 
   useEffect(()=>{
+    if (user?.role !== 'admin') {
+      navigate('/commissioners');
+      return;
+    }
     api.payersOptions().then(setPayerOptions);
-    if (!isNew) api.getCommissioner(id).then(setIt).catch(e=>alert(e.message));
+    if (!isNew) {
+      api.getCommissioner(id).then(setIt).catch(e=>alert(e.message));
+    }
   }, [id]);
 
   async function onSubmit(e) {

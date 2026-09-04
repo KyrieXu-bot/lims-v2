@@ -220,6 +220,32 @@ CREATE TABLE `lab_groups` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `customer_requests`
+--
+
+DROP TABLE IF EXISTS `customer_requests`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `customer_requests` (
+  `request_id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `request_type` enum('customer','payer','commissioner') NOT NULL,
+  `payload` json NOT NULL,
+  `applicant_id` varchar(20) NOT NULL,
+  `status` enum('pending','approved','rejected') NOT NULL DEFAULT 'pending',
+  `reviewer_id` varchar(20) DEFAULT NULL,
+  `reject_reason` varchar(500) DEFAULT NULL,
+  `reviewed_at` datetime(3) DEFAULT NULL,
+  `created_at` datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `updated_at` datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`request_id`),
+  KEY `idx_customer_requests_applicant` (`applicant_id`),
+  KEY `idx_customer_requests_status` (`status`),
+  CONSTRAINT `fk_customer_requests_applicant` FOREIGN KEY (`applicant_id`) REFERENCES `users` (`user_id`) ON UPDATE CASCADE,
+  CONSTRAINT `fk_customer_requests_reviewer` FOREIGN KEY (`reviewer_id`) REFERENCES `users` (`user_id`) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='业务员客户资料新增申请（JSON独立表单）';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Table structure for table `notifications`
 --
 
@@ -231,7 +257,7 @@ CREATE TABLE `notifications` (
   `user_id` varchar(20) NOT NULL COMMENT '接收用户ID（users.user_id 工号）',
   `title` varchar(255) NOT NULL COMMENT '通知标题',
   `content` text NOT NULL COMMENT '通知内容',
-  `type` enum('raw_data_upload','addon_request','cancel_request','delete_request','order_transfer_request','system','other') NOT NULL DEFAULT 'other' COMMENT '通知类型',
+  `type` enum('raw_data_upload','addon_request','cancel_request','delete_request','order_transfer_request','customer_request','system','other') NOT NULL DEFAULT 'other' COMMENT '通知类型',
   `is_read` tinyint(1) NOT NULL DEFAULT '0' COMMENT '是否已读',
   `related_order_id` varchar(20) DEFAULT NULL COMMENT '关联委托单号（orders.order_id）',
   `related_test_item_id` bigint unsigned DEFAULT NULL COMMENT '关联检测项目ID（test_items.test_item_id）',
@@ -240,6 +266,7 @@ CREATE TABLE `notifications` (
   `test_item_display_name` varchar(500) DEFAULT NULL COMMENT '检测项目显示名（category_name - detail_name），用于 test_item 已删除时展示',
   `test_item_display_id` bigint unsigned DEFAULT NULL COMMENT '检测项目ID显示用副本，用于 test_item 已删除时展示',
   `related_order_transfer_request_id` bigint unsigned DEFAULT NULL COMMENT '关联转单申请ID（order_transfer_requests.request_id）',
+  `related_customer_request_id` bigint unsigned DEFAULT NULL COMMENT '关联客户申请ID',
   `created_at` datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) COMMENT '创建时间',
   `read_at` datetime(3) DEFAULT NULL COMMENT '阅读时间',
   PRIMARY KEY (`notification_id`),
@@ -251,10 +278,12 @@ CREATE TABLE `notifications` (
   KEY `fk_notifications_file` (`related_file_id`),
   KEY `idx_notifications_addon_request` (`related_addon_request_id`),
   KEY `idx_notifications_order_transfer_req` (`related_order_transfer_request_id`),
+  KEY `idx_notifications_customer_request` (`related_customer_request_id`),
   CONSTRAINT `fk_notifications_addon_request` FOREIGN KEY (`related_addon_request_id`) REFERENCES `addon_requests` (`request_id`) ON DELETE SET NULL ON UPDATE CASCADE,
   CONSTRAINT `fk_notifications_file` FOREIGN KEY (`related_file_id`) REFERENCES `project_files` (`file_id`) ON DELETE SET NULL ON UPDATE CASCADE,
   CONSTRAINT `fk_notifications_order` FOREIGN KEY (`related_order_id`) REFERENCES `orders` (`order_id`) ON DELETE SET NULL ON UPDATE CASCADE,
   CONSTRAINT `fk_notifications_order_transfer_req` FOREIGN KEY (`related_order_transfer_request_id`) REFERENCES `order_transfer_requests` (`request_id`) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT `fk_notifications_customer_request` FOREIGN KEY (`related_customer_request_id`) REFERENCES `customer_requests` (`request_id`) ON DELETE SET NULL ON UPDATE CASCADE,
   CONSTRAINT `fk_notifications_test_item` FOREIGN KEY (`related_test_item_id`) REFERENCES `test_items` (`test_item_id`) ON DELETE SET NULL ON UPDATE CASCADE,
   CONSTRAINT `fk_notifications_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB AUTO_INCREMENT=11642 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='消息通知表';

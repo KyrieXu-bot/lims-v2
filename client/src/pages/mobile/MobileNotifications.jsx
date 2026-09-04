@@ -336,6 +336,7 @@ const MobileNotifications = () => {
       'raw_data_upload': '原始数据上传',
       'addon_request': '加测申请',
       'order_transfer_request': '转单申请',
+      'customer_request': '客户申请',
       'system': '系统通知',
       'other': '其他'
     };
@@ -347,6 +348,7 @@ const MobileNotifications = () => {
       'raw_data_upload': '📄',
       'addon_request': '➕',
       'order_transfer_request': '🔀',
+      'customer_request': '👤',
       'system': '🔔',
       'other': '📌'
     };

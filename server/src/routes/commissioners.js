@@ -78,7 +78,7 @@ router.get('/', async (req, res) => {
   res.json({ data, total: cnt[0].cnt });
 });
 
-router.post('/', requireAnyRole(['admin', 'sales']), async (req, res) => {
+router.post('/', requireAnyRole(['admin']), async (req, res) => {
   const { payer_id, contact_name, contact_phone, email, commissioner_name, address, is_active = 1 } = req.body || {};
   if (!payer_id || !contact_name) return res.status(400).json({ error: 'payer_id and contact_name are required' });
   const pool = await getPool();
@@ -146,6 +146,20 @@ router.post('/:id/signature', signatureRoles, receiveSignature, async (req, res)
   }
 });
 
+router.delete('/:id/signature', signatureRoles, async (req, res) => {
+  try {
+    const commissionerId = normalizeCommissionerId(req.params.id);
+    if (!commissionerId) return res.status(400).json({ error: '委托人 ID 不正确' });
+    const pool = await getPool();
+    if (!(await commissionerExists(pool, commissionerId))) return res.status(404).json({ error: '委托人不存在' });
+    if (!(await commissionerSignatureExists(commissionerId))) return res.status(404).json({ error: '该委托人尚未上传电子签名' });
+    await fs.unlink(commissionerSignaturePath(commissionerId));
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 router.get('/:id', async (req, res) => {
   const pool = await getPool();
   const [rows] = await pool.query(
@@ -159,7 +173,7 @@ router.get('/:id', async (req, res) => {
   res.json(rows[0]);
 });
 
-router.put('/:id', requireAnyRole(['admin', 'sales']), async (req, res) => {
+router.put('/:id', requireAnyRole(['admin']), async (req, res) => {
   const { payer_id, contact_name, contact_phone, email, commissioner_name, address, is_active } = req.body || {};
   const pool = await getPool();
   await pool.query(
@@ -184,7 +198,7 @@ router.put('/:id', requireAnyRole(['admin', 'sales']), async (req, res) => {
   res.json(rows[0]);
 });
 
-router.delete('/:id', requireAnyRole(['admin', 'sales']), async (req, res) => {
+router.delete('/:id', requireAnyRole(['admin']), async (req, res) => {
   const pool = await getPool();
   try {
     const [chk] = await pool.query('SELECT commissioner_id FROM commissioners WHERE commissioner_id = ?', [req.params.id]);

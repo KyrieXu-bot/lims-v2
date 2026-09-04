@@ -53,6 +53,12 @@
   gap: 6px;
 }
 
+.commissioner-signature-empty {
+  width: 94px;
+  text-align: center;
+  color: var(--gray-500);
+}
+
 .commissioner-signature-upload-btn {
   color: var(--primary);
   background: #eef4fc;

@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { useSocket } from '../hooks/useSocket.js';
 import AddonRequestModal from '../components/AddonRequestModal.jsx';
 import OrderTransferRequestDetailModal from '../components/OrderTransferRequestDetailModal.jsx';
+import CustomerRequestModal from '../components/CustomerRequestModal.jsx';
+import { api } from '../api.js';
 import './Notifications.css';
 
 // 获取API基础URL（与api.js中的逻辑一致）
@@ -63,6 +65,7 @@ const Notifications = () => {
   const [selectedRequestId, setSelectedRequestId] = useState(null);
   const [showOrderTransferModal, setShowOrderTransferModal] = useState(false);
   const [selectedOrderTransferRequestId, setSelectedOrderTransferRequestId] = useState(null);
+  const [selectedCustomerRequestId, setSelectedCustomerRequestId] = useState(null);
   const [user, setUser] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem('lims_user') || 'null');
@@ -236,10 +239,37 @@ const Notifications = () => {
     setShowOrderTransferModal(true);
   };
 
+  const getCustomerRequestId = (notification) => notification.related_customer_request_id ||
+    parseInt(notification.content?.match(/申请ID[：:]\s*(\d+)/)?.[1], 10) || null;
+
+  const openCustomerRequestDetail = (notification) => {
+    const requestId = getCustomerRequestId(notification);
+    if (!requestId) return alert('无法获取客户申请ID，请刷新页面重试');
+    if (!notification.is_read) markAsRead(notification.notification_id);
+    setSelectedCustomerRequestId(requestId);
+  };
+
+  const completeCustomerRequest = async (notification) => {
+    if (!window.confirm('确认已在客户管理中完成新增吗？')) return;
+    const requestId = getCustomerRequestId(notification);
+    if (!requestId) return alert('无法获取客户申请ID，请刷新页面重试');
+    try {
+      const result = await api.completeCustomerRequest(requestId);
+      alert(result.message);
+      await loadNotifications();
+    } catch (error) {
+      alert(error.message);
+    }
+  };
+
   // 处理通知点击
   const handleNotificationClick = (notification) => {
     if (notification.type === 'order_transfer_request') {
       openOrderTransferDetail(notification);
+      return;
+    }
+    if (notification.type === 'customer_request') {
+      openCustomerRequestDetail(notification);
       return;
     }
     if (!notification.is_read) {
@@ -275,6 +305,7 @@ const Notifications = () => {
       'cancel_request': '取消申请',
       'delete_request': '删除申请',
       'order_transfer_request': '转单申请',
+      'customer_request': '客户申请',
       'system': '系统通知',
       'other': '其他'
     };
@@ -689,6 +720,15 @@ const Notifications = () => {
             转单申请
           </button>
           <button
+            className={`filter-btn ${typeFilter === 'customer_request' ? 'active' : ''}`}
+            onClick={() => {
+              setTypeFilter('customer_request');
+              setPage(1);
+            }}
+          >
+            客户申请
+          </button>
+          <button
             className={`filter-btn ${typeFilter === 'system' ? 'active' : ''}`}
             onClick={() => {
               setTypeFilter('system');
@@ -732,6 +772,11 @@ const Notifications = () => {
                             {getOrderTransferStatusText(notification)?.text || notification.order_transfer_request_status}
                           </span>
                         )}
+                      {notification.type === 'customer_request' && notification.customer_request_status && (
+                        <span className={`request-status-badge ${getRequestStatusText(notification.customer_request_status)?.className || ''}`}>
+                          {notification.customer_request_status === 'approved' ? '已新增' : (getRequestStatusText(notification.customer_request_status)?.text || notification.customer_request_status)}
+                        </span>
+                      )}
                       {(notification.type === 'cancel_request' || notification.type === 'delete_request') &&
                         notification.cancellation_request_status && (
                           <span className={`request-status-badge ${notification.cancellation_request_status === 'rejected' ? 'status-cancelled' : notification.cancellation_request_status === 'pending' ? 'status-pending' : 'status-approved'}`}>
@@ -780,6 +825,30 @@ const Notifications = () => {
                           查看详情
                         </button>
                       )}
+                      {notification.type === 'customer_request' && (
+                        <button
+                          className="btn-view-request"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openCustomerRequestDetail(notification);
+                          }}
+                        >
+                          查看详情
+                        </button>
+                      )}
+                      {notification.type === 'customer_request' &&
+                        notification.customer_request_status === 'pending' &&
+                        (user?.user_id === 'JC0089' || user?.role === 'admin') && (
+                          <button
+                            className="btn-view-request"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              completeCustomerRequest(notification);
+                            }}
+                          >
+                            已新增
+                          </button>
+                        )}
                       {notification.type === 'order_transfer_request' &&
                         notification.order_transfer_request_status === 'pending' &&
                         ((notification.order_transfer_current_step === 'leader_review' &&
@@ -864,7 +933,7 @@ const Notifications = () => {
                           撤回
                         </button>
                       )}
-                      {!notification.is_read && (
+                      {!notification.is_read && notification.type !== 'customer_request' && (
                         <button
                           className="btn-mark-read"
                           onClick={(e) => {
@@ -990,6 +1059,13 @@ const Notifications = () => {
             setShowOrderTransferModal(false);
             setSelectedOrderTransferRequestId(null);
           }}
+        />
+      )}
+
+      {selectedCustomerRequestId && (
+        <CustomerRequestModal
+          requestId={selectedCustomerRequestId}
+          onClose={() => setSelectedCustomerRequestId(null)}
         />
       )}
     </div>
